@@ -21,3 +21,22 @@ Written via the [`engineering-insights`](../.claude/skills/engineering-insights/
 **Insight:** the seed inserts General 0.0149 + Security 0.0011 only while PR #482 has no runs; the PR list integration test expects the round total 0.016, and e2e flows 02/04 wait for `$0.016` / `$0.015`.
 **Apply:** changing those seeded costs means updating `test/integration.it.test.ts` and `e2e/flows/02-*`, `04-*` together; re-seeding a dev DB that already has runs adds nothing.
 **Evidence:** `server/src/db/seed.ts:223-237`, `server/test/integration.it.test.ts:154`.
+
+### 2026-09-15 — [odd] Runs made while a pre-cost branch was checked out have NULL cost forever
+**Context:** PR list showed `$0.011` for PR #1 but `—` for PRs #2/#3, all reviewed with `deepseek/deepseek-v4-flash` (which is priced).
+**Insight:** the dev API is a long-lived `tsx watch` over the working tree, so checking out a branch without the cost feature (`fix/e2e-separate-next-build` @ `0d15e02`, based on old `main`) silently ran executor code that never writes `cost_usd`, while the DB kept migration 0010. Those `done` runs got `cost_usd = NULL`, and their `run_traces.trace->'stats'` has no `cost_usd` key at all — the tell that pre-feature code wrote them (current code always writes the key, even as null).
+**Apply:** when a PR's cost is `—`, check `(trace->'stats') ? 'cost_usd'` and `git reflog --date=iso` against `agent_runs.ran_at` before debugging pricing; re-run the review on a branch that has the feature. Don't review PRs while a branch missing a DB-backed feature is checked out.
+**Evidence:** `server/src/modules/reviews/run-executor.ts:271` (writes `cost_usd`; 0 `cost` mentions at `0d15e02`); `server/src/modules/pulls/routes.ts:155` (NULL run → no total → `—`).
+
+### 2026-09-15 — [dep] Seeded PR #482 finding counts are asserted by tests and e2e too
+Extends: "Seeded run costs for PR #482 are asserted by tests and e2e"
+**Context:** adding the PR list FINDINGS column (spec 0002), counted over the same latest review round as COST.
+**Insight:** only the seeded General run is linked to the seed review (1 CRITICAL + 1 WARNING); the Security run has no review. The integration test expects `{CRITICAL:1, WARNING:1, SUGGESTION:0}` with 2 round runs, and e2e flows 02/04 hover the chips by the accessible name "1 critical, 1 warning".
+**Apply:** changing seeded #482 findings, their severities, or the review ↔ run link means updating the integration test and both e2e flows together.
+**Evidence:** `server/src/db/seed.ts:156-168`, `server/test/integration.it.test.ts:239`, `e2e/flows/02-repo-pulls-detail.flow.json:11`, `e2e/flows/04-pr-findings.flow.json:16`.
+
+### 2026-09-15 — [tool] The dev API's `tsx watch` can get stuck on a half-edited file
+**Context:** while `routes.ts` was being edited in several steps, the dev API on :3001 answered the PR list with 500 `ReferenceError: count is not defined`, although typecheck, the integration tests and the e2e stack all passed with the same code.
+**Insight:** `tsx watch` restarted its child between the edit that used `count()` and the edit that imported it, then stopped reloading: the child's start time predated the import, and `touch`-ing the file didn't restart it. Only killing the `pnpm dev` tree and starting it again served the current code.
+**Apply:** when the dev API throws for a symbol that exists on disk, compare the `tsx` child's start time (`ps -o lstart`) with the edit, and restart `pnpm dev` instead of debugging the code.
+**Evidence:** `server/src/modules/pulls/routes.ts:3` (the `count` import the stale process lacked); error lines in `/tmp/dd/api.log`.

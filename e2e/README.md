@@ -94,7 +94,7 @@ a CI artifact by `.github/workflows/e2e-web.yml`).
 | Flow file | Journey |
 |-----------|---------|
 | `01-app-boot` | root → redirect to first repo's PR list → seeded PR #482 |
-| `02-repo-pulls-detail` | PR list → open PR #482 → review detail route |
+| `02-repo-pulls-detail` | PR list (COST, FINDINGS chips + hover popover) → open PR #482 → review detail route |
 | `03-agents` | agents list renders the seeded reviewer agents |
 | `04-pr-findings` | PR #482 → Agent runs tab → seeded run verdict + findings; expand → FindingCard |
 | `05-pr-diff` | PR #482 → Files changed tab → seeded file renders in the diff viewer |

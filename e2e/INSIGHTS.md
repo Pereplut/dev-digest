@@ -22,3 +22,15 @@ Written via the [`engineering-insights`](../.claude/skills/engineering-insights/
 **Insight:** the downloaded Chrome for Testing needs system libraries that aren't installed by default (`libnspr4`, `libnss3`, `libasound2`); it exits with code 127 and the runner only reports "Command failed: agent-browser open".
 **Apply:** install with `agent-browser install --with-deps` (needs sudo), or `sudo apt-get install -y libnss3 libnspr4 libasound2t64`; diagnose with `agent-browser open about:blank` and `ldd <chrome> | grep "not found"`.
 **Evidence:** `e2e/README.md:53` (setup step without `--with-deps`).
+
+### 2026-09-15 — [tool] Hover cards are testable with `find role button hover --name "<aria-label>"`
+**Context:** asserting the FINDINGS popover on the PR list (flow 02) and the timeline (flow 04) without CSS selectors.
+**Insight:** agent-browser's `find` accepts `hover` as its action, and `--name` matches the accessible name from `aria-label`. A `role="button"` trigger named "1 critical, 1 warning" opens the portalled card, and the following `wait --text` finds the card's content.
+**Apply:** give hover-only UI a focusable `role="button"` trigger with an `aria-label`, hover it by name, then assert text that exists only inside the card (not text also rendered elsewhere on the page).
+**Evidence:** `e2e/flows/02-repo-pulls-detail.flow.json:11`, `e2e/flows/04-pr-findings.flow.json:16` — both PASS in `./scripts/e2e.sh` (7/7).
+
+### 2026-09-15 — [tool] `find … focus` is listed in agent-browser's help but rejected
+**Context:** checking that keyboard focus opens the FINDINGS popover.
+**Insight:** `agent-browser find role button focus --name "1 critical"` fails with "Unknown subaction: focus", although `agent-browser find --help` lists `focus` as an action. `hover` and `click` work.
+**Apply:** to test focus behaviour, use `eval` with `el.focus()` (React's `onFocus` fires), then `press Escape` / `press Enter`. Don't put `find … focus` in a flow.
+**Evidence:** `e2e/README.md:32` (the allowed `find role|text|label` locators). Confirmed against the dev app on :3000.

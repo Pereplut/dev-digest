@@ -215,6 +215,121 @@ d('Testcontainers: DB-backed routes via app.inject', () => {
     await app.close();
   });
 
+  it('GET /repos/:id/pulls reports the latest review round open finding counts per PR', async () => {
+    const { db } = pg.handle;
+    const config = loadConfig({ ...process.env, NODE_ENV: 'test' } as NodeJS.ProcessEnv);
+    const app = await buildApp({
+      config,
+      db,
+      overrides: { git: new MockGitClient(), github: new MockGitHubClient() },
+    });
+    const [repo] = await db.select().from(t.repos).where(eq(t.repos.fullName, 'acme/payments-api'));
+    const [pr] = await db
+      .select()
+      .from(t.pullRequests)
+      .where(and(eq(t.pullRequests.repoId, repo!.id), eq(t.pullRequests.number, 482)));
+    const agents = await db.select().from(t.agents).where(eq(t.agents.workspaceId, repo!.workspaceId));
+    const agentId = (name: string) => agents.find((a) => a.name === name)!.id;
+    const list = async () =>
+      (await app.inject({ method: 'GET', url: `/repos/${repo!.id}/pulls` })).json() as PrMeta[];
+    const pr482 = async () => (await list()).find((p) => p.number === 482)!;
+
+    // Seeded round: General (review: 1 CRITICAL + 1 WARNING) + Security (no review).
+    let row = await pr482();
+    expect(row.findings_counts).toEqual({ CRITICAL: 1, WARNING: 1, SUGGESTION: 0 });
+    expect(row.findings_round_run_ids).toHaveLength(2);
+
+    // A dismissed finding drops out; accepted/pending ones still count.
+    const [critical] = await db
+      .select({ id: t.findings.id })
+      .from(t.findings)
+      .innerJoin(t.reviews, eq(t.reviews.id, t.findings.reviewId))
+      .where(and(eq(t.reviews.prId, pr!.id), eq(t.findings.severity, 'CRITICAL')));
+    await db.update(t.findings).set({ dismissedAt: new Date() }).where(eq(t.findings.id, critical!.id));
+    row = await pr482();
+    expect(row.findings_counts).toEqual({ CRITICAL: 0, WARNING: 1, SUGGESTION: 0 });
+    await db.update(t.findings).set({ dismissedAt: null }).where(eq(t.findings.id, critical!.id));
+
+    const base = {
+      workspaceId: repo!.workspaceId,
+      prId: pr!.id,
+      provider: 'openrouter',
+      model: 'm',
+      source: 'local' as const,
+    };
+    const at = (secondsFromNow: number) => new Date(Date.now() + secondsFromNow * 1000);
+    const inserted = await db
+      .insert(t.agentRuns)
+      .values([
+        // newer done Security run: its review's findings join the round
+        { ...base, agentId: agentId('Security Reviewer'), status: 'done', ranAt: at(60) },
+        // newer FAILED General run is ignored: the seeded General findings still count
+        { ...base, agentId: agentId('General Reviewer'), status: 'failed', ranAt: at(120) },
+        // done run without any review adds nothing but is part of the round
+        { ...base, agentId: agentId('Performance Reviewer'), status: 'done', ranAt: at(180) },
+      ])
+      .returning({ id: t.agentRuns.id });
+    const reviewBase = {
+      workspaceId: repo!.workspaceId,
+      prId: pr!.id,
+      agentId: agentId('Security Reviewer'),
+      runId: inserted[0]!.id,
+    };
+    const insertedReviews = await db
+      .insert(t.reviews)
+      .values([
+        { ...reviewBase, kind: 'review' as const, score: 90 },
+        // a summary review is never counted
+        { ...reviewBase, kind: 'summary' as const },
+      ])
+      .returning({ id: t.reviews.id, kind: t.reviews.kind });
+    const finding = {
+      file: 'src/a.ts',
+      startLine: 1,
+      endLine: 2,
+      category: 'style',
+      title: 't',
+      rationale: 'r',
+      confidence: 0.9,
+    };
+    await db.insert(t.findings).values([
+      { ...finding, reviewId: insertedReviews.find((r) => r.kind === 'review')!.id, severity: 'SUGGESTION' },
+      { ...finding, reviewId: insertedReviews.find((r) => r.kind === 'summary')!.id, severity: 'CRITICAL' },
+    ]);
+    row = await pr482();
+    expect(row.findings_counts).toEqual({ CRITICAL: 1, WARNING: 1, SUGGESTION: 1 });
+    expect(row.findings_round_run_ids).toHaveLength(3);
+    expect(row.findings_round_run_ids).toContain(inserted[0]!.id);
+    expect(row.findings_round_run_ids).not.toContain(inserted[1]!.id);
+
+    // a PR with no runs has no counts
+    const [bare] = await db
+      .insert(t.pullRequests)
+      .values({
+        workspaceId: repo!.workspaceId,
+        repoId: repo!.id,
+        number: 9002,
+        title: 'No runs yet',
+        author: 'someone',
+        branch: 'feat/y',
+        base: 'main',
+        headSha: 'eeee',
+        additions: 1,
+        deletions: 0,
+        filesCount: 1,
+        status: 'open',
+      })
+      .returning();
+    const bareRow = (await list()).find((p) => p.number === 9002)!;
+    expect(bareRow.findings_counts).toBeNull();
+    expect(bareRow.findings_round_run_ids).toBeNull();
+
+    await db.delete(t.reviews).where(inArray(t.reviews.id, insertedReviews.map((r) => r.id)));
+    await db.delete(t.agentRuns).where(inArray(t.agentRuns.id, inserted.map((r) => r.id)));
+    await db.delete(t.pullRequests).where(eq(t.pullRequests.id, bare!.id));
+    await app.close();
+  });
+
   it('POST /repos/:id/poll syncs PR list and does NOT trigger a review', async () => {
     const config = loadConfig({ ...process.env, NODE_ENV: 'test' } as NodeJS.ProcessEnv);
     const app = await buildApp({

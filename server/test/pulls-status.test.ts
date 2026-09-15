@@ -50,7 +50,7 @@ describe('deriveReviewStatus', () => {
 });
 
 describe('rollupSeverities', () => {
-  it('tallies findings into critical / warning / suggestion buckets (ignores unknown)', () => {
+  it('tallies findings into CRITICAL / WARNING / SUGGESTION buckets (ignores unknown)', () => {
     expect(
       rollupSeverities([
         { severity: 'CRITICAL' },
@@ -59,10 +59,21 @@ describe('rollupSeverities', () => {
         { severity: 'SUGGESTION' },
         { severity: 'WEIRD' },
       ]),
-    ).toEqual({ critical: 2, warning: 1, suggestion: 1 });
+    ).toEqual({ CRITICAL: 2, WARNING: 1, SUGGESTION: 1 });
+  });
+
+  it('sums pre-grouped { severity, n } rows', () => {
+    expect(
+      rollupSeverities([
+        { severity: 'WARNING', n: 3 },
+        { severity: 'CRITICAL', n: 1 },
+        { severity: 'WARNING', n: 2 },
+        { severity: 'WEIRD', n: 9 },
+      ]),
+    ).toEqual({ CRITICAL: 1, WARNING: 5, SUGGESTION: 0 });
   });
 
   it('is all-zero for no findings', () => {
-    expect(rollupSeverities([])).toEqual({ critical: 0, warning: 0, suggestion: 0 });
+    expect(rollupSeverities([])).toEqual({ CRITICAL: 0, WARNING: 0, SUGGESTION: 0 });
   });
 });

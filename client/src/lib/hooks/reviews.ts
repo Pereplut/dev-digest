@@ -66,6 +66,8 @@ export function useDeleteRun(prId: string | null | undefined) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["pr-runs", prId] });
       qc.invalidateQueries({ queryKey: ["reviews", prId] });
+      // The PR list's latest-round cost + finding counts may change too.
+      qc.invalidateQueries({ queryKey: ["pulls"] });
     },
   });
 }
@@ -156,6 +158,8 @@ export function useFindingAction() {
       ),
     onSuccess: (_d, { prId }) => {
       if (prId) qc.invalidateQueries({ queryKey: ["reviews", prId] });
+      // Dismissing/un-dismissing changes the PR list's open finding counts.
+      qc.invalidateQueries({ queryKey: ["pulls"] });
     },
   });
 }
