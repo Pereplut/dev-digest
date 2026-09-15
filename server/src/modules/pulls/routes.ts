@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull } from 'drizzle-orm';
 import type { PrMeta, PrDetail, GitHubClient, PrReviewComment } from '@devdigest/shared';
 import { PrCommentInput } from '@devdigest/shared';
 import * as t from '../../db/schema.js';
@@ -129,9 +129,39 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
       }
     }
 
+    // Latest review round COST per PR: the sum of each agent's newest DONE run
+    // (a failed newest run doesn't hide that agent's previous priced run).
+    // DISTINCT ON keeps one row per (PR, agent); summing per PR happens in JS.
+    const roundCostByPr = new Map<string, { total: number | null; complete: boolean }>();
+    if (prIds.length > 0) {
+      const latestRuns = await container.db
+        .selectDistinctOn([t.agentRuns.prId, t.agentRuns.agentId], {
+          prId: t.agentRuns.prId,
+          costUsd: t.agentRuns.costUsd,
+        })
+        .from(t.agentRuns)
+        .where(
+          and(
+            eq(t.agentRuns.workspaceId, workspaceId),
+            inArray(t.agentRuns.prId, prIds),
+            eq(t.agentRuns.status, 'done'),
+            isNotNull(t.agentRuns.agentId),
+          ),
+        )
+        .orderBy(t.agentRuns.prId, t.agentRuns.agentId, desc(t.agentRuns.ranAt));
+      for (const run of latestRuns) {
+        if (!run.prId) continue;
+        const acc = roundCostByPr.get(run.prId) ?? { total: null, complete: true };
+        if (run.costUsd == null) acc.complete = false;
+        else acc.total = (acc.total ?? 0) + run.costUsd;
+        roundCostByPr.set(run.prId, acc);
+      }
+    }
+
     const now = Date.now();
     return rows.map((r) => {
       const review = latestReviewByPr.get(r.id);
+      const cost = roundCostByPr.get(r.id);
       return {
         id: r.id,
         number: r.number,
@@ -153,6 +183,8 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
         opened_at: r.openedAt?.toISOString() ?? null,
         updated_at: r.updatedAt?.toISOString() ?? null,
         score: review ? review.score : null,
+        cost_usd: cost ? cost.total : null,
+        cost_complete: cost ? cost.complete : null,
       };
     });
   });

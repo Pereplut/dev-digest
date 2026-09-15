@@ -5,7 +5,8 @@
 import React from "react";
 import { useTranslations } from "next-intl";
 import { Badge } from "@devdigest/ui";
-import type { RunTrace, FindingRecord } from "@devdigest/shared";
+import type { RunTrace, FindingRecord, RunSummary } from "@devdigest/shared";
+import { formatUsd } from "@/components/run-cost-badge";
 import { PROMPT_COLORS } from "../../constants";
 import { formatSeconds, formatTokens } from "../../helpers";
 import { s } from "../../styles";
@@ -15,9 +16,20 @@ import { PromptBlock } from "../PromptBlock";
 import { FindingsSection } from "../FindingsSection";
 import { Row, Stat } from "../atoms";
 
-export function TraceBody({ trace, findings }: { trace: RunTrace; findings: FindingRecord[] }) {
+export function TraceBody({
+  trace,
+  findings,
+  run = null,
+}: {
+  trace: RunTrace;
+  findings: FindingRecord[];
+  run?: RunSummary | null;
+}) {
   const t = useTranslations("runs");
   const stats = trace.stats;
+  // Cost: the run row is the source of truth (old traces lack stats.cost_usd);
+  // an unfinished run never shows a price.
+  const costUsd = run && run.status !== "done" ? null : (run?.cost_usd ?? stats.cost_usd ?? null);
   return (
     <>
       <TraceSection icon="Settings" title={t("trace.configuration")}>
@@ -63,6 +75,7 @@ export function TraceBody({ trace, findings }: { trace: RunTrace; findings: Find
         <div style={s.statsRow}>
           <Stat label={t("trace.stat.duration")} val={formatSeconds(stats.duration_ms)} />
           <Stat label={t("trace.stat.tokens")} val={formatTokens(stats.tokens_in, stats.tokens_out)} />
+          <Stat label={t("trace.stat.cost")} val={formatUsd(costUsd)} />
           <Stat label={t("trace.stat.findings")} val={stats.findings} />
         </div>
       </TraceSection>

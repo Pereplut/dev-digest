@@ -54,3 +54,25 @@ describe("A5 Run Trace drawer (smoke)", () => {
     expect(screen.getByPlaceholderText("Filter log…")).toBeInTheDocument();
   });
 });
+
+describe("Run Trace drawer — COST stat tile", () => {
+  type Run = NonNullable<React.ComponentProps<typeof RunTraceDrawer>["run"]>;
+  const costTile = () => screen.getByText("COST").nextElementSibling;
+
+  it("shows the run's persisted cost", () => {
+    const run = { run_id: "r1", status: "done", cost_usd: 0.014 } as Run;
+    renderWithIntl(<RunTraceDrawer runId="r1" run={run} onClose={() => {}} />);
+    expect(costTile()).toHaveTextContent("$0.014");
+  });
+
+  it("shows — when neither the run nor the trace has a cost", () => {
+    renderWithIntl(<RunTraceDrawer runId="r1" onClose={() => {}} />);
+    expect(costTile()).toHaveTextContent("—");
+  });
+
+  it("never shows a price for an unfinished run", () => {
+    const run = { run_id: "r1", status: "failed", cost_usd: 0.5 } as Run;
+    renderWithIntl(<RunTraceDrawer runId="r1" run={run} onClose={() => {}} />);
+    expect(costTile()).toHaveTextContent("—");
+  });
+});

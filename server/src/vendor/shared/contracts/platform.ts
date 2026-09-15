@@ -170,6 +170,11 @@ export const PrMeta = z.object({
   updated_at: z.string().nullish(),
   // Latest-review score (list endpoint only; null/absent until reviewed).
   score: z.number().int().nullish(),
+  // Cost of the latest review round (list endpoint only): the sum of each
+  // agent's newest done run. null = no priced run; cost_complete=false = some
+  // run in the round has no price, so cost_usd is a lower bound.
+  cost_usd: z.number().nullish(),
+  cost_complete: z.boolean().nullish(),
 });
 export type PrMeta = z.infer<typeof PrMeta>;
 

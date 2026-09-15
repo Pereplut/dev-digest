@@ -102,6 +102,9 @@ describe('structured review pipeline (mock LLM → grounding)', () => {
 describe('pricing / cost discipline', () => {
   it('estimates cost for known models and returns null for unknown', () => {
     expect(estimateCost('gpt-4o-mini', 1_000_000, 0)).toBeCloseTo(0.15, 5);
+    // current direct-provider ids are priced, so their runs show a cost
+    expect(estimateCost('claude-sonnet-5', 1_000_000, 1_000_000)).toBeCloseTo(12, 5);
+    expect(estimateCost('gpt-5.4-mini', 12_000, 1_500)).toBeCloseTo(0.01575, 8);
     expect(estimateCost('some-future-model', 1000, 1000)).toBeNull();
   });
 });
