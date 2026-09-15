@@ -36,6 +36,28 @@ env:
   E2E_BASE_URL: http://localhost:3000
 
 jobs:
+  # Lint + typecheck the runner itself — cheap, no stack needed.
+  lint:
+    name: runner lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: e2e
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm run lint
+
   e2e:
     name: browser flows
     runs-on: ubuntu-latest
