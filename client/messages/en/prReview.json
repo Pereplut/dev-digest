@@ -92,8 +92,10 @@
       "size": "Size",
       "score": "Score",
       "status": "Status",
+      "cost": "Cost",
       "updated": "Updated"
     },
+    "costPartial": "Some runs in the latest review have no cost data",
     "filesCount": "{count} files",
     "errorTitle": "Couldn’t load pull requests",
     "errorBody": "The engine returned an error.",

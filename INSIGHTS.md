@@ -57,3 +57,9 @@ Supersedes: "Claude Code Stop hooks fire after every reply, not at session end"
 **Insight:** Stop still fires after every reply. Once-per-session behavior now comes from a `<session>.started` marker, and past sessions are wrapped up once via `<session>.handled` markers in `.claude/.insights-state/`.
 **Apply:** extend `.claude/hooks/insights-session-start.py` rather than adding a Stop hook; delete a session's markers there to re-run its wrap-up.
 **Evidence:** `.claude/hooks/insights-session-start.py:106-109` (started guard), `:120` (handled marker); `.claude/settings.json:3`.
+
+### 2026-09-15 — [tool] Parallel agent shell calls share one working directory
+**Context:** verifying run cost by running reviewer-core, server and client checks as parallel Bash calls, each starting with `cd <pkg>`.
+**Insight:** the calls share a shell session, so a `cd` in one leaks into the others — `pnpm typecheck` "in server/" actually ran reviewer-core's scripts and the server results were bogus.
+**Apply:** wrap each parallel package command in a subshell with an absolute path: `(cd /abs/server && pnpm …)`; confirm with `pwd` in the output.
+**Evidence:** `CLAUDE.md:3-4` (package commands must run from inside each package dir).

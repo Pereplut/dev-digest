@@ -8,7 +8,7 @@
 import React from "react";
 import { useTranslations } from "next-intl";
 import { Button, Drawer, LiveLogStream, Tabs, type LogLine } from "@devdigest/ui";
-import type { FindingRecord } from "@devdigest/shared";
+import type { FindingRecord, RunSummary } from "@devdigest/shared";
 import { useRunTrace } from "@/lib/hooks/trace";
 import { useRunEvents } from "@/lib/hooks/reviews";
 import { DRAWER_WIDTH, LOG_HEIGHT, TABS } from "./constants";
@@ -23,6 +23,8 @@ export interface RunTraceDrawerProps {
   prNumber?: number | null;
   /** Persisted findings of this run (shown in the Findings section). */
   findings?: FindingRecord[];
+  /** This run's row from the PR run list — the source of its persisted cost. */
+  run?: RunSummary | null;
   /** When true, the drawer defaults to the live log and streams SSE. */
   running?: boolean;
   onClose: () => void;
@@ -38,6 +40,7 @@ export default function RunTraceDrawer({
   agentName,
   prNumber,
   findings = [],
+  run = null,
   running = false,
   onClose,
 }: RunTraceDrawerProps) {
@@ -94,7 +97,7 @@ export default function RunTraceDrawer({
               {stillRunning ? t("drawer.tracePending") : t("drawer.loadingTrace")}
             </div>
           ) : trace ? (
-            <TraceBody trace={trace} findings={findings} />
+            <TraceBody trace={trace} findings={findings} run={run} />
           ) : (
             <div style={s.emptyNote}>{t("drawer.noTrace")}</div>
           )

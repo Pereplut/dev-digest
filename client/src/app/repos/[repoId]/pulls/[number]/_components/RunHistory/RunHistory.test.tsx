@@ -25,6 +25,7 @@ function run(o: Partial<RunSummary>): RunSummary {
     duration_ms: 1000,
     tokens_in: 100,
     tokens_out: 50,
+    cost_usd: null,
     findings_count: 0,
     grounding: "0/0 passed",
     ran_at: "2026-06-11T18:44:34.000Z",
@@ -71,5 +72,26 @@ describe("RunHistory — outcome badge", () => {
   it("a running run reads 'running'", () => {
     renderRuns([run({ status: "running", score: null, blockers: null })]);
     expect(screen.getByText("running")).toBeInTheDocument();
+  });
+});
+
+describe("RunHistory — run cost under the start time", () => {
+  it("a done run shows its cost", () => {
+    renderRuns([run({ status: "done", cost_usd: 0.0149, score: 61 })]);
+    expect(screen.getByText("$0.015")).toBeInTheDocument();
+  });
+
+  it("a done run without a price shows —, never $0.00", () => {
+    renderRuns([run({ status: "done", cost_usd: null, score: 61 })]);
+    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.queryByText(/\$/)).not.toBeInTheDocument();
+  });
+
+  it("an unfinished run shows no price", () => {
+    renderRuns([
+      run({ run_id: "f", status: "failed", error: "boom", cost_usd: 0.5 }),
+      run({ run_id: "r", status: "running", cost_usd: 0.5 }),
+    ]);
+    expect(screen.queryByText(/\$/)).not.toBeInTheDocument();
   });
 });

@@ -220,6 +220,61 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
     if (!existing) await db.insert(t.agents).values(a);
   }
 
+  // ---- completed agent runs with cost for PR #482 (run cost badge) ----
+  // So the PR list COST column and the Timeline show real values before the
+  // first live run. Idempotent: inserted only while the PR has no runs. The
+  // sample review is attributed to the General Reviewer run.
+  const [seededPr] = await db
+    .select({ id: t.pullRequests.id })
+    .from(t.pullRequests)
+    .where(and(eq(t.pullRequests.repoId, repoId), eq(t.pullRequests.number, 482)));
+  if (seededPr) {
+    const [anyRun] = await db
+      .select({ id: t.agentRuns.id })
+      .from(t.agentRuns)
+      .where(eq(t.agentRuns.prId, seededPr.id))
+      .limit(1);
+    if (!anyRun) {
+      const seededRuns = [
+        { agent: 'General Reviewer', durationMs: 8200, tokensIn: 8200, tokensOut: 1300, costUsd: 0.0149, findingsCount: 2, score: 61, blockers: 1 },
+        { agent: 'Security Reviewer', durationMs: 5400, tokensIn: 6100, tokensOut: 900, costUsd: 0.0011, findingsCount: 0, score: 100, blockers: 0 },
+      ];
+      for (const r of seededRuns) {
+        const [agent] = await db
+          .select({ id: t.agents.id })
+          .from(t.agents)
+          .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.name, r.agent)));
+        if (!agent) continue;
+        const [run] = await db
+          .insert(t.agentRuns)
+          .values({
+            workspaceId,
+            agentId: agent.id,
+            prId: seededPr.id,
+            provider: DEFAULT_PROVIDER,
+            model: DEFAULT_MODEL,
+            durationMs: r.durationMs,
+            tokensIn: r.tokensIn,
+            tokensOut: r.tokensOut,
+            costUsd: r.costUsd,
+            status: 'done',
+            source: 'local',
+            findingsCount: r.findingsCount,
+            grounding: `${r.findingsCount}/${r.findingsCount} passed`,
+            score: r.score,
+            blockers: r.blockers,
+          })
+          .returning({ id: t.agentRuns.id });
+        if (r.agent === 'General Reviewer') {
+          await db
+            .update(t.reviews)
+            .set({ agentId: agent.id, runId: run!.id })
+            .where(and(eq(t.reviews.prId, seededPr.id), eq(t.reviews.model, 'seed')));
+        }
+      }
+    }
+  }
+
   return { workspaceId, userId };
 }
 
