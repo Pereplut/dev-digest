@@ -41,6 +41,10 @@ export DATABASE_URL="postgres://${PG_USER}:${PG_PASS}@127.0.0.1:${PG_PORT}/${PG_
 export API_PORT WEB_PORT
 export NEXT_PUBLIC_API_BASE="http://localhost:${API_PORT}"
 export E2E_BASE_URL="http://localhost:${WEB_PORT}"
+# Separate Next.js build folder: NEXT_PUBLIC_API_BASE is compiled into the build
+# output, so sharing client/.next would point the dev web app (:3000) at this
+# throwaway API after the run (see client/next.config.mjs distDir).
+export NEXT_DIST_DIR="${E2E_NEXT_DIST_DIR:-.next-e2e}"
 
 log()  { printf '\033[1;36m▸ %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m! %s\033[0m\n' "$*"; }
@@ -76,8 +80,29 @@ cleanup() {
     pids="$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null || true)"
     [ -n "$pids" ] && kill $pids 2>/dev/null || true
   done
+  restore_next_generated
   docker rm -f "$PG_CONTAINER" >/dev/null 2>&1 || true
   exit "$code"
+}
+
+# `next dev` regenerates client/tsconfig.json and client/next-env.d.ts for the
+# build folder it runs with (.next-e2e). Snapshot them before anything starts
+# and put them back on exit, so an e2e run leaves no changes in git.
+NEXT_GENERATED=(client/tsconfig.json client/next-env.d.ts)
+SNAP_DIR="$(mktemp -d)"
+for f in "${NEXT_GENERATED[@]}"; do
+  if [ -f "$f" ]; then cp -p "$f" "$SNAP_DIR/$(basename "$f")"; fi
+done
+restore_next_generated() {
+  local f snap
+  for f in "${NEXT_GENERATED[@]}"; do
+    snap="$SNAP_DIR/$(basename "$f")"
+    if [ -f "$snap" ] && ! cmp -s "$snap" "$f"; then
+      cp -p "$snap" "$f"
+      log "restored $f"
+    fi
+  done
+  rm -rf "$SNAP_DIR"
 }
 trap cleanup EXIT INT TERM
 
