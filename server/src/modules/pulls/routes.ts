@@ -1,13 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
-import { and, desc, eq, inArray, isNotNull } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import type { PrMeta, PrDetail, GitHubClient, PrReviewComment } from '@devdigest/shared';
 import { PrCommentInput } from '@devdigest/shared';
 import * as t from '../../db/schema.js';
 import { getContext } from '../_shared/context.js';
 import { IdParams } from '../_shared/schemas.js';
 import { AppError, NotFoundError } from '../../platform/errors.js';
-import { deriveReviewStatus } from './status.js';
+import { deriveReviewStatus, rollupSeverities } from './status.js';
 
 /**
  * F1 — pulls module. PR import via Octokit (list + per-PR detail).
@@ -113,8 +113,7 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
 
     // Latest-review SCORE per PR for the list's score ring. Computed on read
     // from reviews (no FK denorm); the list is small, so one IN-query + JS
-    // grouping is cheap. (The per-severity FINDINGS breakdown is intentionally
-    // not surfaced on the list — findings live on the PR detail page.)
+    // grouping is cheap. FINDINGS use the review round below, not this review.
     const prIds = rows.map((r) => r.id);
     const latestReviewByPr = new Map<string, { score: number | null }>();
     if (prIds.length > 0) {
@@ -133,9 +132,12 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
     // (a failed newest run doesn't hide that agent's previous priced run).
     // DISTINCT ON keeps one row per (PR, agent); summing per PR happens in JS.
     const roundCostByPr = new Map<string, { total: number | null; complete: boolean }>();
+    const roundRunIdsByPr = new Map<string, string[]>();
+    const severityRowsByPr = new Map<string, { severity: string; n: number }[]>();
     if (prIds.length > 0) {
       const latestRuns = await container.db
         .selectDistinctOn([t.agentRuns.prId, t.agentRuns.agentId], {
+          id: t.agentRuns.id,
           prId: t.agentRuns.prId,
           costUsd: t.agentRuns.costUsd,
         })
@@ -155,6 +157,29 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
         if (run.costUsd == null) acc.complete = false;
         else acc.total = (acc.total ?? 0) + run.costUsd;
         roundCostByPr.set(run.prId, acc);
+        roundRunIdsByPr.set(run.prId, [...(roundRunIdsByPr.get(run.prId) ?? []), run.id]);
+      }
+
+      // Open FINDINGS of the same round: the runs' reviews, dismissed excluded,
+      // grouped per PR + severity in SQL (a run without a review adds nothing).
+      const roundRunIds = [...roundRunIdsByPr.values()].flat();
+      if (roundRunIds.length > 0) {
+        const severityRows = await container.db
+          .select({ prId: t.reviews.prId, severity: t.findings.severity, n: count() })
+          .from(t.findings)
+          .innerJoin(t.reviews, eq(t.reviews.id, t.findings.reviewId))
+          .where(
+            and(
+              eq(t.reviews.workspaceId, workspaceId),
+              inArray(t.reviews.runId, roundRunIds),
+              eq(t.reviews.kind, 'review'),
+              isNull(t.findings.dismissedAt),
+            ),
+          )
+          .groupBy(t.reviews.prId, t.findings.severity);
+        for (const row of severityRows) {
+          severityRowsByPr.set(row.prId, [...(severityRowsByPr.get(row.prId) ?? []), row]);
+        }
       }
     }
 
@@ -185,6 +210,10 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
         score: review ? review.score : null,
         cost_usd: cost ? cost.total : null,
         cost_complete: cost ? cost.complete : null,
+        findings_counts: roundRunIdsByPr.has(r.id)
+          ? rollupSeverities(severityRowsByPr.get(r.id) ?? [])
+          : null,
+        findings_round_run_ids: roundRunIdsByPr.get(r.id) ?? null,
       };
     });
   });

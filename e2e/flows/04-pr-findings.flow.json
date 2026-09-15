@@ -12,6 +12,8 @@
     { "cmd": ["wait", "--text", "$0.015"], "label": "Timeline shows the seeded General Reviewer run cost" },
     { "cmd": ["wait", "--text", "request changes"], "label": "seeded run accordion shows its verdict" },
     { "cmd": ["wait", "--text", "2 findings"], "label": "accordion header shows the seeded finding count" },
-    { "cmd": ["wait", "--text", "Hardcoded Stripe secret key in commit"], "label": "seeded FindingCard is visible (newest run is open by default)" }
+    { "cmd": ["wait", "--text", "Hardcoded Stripe secret key in commit"], "label": "seeded FindingCard is visible (newest run is open by default)" },
+    { "cmd": ["find", "role", "button", "hover", "--name", "1 critical, 1 warning"], "label": "hover the seeded General Reviewer run's severity chips in the Timeline" },
+    { "cmd": ["wait", "--text", "2 FINDINGS IN THIS RUN"], "label": "run findings popover opens (title is CSS-uppercased)" }
   ]
 }

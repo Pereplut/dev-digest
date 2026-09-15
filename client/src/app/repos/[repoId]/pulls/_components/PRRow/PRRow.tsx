@@ -6,6 +6,14 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Icon, Avatar, Badge, CircularScore } from "@devdigest/ui";
 import { RunCostBadge } from "@/components/run-cost-badge";
+import {
+  FindingsPopover,
+  SeverityCounts,
+  roundFindings,
+  totalFindings,
+  useSeverityCountsLabel,
+} from "@/components/findings-summary";
+import { usePrReviews } from "@/lib/hooks/reviews";
 import type { PrMeta } from "@/lib/types";
 import { SIZE_COLOR, STATUS_META } from "../../constants";
 import { relativeTime, sizeOf } from "../../helpers";
@@ -18,11 +26,24 @@ export function PRRow({ pr, repoId }: { pr: PrMeta; repoId: string }) {
   const st = STATUS_META[pr.status] ?? STATUS_META.needs_review!;
   const { size, lines } = sizeOf(pr);
   const reviewed = pr.score != null; // null score ⇒ PR has never been reviewed
+  const detailHref = `/repos/${repoId}/pulls/${pr.number}`;
+
+  // FINDINGS: counts come with the list; the popover's findings are fetched on
+  // first open (shared ["reviews", prId] cache with the PR page) and narrowed
+  // to the same latest-round runs the server counted.
+  const [findingsOpen, setFindingsOpen] = React.useState(false);
+  const countsLabel = useSeverityCountsLabel(pr.findings_counts);
+  const { data: reviews } = usePrReviews(findingsOpen ? pr.id : null);
+  const roundRunIds = pr.findings_round_run_ids;
+  const popoverFindings = React.useMemo(
+    () => roundFindings(reviews ?? [], roundRunIds),
+    [reviews, roundRunIds],
+  );
   return (
     <div
       onMouseEnter={() => setH(true)}
       onMouseLeave={() => setH(false)}
-      onClick={() => router.push(`/repos/${repoId}/pulls/${pr.number}`)}
+      onClick={() => router.push(detailHref)}
       style={s.row(h)}
     >
       <div style={s.rowTitleCell}>
@@ -52,6 +73,24 @@ export function PRRow({ pr, repoId }: { pr: PrMeta; repoId: string }) {
           <CircularScore score={pr.score!} size={34} stroke={3} />
         ) : (
           <span style={s.muted}>—</span>
+        )}
+      </div>
+      <div>
+        {totalFindings(pr.findings_counts) > 0 ? (
+          <FindingsPopover
+            label={countsLabel}
+            title={t("list.findingsPopoverTitle", {
+              count: reviews ? popoverFindings.length : totalFindings(pr.findings_counts),
+            })}
+            findings={popoverFindings}
+            loading={!reviews}
+            onOpenChange={setFindingsOpen}
+            onSelectFinding={() => router.push(`${detailHref}?tab=findings`)}
+          >
+            <SeverityCounts counts={pr.findings_counts} />
+          </FindingsPopover>
+        ) : (
+          <SeverityCounts counts={pr.findings_counts} />
         )}
       </div>
       <div>

@@ -154,6 +154,14 @@ export type Repo = z.infer<typeof Repo>;
 export const PrStatus = z.enum(['needs_review', 'reviewed', 'stale', 'open', 'closed', 'merged']);
 export type PrStatus = z.infer<typeof PrStatus>;
 
+/** Open (non-dismissed) finding counts per severity. */
+export const FindingsCounts = z.object({
+  CRITICAL: z.number().int().nonnegative(),
+  WARNING: z.number().int().nonnegative(),
+  SUGGESTION: z.number().int().nonnegative(),
+});
+export type FindingsCounts = z.infer<typeof FindingsCounts>;
+
 export const PrMeta = z.object({
   id: z.string().nullish(),
   number: z.number().int(),
@@ -175,6 +183,11 @@ export const PrMeta = z.object({
   // run in the round has no price, so cost_usd is a lower bound.
   cost_usd: z.number().nullish(),
   cost_complete: z.boolean().nullish(),
+  // Open (non-dismissed) findings of the same latest review round (list
+  // endpoint only). null = the PR has no done run.
+  findings_counts: FindingsCounts.nullish(),
+  // The round's run ids — lets the client list exactly the counted findings.
+  findings_round_run_ids: z.array(z.string()).nullish(),
 });
 export type PrMeta = z.infer<typeof PrMeta>;
 

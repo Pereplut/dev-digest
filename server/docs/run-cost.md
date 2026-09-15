@@ -29,6 +29,7 @@ No extra model calls: cost is a by-product of the calls a review already makes.
 - `cost_usd` is the sum of known costs (`null` if none).
 - `cost_complete` is `false` when some run in the round has no price, so the UI shows `≥`.
 - The `(pr_id, agent_id, ran_at)` index backs this query, which runs on every PR list refetch.
+- The same round drives the list's FINDINGS counts ([`findings-counts.md`](findings-counts.md)).
 
 ## Keeping prices right
 - `pricing.ts` records when its OpenAI and Anthropic prices were last verified. Re-check them against the providers' pricing pages when adding models.

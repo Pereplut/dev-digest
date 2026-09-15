@@ -128,8 +128,10 @@ export function FindingsTab({
           >
             Timeline
           </SectionLabel>
+          {/* Naming trap: `runs` here are ReviewRecords, `prRuns` the agent runs. */}
           <RunHistory
             runs={prRuns ?? []}
+            reviews={runs}
             commits={prCommits}
             onOpenTrace={handleOpenTrace}
             onGoToReview={handleGoToReview}
