@@ -33,5 +33,13 @@ A feature spanning several packages gets its spec in root `specs/`; a single-pac
 ## Workflow
 1. Before implementing, check `specs/` and `<pkg>/specs/` for an existing spec.
 2. Before editing a package, read its `INSIGHTS.md` (and [INSIGHTS.md](INSIGHTS.md) for cross-package ones).
-3. After finishing: update the spec `status`, move durable explanations into `docs/`,
-   and append anything you had to learn the hard way to the nearest `INSIGHTS.md`.
+   Treat entries as high-confidence guidance unless the code now says otherwise.
+3. During work: when a non-obvious dependency, fix, measured fact, odd finding, tool quirk,
+   or LLM/review-engine behavior is confirmed, record it with the
+   [`engineering-insights`](.claude/skills/engineering-insights/SKILL.md) skill
+   (dated, with `file:line` evidence, in the INSIGHTS.md of the module you worked in).
+4. After finishing: update the spec `status`, move durable explanations into `docs/`,
+   and after every code task run `engineering-insights` as a wrap-up.
+   A `UserPromptSubmit` hook (`.claude/hooks/insights-session-start.py`) automates the loop on each
+   session's first request: a wrap-up of the previous session if it edited files without one,
+   then the INSIGHTS read. INSIGHTS.md is edited only when there's news.
