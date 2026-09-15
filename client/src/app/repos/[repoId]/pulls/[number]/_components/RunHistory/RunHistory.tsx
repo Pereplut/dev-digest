@@ -94,18 +94,17 @@ function tsOf(s: string | null | undefined): number {
 
 /**
  * A settled run's findings line. With a matched review: per-severity chips of
- * its open findings (+ blockers) and a hover card. Without one (e.g. runs that
+ * its open findings (+ blockers) and a read-only hover card; the chips are not
+ * clickable (the agent name jumps to the review). Without one (e.g. runs that
  * predate reviews.run_id): the run row's own "N finding(s)" text.
  */
 function RunFindingsLine({
   run,
   findings,
-  onGoToReview,
 }: {
   run: RunSummary;
   /** Open findings of this run's review; undefined = no review matched. */
   findings: FindingRecord[] | undefined;
-  onGoToReview?: (runId: string) => void;
 }) {
   const t = useTranslations("prReview");
   const counts = React.useMemo(() => (findings ? countBySeverity(findings) : null), [findings]);
@@ -126,9 +125,8 @@ function RunFindingsLine({
     <div>
       <FindingsPopover
         label={label}
-        title={t("timeline.findingsInRun", { count: findings.length })}
+        title={t("findingsSummary.inRunTitle", { count: findings.length })}
         findings={findings}
-        onSelectFinding={onGoToReview ? () => onGoToReview(run.run_id) : undefined}
       >
         <SeverityCounts counts={counts} />
         {blockers && <span style={muted}>{blockers}</span>}
@@ -246,7 +244,7 @@ export function RunHistory({
                 </div>
               )}
               {settled && (
-                <RunFindingsLine run={r} findings={findingsByRun.get(r.run_id)} onGoToReview={onGoToReview} />
+                <RunFindingsLine run={r} findings={findingsByRun.get(r.run_id)} />
               )}
             </div>
             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, fontSize: 11, color: "var(--text-muted)", flexShrink: 0 }}>

@@ -1,11 +1,12 @@
 /**
  * SeverityCounts + FindingsPopover — chips hide zero counts, the trigger has an
  * accessible summary, and the portalled card opens on hover/focus/Enter, closes
- * on leave/Escape, and never lets a click reach the surrounding row.
+ * on leave/Escape, is read-only (no buttons), and never lets a click reach the
+ * surrounding row.
  */
 import React from "react";
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import type { FindingRecord, FindingsCounts } from "@devdigest/shared";
 import messages from "../../../messages/en/prReview.json";
@@ -56,12 +57,10 @@ const FINDINGS = [
 function Harness({
   counts,
   onRowClick,
-  onSelectFinding,
   onOpenChange,
 }: {
   counts: FindingsCounts;
   onRowClick?: () => void;
-  onSelectFinding?: (f: FindingRecord) => void;
   onOpenChange?: (open: boolean) => void;
 }) {
   const label = useSeverityCountsLabel(counts);
@@ -69,11 +68,10 @@ function Harness({
     <div onClick={onRowClick}>
       <FindingsPopover
         label={label}
-        title="2 findings"
+        title="2 findings in this run"
         findings={FINDINGS}
         delayMs={0}
         onOpenChange={onOpenChange}
-        onSelectFinding={onSelectFinding}
       >
         <SeverityCounts counts={counts} />
       </FindingsPopover>
@@ -117,18 +115,20 @@ describe("FindingsPopover", () => {
     );
   });
 
-  it("hover opens the card with title, file:lines and confidence; leaving closes it", () => {
+  it("hover opens the card with title, category, file:lines, confidence and rationale; leaving closes it", () => {
     const onOpenChange = vi.fn();
     renderWithIntl(<Harness counts={COUNTS} onOpenChange={onOpenChange} />);
     const trigger = screen.getByRole("button", { name: "1 critical, 2 warnings" });
 
     fireEvent.mouseEnter(trigger);
-    const card = screen.getByRole("dialog", { name: "2 findings" });
+    const card = screen.getByRole("dialog", { name: "2 findings in this run" });
     expect(card.parentElement).toBe(document.body); // portalled out of the row
     expect(screen.getByText("Hardcoded Stripe secret key in commit")).toBeInTheDocument();
+    expect(screen.getByText("security")).toBeInTheDocument();
     expect(screen.getByText("src/api/users.ts:45-52")).toBeInTheDocument();
     expect(screen.getByText("src/config.ts:12")).toBeInTheDocument();
     expect(screen.getByText("98% conf")).toBeInTheDocument();
+    expect(screen.getByText("The loop calls findMany once per user.")).toBeInTheDocument();
     expect(trigger).toHaveAttribute("aria-expanded", "true");
     expect(onOpenChange).toHaveBeenLastCalledWith(true);
 
@@ -145,10 +145,17 @@ describe("FindingsPopover", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("clicks on the trigger or a finding never reach the row; a finding click selects it", () => {
+  it("the preview is read-only: no buttons or links in the card", () => {
+    renderWithIntl(<Harness counts={COUNTS} />);
+    fireEvent.keyDown(screen.getByRole("button", { name: "1 critical, 2 warnings" }), { key: "Enter" });
+    const card = screen.getByRole("dialog");
+    expect(within(card).queryAllByRole("button")).toHaveLength(0);
+    expect(within(card).queryAllByRole("link")).toHaveLength(0);
+  });
+
+  it("clicks on the trigger or a finding never reach the row, and the card stays open", () => {
     const onRowClick = vi.fn();
-    const onSelectFinding = vi.fn();
-    renderWithIntl(<Harness counts={COUNTS} onRowClick={onRowClick} onSelectFinding={onSelectFinding} />);
+    renderWithIntl(<Harness counts={COUNTS} onRowClick={onRowClick} />);
     const trigger = screen.getByRole("button", { name: "1 critical, 2 warnings" });
 
     fireEvent.click(trigger);
@@ -156,7 +163,6 @@ describe("FindingsPopover", () => {
     fireEvent.click(screen.getByText("N+1 query in user list endpoint"));
 
     expect(onRowClick).not.toHaveBeenCalled();
-    expect(onSelectFinding).toHaveBeenCalledWith(expect.objectContaining({ id: "f2" }));
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 });

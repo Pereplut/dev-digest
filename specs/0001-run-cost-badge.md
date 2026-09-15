@@ -38,6 +38,8 @@ Non-goals:
   - `RunSummary.cost_usd` (nullable)
   - `RunStats.cost_usd` (nullish; old traces don't have it)
   - `PrMeta.cost_usd` and `PrMeta.cost_complete` (nullish, list endpoint only)
+- > **Amended 2026-09-15 by [spec 0003](0003-hw-validation-alignment.md) / [server spec 0001](../server/specs/0001-pr-list-cost-all-runs.md):**
+  > the PR list now sums **all** `done` runs, not the latest round. The rule below is historical.
 - **PR list value = latest review round:** the sum over each agent's newest `done` run on the PR.
   - A failed newest run doesn't hide that agent's previous done run.
   - `cost_usd` is the sum of known costs, or null if none are known.

@@ -1,11 +1,12 @@
 /**
- * PRRow — the COST column shows the latest review round's cost: exact, "≥"
- * when some run in the round has no price, and "—" when nothing is priced.
- * The FINDINGS column shows that round's open finding counts per severity; its
- * popover lists exactly those findings and never triggers the row navigation.
+ * PRRow — the COST column shows the total cost of the PR's successful runs:
+ * exact, "≥" when some done run has no price, and "—" when nothing is priced.
+ * The FINDINGS column shows the open finding counts of the latest run with a
+ * review; its popover ("N findings in this run") lists exactly those findings,
+ * read-only, and never triggers the row navigation.
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, within } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import type { PrMeta, ReviewRecord } from "@devdigest/shared";
 import messages from "../../../../../../../messages/en/prReview.json";
@@ -50,7 +51,7 @@ function pr(o: Partial<PrMeta>): PrMeta {
     cost_usd: null,
     cost_complete: null,
     findings_counts: { CRITICAL: 1, WARNING: 0, SUGGESTION: 0 },
-    findings_round_run_ids: ["run-1"],
+    findings_run_id: "run-1",
     ...o,
   };
 }
@@ -85,12 +86,12 @@ function finding(id: string, severity: string, title: string, dismissed = false)
 }
 
 describe("PRRow — COST column", () => {
-  it("shows the latest review round cost", () => {
+  it("shows the total cost of successful runs", () => {
     renderRow(pr({ cost_usd: 0.014, cost_complete: true }));
     expect(screen.getByText("$0.014")).toBeInTheDocument();
   });
 
-  it("marks a partial round with ≥ and explains it in a tooltip", () => {
+  it("marks a partial total with ≥ and explains it in a tooltip", () => {
     renderRow(pr({ cost_usd: 0.014, cost_complete: false }));
     expect(screen.getByText("≥$0.014")).toHaveAttribute("title", messages.list.costPartial);
   });
@@ -112,8 +113,8 @@ describe("PRRow — FINDINGS column", () => {
     expect(reviewsCalls.every((id) => id == null)).toBe(true);
   });
 
-  it("shows — without a popover when the round has no open findings or no done run", () => {
-    renderRow(pr({ cost_usd: 0.014, findings_counts: null, findings_round_run_ids: null }));
+  it("shows — without a popover when the run has no open findings or there is no reviewed run", () => {
+    renderRow(pr({ cost_usd: 0.014, findings_counts: null, findings_run_id: null }));
     expect(screen.getByText("—")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /critical|warning|suggestion/ })).not.toBeInTheDocument();
     cleanup();
@@ -121,7 +122,7 @@ describe("PRRow — FINDINGS column", () => {
     expect(screen.getByText("—")).toBeInTheDocument();
   });
 
-  it("opening the popover fetches reviews and lists only the round's open findings", () => {
+  it("opening the popover fetches reviews and lists only that run's open findings", () => {
     reviewsData = [
       {
         id: "rv1", pr_id: "pr-1", agent_id: "a1", run_id: "run-1", kind: "review", verdict: "request_changes",
@@ -142,13 +143,13 @@ describe("PRRow — FINDINGS column", () => {
     fireEvent.keyDown(screen.getByRole("button", { name: "1 critical" }), { key: "Enter" });
 
     expect(reviewsCalls).toContain("pr-1");
-    expect(screen.getByRole("dialog", { name: "1 finding" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "1 finding in this run" })).toBeInTheDocument();
     expect(screen.getByText("Hardcoded Stripe secret key in commit")).toBeInTheDocument();
     expect(screen.queryByText("Dismissed warning")).not.toBeInTheDocument();
     expect(screen.queryByText("Finding from an older run")).not.toBeInTheDocument();
   });
 
-  it("clicking the chips doesn't open the PR; clicking a finding opens its Agent runs tab", () => {
+  it("the preview is read-only: clicking chips or a finding never navigates, and the card has no buttons", () => {
     reviewsData = [
       {
         id: "rv1", pr_id: "pr-1", agent_id: "a1", run_id: "run-1", kind: "review", verdict: "request_changes",
@@ -160,11 +161,10 @@ describe("PRRow — FINDINGS column", () => {
     const trigger = screen.getByRole("button", { name: "1 critical" });
 
     fireEvent.click(trigger);
-    expect(push).not.toHaveBeenCalled();
-
     fireEvent.keyDown(trigger, { key: "Enter" });
+    const card = screen.getByRole("dialog", { name: "1 finding in this run" });
+    expect(within(card).queryAllByRole("button")).toHaveLength(0);
     fireEvent.click(screen.getByText("Hardcoded Stripe secret key in commit"));
-    expect(push).toHaveBeenCalledTimes(1);
-    expect(push).toHaveBeenCalledWith("/repos/repo-1/pulls/482?tab=findings");
+    expect(push).not.toHaveBeenCalled();
   });
 });

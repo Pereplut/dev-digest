@@ -132,7 +132,7 @@ d('Testcontainers: DB-backed routes via app.inject', () => {
     await app.close();
   });
 
-  it('GET /repos/:id/pulls reports the latest review round cost per PR', async () => {
+  it('GET /repos/:id/pulls sums the cost of all done runs per PR', async () => {
     const { db } = pg.handle;
     const config = loadConfig({ ...process.env, NODE_ENV: 'test' } as NodeJS.ProcessEnv);
     const app = await buildApp({
@@ -151,7 +151,7 @@ d('Testcontainers: DB-backed routes via app.inject', () => {
       (await app.inject({ method: 'GET', url: `/repos/${repo!.id}/pulls` })).json() as PrMeta[];
     const pr482 = async () => (await list()).find((p) => p.number === 482)!;
 
-    // Seeded round: General 0.0149 + Security 0.0011.
+    // Seeded done runs: General 0.0149 + Security 0.0011.
     let row = await pr482();
     expect(row.cost_usd).toBeCloseTo(0.016, 10);
     expect(row.cost_complete).toBe(true);
@@ -167,17 +167,17 @@ d('Testcontainers: DB-backed routes via app.inject', () => {
     const inserted = await db
       .insert(t.agentRuns)
       .values([
-        // newer done Security run replaces its 0.0011
+        // a re-run by the same agent ADDS to the total (all done runs count)
         { ...base, agentId: agentId('Security Reviewer'), status: 'done', costUsd: 0.002, ranAt: at(60) },
-        // newer FAILED General run is ignored: its 0.0149 still counts
-        { ...base, agentId: agentId('General Reviewer'), status: 'failed', costUsd: null, ranAt: at(120) },
+        // a FAILED run is never counted
+        { ...base, agentId: agentId('General Reviewer'), status: 'failed', costUsd: 0.5, ranAt: at(120) },
       ])
       .returning({ id: t.agentRuns.id });
     row = await pr482();
-    expect(row.cost_usd).toBeCloseTo(0.0169, 10);
+    expect(row.cost_usd).toBeCloseTo(0.018, 10);
     expect(row.cost_complete).toBe(true);
 
-    // an unpriced done run in the round makes the total partial
+    // an unpriced done run makes the total partial
     inserted.push(
       ...(await db
         .insert(t.agentRuns)
@@ -185,8 +185,18 @@ d('Testcontainers: DB-backed routes via app.inject', () => {
         .returning({ id: t.agentRuns.id })),
     );
     row = await pr482();
-    expect(row.cost_usd).toBeCloseTo(0.0169, 10);
+    expect(row.cost_usd).toBeCloseTo(0.018, 10);
     expect(row.cost_complete).toBe(false);
+
+    // a done run whose agent was deleted (agent_id NULL) still counts
+    inserted.push(
+      ...(await db
+        .insert(t.agentRuns)
+        .values({ ...base, agentId: null, status: 'done', costUsd: 0.001, ranAt: at(240) })
+        .returning({ id: t.agentRuns.id })),
+    );
+    row = await pr482();
+    expect(row.cost_usd).toBeCloseTo(0.019, 10);
 
     // a PR with no runs has no cost
     const [bare] = await db
@@ -215,7 +225,7 @@ d('Testcontainers: DB-backed routes via app.inject', () => {
     await app.close();
   });
 
-  it('GET /repos/:id/pulls reports the latest review round open finding counts per PR', async () => {
+  it('GET /repos/:id/pulls reports the open finding counts of the latest run with a review', async () => {
     const { db } = pg.handle;
     const config = loadConfig({ ...process.env, NODE_ENV: 'test' } as NodeJS.ProcessEnv);
     const app = await buildApp({
@@ -234,10 +244,21 @@ d('Testcontainers: DB-backed routes via app.inject', () => {
       (await app.inject({ method: 'GET', url: `/repos/${repo!.id}/pulls` })).json() as PrMeta[];
     const pr482 = async () => (await list()).find((p) => p.number === 482)!;
 
-    // Seeded round: General (review: 1 CRITICAL + 1 WARNING) + Security (no review).
+    // Seeded: the General run has the review (1 CRITICAL + 1 WARNING); the newer
+    // Security run has none, so General is the latest run with a review.
+    const [seededGeneral] = await db
+      .select({ id: t.agentRuns.id })
+      .from(t.agentRuns)
+      .where(
+        and(
+          eq(t.agentRuns.prId, pr!.id),
+          eq(t.agentRuns.agentId, agentId('General Reviewer')),
+          eq(t.agentRuns.status, 'done'),
+        ),
+      );
     let row = await pr482();
     expect(row.findings_counts).toEqual({ CRITICAL: 1, WARNING: 1, SUGGESTION: 0 });
-    expect(row.findings_round_run_ids).toHaveLength(2);
+    expect(row.findings_run_id).toBe(seededGeneral!.id);
 
     // A dismissed finding drops out; accepted/pending ones still count.
     const [critical] = await db
@@ -261,14 +282,18 @@ d('Testcontainers: DB-backed routes via app.inject', () => {
     const inserted = await db
       .insert(t.agentRuns)
       .values([
-        // newer done Security run: its review's findings join the round
-        { ...base, agentId: agentId('Security Reviewer'), status: 'done', ranAt: at(60) },
-        // newer FAILED General run is ignored: the seeded General findings still count
-        { ...base, agentId: agentId('General Reviewer'), status: 'failed', ranAt: at(120) },
-        // done run without any review adds nothing but is part of the round
-        { ...base, agentId: agentId('Performance Reviewer'), status: 'done', ranAt: at(180) },
+        // newest done Security run WITH a review (below): becomes the latest run
+        { ...base, agentId: agentId('Security Reviewer'), status: 'done', ranAt: at(180) },
+        // a newer FAILED run never becomes the latest run
+        { ...base, agentId: agentId('General Reviewer'), status: 'failed', ranAt: at(60) },
+        // a newer done run without a review never becomes the latest run
+        { ...base, agentId: agentId('Performance Reviewer'), status: 'done', ranAt: at(120) },
       ])
       .returning({ id: t.agentRuns.id });
+    // before the Security run gets its review, the seeded General run is still the latest
+    row = await pr482();
+    expect(row.findings_run_id).toBe(seededGeneral!.id);
+    expect(row.findings_counts).toEqual({ CRITICAL: 1, WARNING: 1, SUGGESTION: 0 });
     const reviewBase = {
       workspaceId: repo!.workspaceId,
       prId: pr!.id,
@@ -296,11 +321,11 @@ d('Testcontainers: DB-backed routes via app.inject', () => {
       { ...finding, reviewId: insertedReviews.find((r) => r.kind === 'review')!.id, severity: 'SUGGESTION' },
       { ...finding, reviewId: insertedReviews.find((r) => r.kind === 'summary')!.id, severity: 'CRITICAL' },
     ]);
+    // now the Security run is the latest run with a review: only ITS open
+    // findings count (the seeded General ones don't; the summary never does)
     row = await pr482();
-    expect(row.findings_counts).toEqual({ CRITICAL: 1, WARNING: 1, SUGGESTION: 1 });
-    expect(row.findings_round_run_ids).toHaveLength(3);
-    expect(row.findings_round_run_ids).toContain(inserted[0]!.id);
-    expect(row.findings_round_run_ids).not.toContain(inserted[1]!.id);
+    expect(row.findings_run_id).toBe(inserted[0]!.id);
+    expect(row.findings_counts).toEqual({ CRITICAL: 0, WARNING: 0, SUGGESTION: 1 });
 
     // a PR with no runs has no counts
     const [bare] = await db
@@ -322,7 +347,7 @@ d('Testcontainers: DB-backed routes via app.inject', () => {
       .returning();
     const bareRow = (await list()).find((p) => p.number === 9002)!;
     expect(bareRow.findings_counts).toBeNull();
-    expect(bareRow.findings_round_run_ids).toBeNull();
+    expect(bareRow.findings_run_id).toBeNull();
 
     await db.delete(t.reviews).where(inArray(t.reviews.id, insertedReviews.map((r) => r.id)));
     await db.delete(t.agentRuns).where(inArray(t.agentRuns.id, inserted.map((r) => r.id)));

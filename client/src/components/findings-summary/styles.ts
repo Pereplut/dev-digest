@@ -48,16 +48,14 @@ export const s = {
     textTransform: "uppercase",
     color: "var(--text-muted)",
   } satisfies CSSProperties,
+  // Read-only preview row (no hover affordance: nothing here is clickable).
   item: {
     display: "block",
     width: "100%",
     padding: "8px 0",
-    border: "none",
     borderTop: "1px solid var(--border)",
-    background: "none",
-    font: "inherit",
     textAlign: "left",
-    cursor: "pointer",
+    cursor: "default",
   } satisfies CSSProperties,
   head: {
     display: "flex",

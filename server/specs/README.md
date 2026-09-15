@@ -3,3 +3,7 @@
 Feature specs that touch **only** the server (cross-package specs go in
 [`../../specs/`](../../specs/README.md), which also has the template).
 File name: `NNNN-short-name.md`, with `status: draft | approved | in-progress | done` in frontmatter.
+
+| Spec | Status | Parent |
+|---|---|---|
+| [0001-pr-list-cost-all-runs](0001-pr-list-cost-all-runs.md) | done | [root 0003](../../specs/0003-hw-validation-alignment.md) |

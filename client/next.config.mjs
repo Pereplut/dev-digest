@@ -9,6 +9,9 @@ const nextConfig = {
   // second `next dev` (pointed at the throwaway API) never overwrites the dev
   // server's .next — NEXT_PUBLIC_* values are compiled into these files.
   distDir: process.env.NEXT_DIST_DIR ?? ".next",
+  // Lint runs as its own step (`pnpm lint`, CI client.yml). Without this,
+  // `next build` (e2e-web CI) would fail on lint findings once eslint.config.mjs exists.
+  eslint: { ignoreDuringBuilds: true },
   env: {
     NEXT_PUBLIC_API_BASE: process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:3001",
   },

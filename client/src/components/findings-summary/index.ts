@@ -6,7 +6,7 @@ export {
   isOpenFinding,
   lineRange,
   openFindingsByRun,
-  roundFindings,
+  runFindings,
   sortBySeverity,
   totalFindings,
   type FindingSeverity,

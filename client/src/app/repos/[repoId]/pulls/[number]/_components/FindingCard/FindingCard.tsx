@@ -1,7 +1,8 @@
 /* FindingCard — ported from findings.jsx (createElement → TSX).
    Severity icon+label, category, file:line, confidence, markdown rationale +
-   suggestion, accept/dismiss actions. Accept/dismiss reflect persisted
-   timestamps. */
+   suggestion. Accept / Reject sit in the header so every card shows them, even
+   collapsed; they reflect the persisted accepted_at / dismissed_at timestamps
+   (Reject = the "dismiss" action). */
 "use client";
 
 import React from "react";
@@ -71,6 +72,29 @@ export function FindingCard({
             <ConfidenceNum value={f.confidence} />
           </div>
         </div>
+        {/* Actions must not toggle the card when clicked. */}
+        <div style={s.headerActions} onClick={(e) => e.stopPropagation()}>
+          <Button
+            kind="secondary"
+            size="sm"
+            icon="Check"
+            disabled={pending}
+            active={accepted}
+            onClick={() => onAction?.("accept")}
+          >
+            {t("finding.accept")}
+          </Button>
+          <Button
+            kind="ghost"
+            size="sm"
+            icon="X"
+            disabled={pending}
+            active={dismissed}
+            onClick={() => onAction?.("dismiss")}
+          >
+            {t("finding.reject")}
+          </Button>
+        </div>
         <Icon.ChevronDown size={16} style={s.chevron(expanded)} />
       </div>
 
@@ -87,29 +111,6 @@ export function FindingCard({
               </div>
             </div>
           )}
-
-          <div style={s.actions}>
-            <Button
-              kind="secondary"
-              size="sm"
-              icon="Check"
-              disabled={pending}
-              active={accepted}
-              onClick={() => onAction?.("accept")}
-            >
-              {t("finding.accept")}
-            </Button>
-            <Button
-              kind="ghost"
-              size="sm"
-              icon="X"
-              disabled={pending}
-              active={dismissed}
-              onClick={() => onAction?.("dismiss")}
-            >
-              {t("finding.dismiss")}
-            </Button>
-          </div>
         </div>
       )}
     </div>

@@ -1,8 +1,10 @@
 /* FindingsPopover — wraps severity chips; hovering or focusing them opens a
-   card listing the findings (severity, title, category, file:lines, confidence,
-   2-line rationale). The card is portalled to <body> with position:fixed so the
-   PR list's and timeline's containers can't clip it, and clicks are stopped so
-   the surrounding row (PRRow navigates on click) never fires. */
+   READ-ONLY card previewing the findings (severity, title, category,
+   file:lines, confidence, 2-line rationale) with no buttons or links. The card
+   is portalled to <body> with position:fixed so the PR list's and timeline's
+   containers can't clip it, and clicks are stopped so the surrounding row
+   (PRRow navigates on click) never fires. Actions on findings (Accept/Reject)
+   live only on the PR page's Review runs cards. */
 "use client";
 
 import React from "react";
@@ -29,13 +31,12 @@ export function FindingsPopover({
   loading = false,
   delayMs = 150,
   onOpenChange,
-  onSelectFinding,
 }: {
   /** The trigger content (severity chips). */
   children: React.ReactNode;
   /** Accessible name of the trigger, e.g. "1 critical, 2 warnings". */
   label: string;
-  /** Card header, e.g. "6 findings" / "2 findings in this run". */
+  /** Card header, e.g. "2 findings in this run". */
   title: string;
   findings: FindingRecord[];
   /** Findings are still being fetched (PR list loads them on first open). */
@@ -43,7 +44,6 @@ export function FindingsPopover({
   /** Hover/focus open delay; 0 opens and closes synchronously (tests). */
   delayMs?: number;
   onOpenChange?: (open: boolean) => void;
-  onSelectFinding?: (finding: FindingRecord) => void;
 }) {
   const t = useTranslations("prReview.findingsSummary");
   const triggerRef = React.useRef<HTMLSpanElement>(null);
@@ -121,6 +121,8 @@ export function FindingsPopover({
 
   return (
     <>
+      {/* The trigger is the disclosure control (outside the card): focusable so
+          keyboard users can open the preview, named by its counts. */}
       <span
         ref={triggerRef}
         role="button"
@@ -158,8 +160,6 @@ export function FindingsPopover({
             onClick={stop}
             onMouseEnter={clearTimers}
             onMouseLeave={closeSoon}
-            onFocus={clearTimers}
-            onBlur={closeSoon}
           >
             <div style={s.title}>
               <Icon.AlertOctagon size={12} />
@@ -168,41 +168,22 @@ export function FindingsPopover({
             {findings.length === 0 ? (
               <div style={s.status}>{loading ? t("loading") : t("empty")}</div>
             ) : (
-              findings.map((f) => {
-                const body = (
-                  <>
-                    <span style={s.head}>
-                      <SeverityBadge severity={f.severity} compact />
-                      <span style={s.itemTitle}>{f.title}</span>
-                      <CategoryTag category={f.category} />
+              findings.map((f) => (
+                <div key={f.id} style={s.item}>
+                  <span style={s.head}>
+                    <SeverityBadge severity={f.severity} compact />
+                    <span style={s.itemTitle}>{f.title}</span>
+                    <CategoryTag category={f.category} />
+                  </span>
+                  <span style={s.meta}>
+                    <span className="mono" style={s.location}>
+                      {f.file}:{lineRange(f)}
                     </span>
-                    <span style={s.meta}>
-                      <span className="mono" style={s.location}>
-                        {f.file}:{lineRange(f)}
-                      </span>
-                      <ConfidenceNum value={f.confidence} />
-                    </span>
-                    <span style={s.rationale}>{f.rationale}</span>
-                  </>
-                );
-                return onSelectFinding ? (
-                  <button
-                    key={f.id}
-                    type="button"
-                    style={s.item}
-                    onClick={() => {
-                      close();
-                      onSelectFinding(f);
-                    }}
-                  >
-                    {body}
-                  </button>
-                ) : (
-                  <div key={f.id} style={{ ...s.item, cursor: "default" }}>
-                    {body}
-                  </div>
-                );
-              })
+                    <ConfidenceNum value={f.confidence} />
+                  </span>
+                  <span style={s.rationale}>{f.rationale}</span>
+                </div>
+              ))
             )}
           </div>,
           document.body,

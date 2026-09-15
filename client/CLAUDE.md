@@ -4,7 +4,7 @@ Next.js 15 (App Router) + React 19 studio UI over the Fastify API.
 Route map and stack: [README.md](README.md)
 
 ## Commands (pnpm)
-- `pnpm dev` (:3000, needs API on :3001) · `pnpm build` · `pnpm typecheck`
+- `pnpm dev` (:3000, needs API on :3001) · `pnpm build` · `pnpm typecheck` · `pnpm lint` (ESLint 9 + eslint-config-next via FlatCompat; `next build` skips lint)
 - `pnpm test` — vitest + jsdom, `fetch` mocked (no API needed)
 
 ## Boundaries

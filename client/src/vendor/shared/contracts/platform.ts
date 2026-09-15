@@ -178,16 +178,16 @@ export const PrMeta = z.object({
   updated_at: z.string().nullish(),
   // Latest-review score (list endpoint only; null/absent until reviewed).
   score: z.number().int().nullish(),
-  // Cost of the latest review round (list endpoint only): the sum of each
-  // agent's newest done run. null = no priced run; cost_complete=false = some
-  // run in the round has no price, so cost_usd is a lower bound.
+  // Total cost of the PR's successful runs (list endpoint only): the sum over
+  // ALL status='done' runs. null = no priced done run; cost_complete=false =
+  // some done run has no price, so cost_usd is a lower bound.
   cost_usd: z.number().nullish(),
   cost_complete: z.boolean().nullish(),
-  // Open (non-dismissed) findings of the same latest review round (list
-  // endpoint only). null = the PR has no done run.
+  // Open (non-dismissed) findings of the PR's latest single run: the newest
+  // done run that has a review (list endpoint only). null = no such run.
   findings_counts: FindingsCounts.nullish(),
-  // The round's run ids — lets the client list exactly the counted findings.
-  findings_round_run_ids: z.array(z.string()).nullish(),
+  // That run's id — lets the client list exactly the counted findings.
+  findings_run_id: z.string().nullish(),
 });
 export type PrMeta = z.infer<typeof PrMeta>;
 

@@ -6,15 +6,17 @@ Written via the [`engineering-insights`](../.claude/skills/engineering-insights/
 
 ---
 
-### 2026-09-15 — Migrations are not applied on boot
+### 2026-09-15 — [dep] Migrations are not applied on boot
 **Context:** `relation ... does not exist` errors on first run.
 **Insight:** the API never auto-migrates; pgvector itself is enabled by migration `0000`.
 **Apply:** run `pnpm db:migrate` after pulling anything that touches `src/db/`.
+**Evidence:** `server/src/db/migrate.ts:17` (migrator used only by `pnpm db:migrate` and the Testcontainers harness; `src/server.ts` never calls it).
 
-### 2026-09-15 — Repo-intel context degrades silently
+### 2026-09-15 — [odd] Repo-intel context degrades silently
 **Context:** reviews looked diff-only despite `REPO_INTEL_ENABLED=true`.
 **Insight:** repo map / blast-radius sections populate only once the repo is **indexed**; unindexed repos fall back to diff-only with no error.
 **Apply:** check index state before debugging missing prompt context.
+**Evidence:** `server/src/modules/reviews/run-executor.ts:372` (a degraded or empty map returns `undefined`, so the prompt omits the repo-map slot).
 
 ### 2026-09-15 — [dep] Seeded run costs for PR #482 are asserted by tests and e2e
 **Context:** seeding completed `agent_runs` with cost so the PR list and Timeline show values.
@@ -40,3 +42,10 @@ Extends: "Seeded run costs for PR #482 are asserted by tests and e2e"
 **Insight:** `tsx watch` restarted its child between the edit that used `count()` and the edit that imported it, then stopped reloading: the child's start time predated the import, and `touch`-ing the file didn't restart it. Only killing the `pnpm dev` tree and starting it again served the current code.
 **Apply:** when the dev API throws for a symbol that exists on disk, compare the `tsx` child's start time (`ps -o lstart`) with the edit, and restart `pnpm dev` instead of debugging the code.
 **Evidence:** `server/src/modules/pulls/routes.ts:3` (the `count` import the stale process lacked); error lines in `/tmp/dd/api.log`.
+
+### 2026-09-15 — [dep] PR #482 list values now depend on run ORDER and the review link, not on the round
+Supersedes: "Seeded PR #482 finding counts are asserted by tests and e2e too"
+**Context:** homework spec 0003 changed the PR list to COST = all done runs and FINDINGS = the latest single run with a review (`PrMeta.findings_run_id` replaced `findings_round_run_ids`).
+**Insight:** the seed inserts General (with the review) before Security (no review), so Security is the newest done run, yet FINDINGS resolve to General only because the latest-run query requires a `kind='review'` review. `$0.016` is now 0.0149 + 0.0011 over all done runs. Linking a review to the Security run, or reordering the seed, flips the list to that run's counts (and the "2 FINDINGS IN THIS RUN" title in e2e flow 02).
+**Apply:** when touching the seed's #482 runs/reviews, re-check `integration.it.test.ts` (cost + findings tests) and e2e flows 02/04 together; the list is no longer "every agent's newest run".
+**Evidence:** `server/test/integration.it.test.ts:156` (0.016), `:261` (`findings_run_id` = seeded General); `server/src/db/seed.ts:268-272` (review linked to General only); `e2e/flows/02-repo-pulls-detail.flow.json:12`.
