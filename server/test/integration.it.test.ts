@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { sql } from 'drizzle-orm';
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
+import type { PrMeta } from '@devdigest/shared';
 import { startPg, dockerAvailable, type PgFixture } from './helpers/pg.js';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/platform/config.js';
@@ -128,6 +129,89 @@ d('Testcontainers: DB-backed routes via app.inject', () => {
     // import again → still idempotent (unique repo_id+number)
     const second = await app.inject({ method: 'GET', url: `/repos/${repoId}/pulls` });
     expect(second.json().length).toBe(first.json().length);
+    await app.close();
+  });
+
+  it('GET /repos/:id/pulls reports the latest review round cost per PR', async () => {
+    const { db } = pg.handle;
+    const config = loadConfig({ ...process.env, NODE_ENV: 'test' } as NodeJS.ProcessEnv);
+    const app = await buildApp({
+      config,
+      db,
+      overrides: { git: new MockGitClient(), github: new MockGitHubClient() },
+    });
+    const [repo] = await db.select().from(t.repos).where(eq(t.repos.fullName, 'acme/payments-api'));
+    const [pr] = await db
+      .select()
+      .from(t.pullRequests)
+      .where(and(eq(t.pullRequests.repoId, repo!.id), eq(t.pullRequests.number, 482)));
+    const agents = await db.select().from(t.agents).where(eq(t.agents.workspaceId, repo!.workspaceId));
+    const agentId = (name: string) => agents.find((a) => a.name === name)!.id;
+    const list = async () =>
+      (await app.inject({ method: 'GET', url: `/repos/${repo!.id}/pulls` })).json() as PrMeta[];
+    const pr482 = async () => (await list()).find((p) => p.number === 482)!;
+
+    // Seeded round: General 0.0149 + Security 0.0011.
+    let row = await pr482();
+    expect(row.cost_usd).toBeCloseTo(0.016, 10);
+    expect(row.cost_complete).toBe(true);
+
+    const base = {
+      workspaceId: repo!.workspaceId,
+      prId: pr!.id,
+      provider: 'openrouter',
+      model: 'm',
+      source: 'local' as const,
+    };
+    const at = (secondsFromNow: number) => new Date(Date.now() + secondsFromNow * 1000);
+    const inserted = await db
+      .insert(t.agentRuns)
+      .values([
+        // newer done Security run replaces its 0.0011
+        { ...base, agentId: agentId('Security Reviewer'), status: 'done', costUsd: 0.002, ranAt: at(60) },
+        // newer FAILED General run is ignored: its 0.0149 still counts
+        { ...base, agentId: agentId('General Reviewer'), status: 'failed', costUsd: null, ranAt: at(120) },
+      ])
+      .returning({ id: t.agentRuns.id });
+    row = await pr482();
+    expect(row.cost_usd).toBeCloseTo(0.0169, 10);
+    expect(row.cost_complete).toBe(true);
+
+    // an unpriced done run in the round makes the total partial
+    inserted.push(
+      ...(await db
+        .insert(t.agentRuns)
+        .values({ ...base, agentId: agentId('Performance Reviewer'), status: 'done', costUsd: null, ranAt: at(180) })
+        .returning({ id: t.agentRuns.id })),
+    );
+    row = await pr482();
+    expect(row.cost_usd).toBeCloseTo(0.0169, 10);
+    expect(row.cost_complete).toBe(false);
+
+    // a PR with no runs has no cost
+    const [bare] = await db
+      .insert(t.pullRequests)
+      .values({
+        workspaceId: repo!.workspaceId,
+        repoId: repo!.id,
+        number: 9001,
+        title: 'No runs yet',
+        author: 'someone',
+        branch: 'feat/x',
+        base: 'main',
+        headSha: 'ffff',
+        additions: 1,
+        deletions: 0,
+        filesCount: 1,
+        status: 'open',
+      })
+      .returning();
+    const bareRow = (await list()).find((p) => p.number === 9001)!;
+    expect(bareRow.cost_usd).toBeNull();
+    expect(bareRow.cost_complete).toBeNull();
+
+    await db.delete(t.agentRuns).where(inArray(t.agentRuns.id, inserted.map((r) => r.id)));
+    await db.delete(t.pullRequests).where(eq(t.pullRequests.id, bare!.id));
     await app.close();
   });
 

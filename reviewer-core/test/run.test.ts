@@ -135,4 +135,45 @@ describe('reviewPullRequest (engine)', () => {
     expect(seen.length).toBeGreaterThan(0);
     expect(seen.every((s) => s === 'sess-abc')).toBe(true);
   });
+
+  it('sums per-call cost into the run total; one unknown price makes it null', async () => {
+    const priced = (costFor: (call: number) => number | null) => {
+      let calls = 0;
+      const llm: LLMProvider = {
+        id: 'openrouter',
+        async completeStructured<T>(req): Promise<StructuredResult<T>> {
+          calls += 1;
+          return {
+            data: fixture as unknown as T,
+            model: req.model,
+            tokensIn: 10,
+            tokensOut: 5,
+            costUsd: costFor(calls),
+            raw: '',
+            attempts: 1,
+          };
+        },
+        async listModels() {
+          return [];
+        },
+        async complete() {
+          throw new Error('not used');
+        },
+        async embed() {
+          return [];
+        },
+      };
+      return { llm, calls: () => calls };
+    };
+    const diff = await new MockGitClient().diff();
+
+    const known = priced(() => 0.001);
+    const outcome = await reviewPullRequest({ systemPrompt: 's', model: 'm', diff, llm: known.llm });
+    expect(known.calls()).toBeGreaterThan(0);
+    expect(outcome.costUsd).toBeCloseTo(0.001 * known.calls(), 10);
+
+    const unknown = priced((call) => (call === 1 ? null : 0.001));
+    const nullOutcome = await reviewPullRequest({ systemPrompt: 's', model: 'm', diff, llm: unknown.llm });
+    expect(nullOutcome.costUsd).toBeNull();
+  });
 });

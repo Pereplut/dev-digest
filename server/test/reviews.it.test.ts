@@ -209,6 +209,13 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     expect(run!.findingsCount).toBe(1);
     expect(run!.grounding).toBe('1/2 passed');
 
+    // run cost: persisted on the row (mock LLM reports a cost per call) and
+    // surfaced identically in the trace stats and the PR run list
+    expect(run!.costUsd).toBeGreaterThan(0);
+    expect(trace.stats.cost_usd).toBeCloseTo(run!.costUsd!, 10);
+    const prRuns = (await app.inject({ method: 'GET', url: `/pulls/${pr.id}/runs` })).json();
+    expect(prRuns[0].cost_usd).toBeCloseTo(run!.costUsd!, 10);
+
     await app.close();
   });
 
