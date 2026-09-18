@@ -17,3 +17,9 @@ Written via the [`engineering-insights`](../.claude/skills/engineering-insights/
 **Insight:** the first `npm i -D eslint@9.39.5 @eslint/js@9.39.5 typescript-eslint@8.70.0 globals@17.12.0` failed ERESOLVE on the `typescript >=4.8.4 <6.1.0` peer; the debug log shows `packumentCache … typescript set size:undefined` just before `Found: typescript@undefined`. The identical command succeeded on the next try (the e2e package's install in between had already cached the packument).
 **Apply:** when npm reports a peer as `@undefined` although it is installed, re-run the same install before reaching for `--force` / `--legacy-peer-deps` (both would write a worse lockfile).
 **Evidence:** `reviewer-core/eslint.config.mjs:5` (the `typescript-eslint` import that needs the dep); npm log `~/.npm/_logs/2026-09-15T21_41_16_176Z-eresolve-report.txt`.
+
+### 2026-09-18 — [fix] Grounding looped over a model-controlled integer range
+**Context:** the grounding gate is mandatory and runs on every review, inside the request path.
+**Insight:** `rangeIntersects` walked `lo..hi` testing set membership, but `start_line`/`end_line` come straight from LLM output and are unbounded (`Finding` declares them `z.number().int()` with no `.max()`). One finding claiming `end_line: 2_000_000_000` spins ~2e9 iterations. Iterating the hunk-line **set** instead (small, bounded by the diff) is behaviourally identical and bounded — and needs no contract change, so the two vendored `@devdigest/shared` copies stay in sync.
+**Apply:** when a loop bound comes from model output, iterate your own bounded collection rather than the model's range; prefer that over tightening a shared schema, which forces a cross-package mirror.
+**Evidence:** `reviewer-core/src/grounding.ts:41-49`; `server/src/vendor/shared/contracts/findings.ts:53-54` (still unbounded, deliberately).
