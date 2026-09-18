@@ -270,6 +270,67 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     await app.close();
   });
 
+  it('DELETE /runs/:id removes the run AND its review + findings', async () => {
+    const app = await appWith(REVIEW_FIXTURE);
+    const { pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+    const agent = (
+      await app.inject({
+        method: 'POST',
+        url: '/agents',
+        payload: { name: 'DelAgent', provider: 'openai', model: 'gpt-4.1', system_prompt: 's' },
+      })
+    ).json();
+    await app.inject({ method: 'POST', url: `/pulls/${pr.id}/review`, payload: { agentId: agent.id } });
+    await waitForPrRuns(pg.handle.db, pr.id, { expected: 1 });
+
+    const reviewsBefore = (
+      await app.inject({ method: 'GET', url: `/pulls/${pr.id}/reviews` })
+    ).json();
+    expect(reviewsBefore).toHaveLength(1);
+    const runId = reviewsBefore[0].run_id as string;
+    const reviewId = reviewsBefore[0].id as string;
+    expect(runId).toBeTruthy();
+
+    const findingsBefore = await pg.handle.db
+      .select()
+      .from(t.findings)
+      .where(eq(t.findings.reviewId, reviewId));
+    expect(findingsBefore.length).toBeGreaterThan(0);
+
+    const del = await app.inject({ method: 'DELETE', url: `/runs/${runId}` });
+    expect(del.statusCode).toBe(200);
+    expect(del.json()).toEqual({ ok: true });
+
+    // The run itself is gone.
+    const runsAfter = await pg.handle.db
+      .select()
+      .from(t.agentRuns)
+      .where(eq(t.agentRuns.id, runId));
+    expect(runsAfter).toHaveLength(0);
+
+    // …and so is the review it produced. This is the invariant that matters:
+    // `reviews.run_id` gained an ON DELETE CASCADE in migration 0013, which now
+    // enforces what run.repo.ts had been doing with an explicit second DELETE.
+    // Leaving the review behind would show a run whose findings vanished.
+    const reviewsAfter = (
+      await app.inject({ method: 'GET', url: `/pulls/${pr.id}/reviews` })
+    ).json();
+    expect(reviewsAfter).toHaveLength(0);
+
+    // Findings cascade from `reviews`, so they must be gone too — not orphaned.
+    const findingsAfter = await pg.handle.db
+      .select()
+      .from(t.findings)
+      .where(eq(t.findings.reviewId, reviewId));
+    expect(findingsAfter).toHaveLength(0);
+
+    // Deleting a non-existent run is a no-op, not an error.
+    const again = await app.inject({ method: 'DELETE', url: `/runs/${runId}` });
+    expect(again.json()).toEqual({ ok: false });
+
+    await app.close();
+  });
+
   it('SSE: /runs/:id/events streams events and completes', async () => {
     const app = await appWith(REVIEW_FIXTURE);
     const { pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
