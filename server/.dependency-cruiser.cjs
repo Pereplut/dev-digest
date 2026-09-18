@@ -15,11 +15,12 @@ module.exports = {
       comment:
         'routes.ts is transport only (onion ring 4): parse, getContext, call the service, set the ' +
         'status. Move the query into repository/<entity>.repo.ts. ' +
-        'Excluded: pulls/polling/workspace/settings have no service yet — SKILL.md §11 deviation 1.',
+        'Excluded: polling/workspace/settings have no service yet — SKILL.md §11 deviation 1. ' +
+        '(pulls was extracted in B1 and is now held to the rule.)',
       severity: 'error',
       from: {
         path: '^src/modules/[^/]+/routes\\.ts$',
-        pathNot: '^src/modules/(pulls|polling|workspace|settings)/',
+        pathNot: '^src/modules/(polling|workspace|settings)/',
       },
       to: { path: '^(node_modules/drizzle-orm|src/db/schema)' },
     },
@@ -36,12 +37,13 @@ module.exports = {
       name: 'drizzle-only-in-repositories',
       comment:
         'Only the data layer imports drizzle-orm: repository.ts and repository/*.repo.ts. ' +
-        'Excluded: the four service-less modules, and settings/feature-models.ts — SKILL.md §11.',
+        'Excluded: the three remaining service-less modules, and settings/feature-models.ts — ' +
+        'SKILL.md §11. (pulls was extracted in B1 and is now held to the rule.)',
       severity: 'error',
       from: {
         path: '^src/modules/',
         pathNot:
-          '^(src/modules/[^/]+/repository|src/modules/(pulls|polling|workspace|settings)/)',
+          '^(src/modules/[^/]+/repository|src/modules/(polling|workspace|settings)/)',
       },
       to: { path: '^node_modules/drizzle-orm' },
     },

@@ -239,19 +239,23 @@ used rather than reinvented:
 They are excluded by name in `.dependency-cruiser.cjs`, each with a comment. New and touched code is
 held to the rule.
 
-1. **`modules/pulls/routes.ts` (402 lines)** runs ~20 Drizzle queries inline, interleaved with
-   GitHub calls, diff-stat backfill, cost rollup and severity rollup. Only the pure parts were
-   extracted, into `pulls/status.ts`. `polling`, `workspace` and `settings` have the same shape at
-   smaller scale; `settings/feature-models.ts` queries `container.db` from a plain helper.
-   **Four of eight modules have no service and no repository.** A new route gets one.
+1. **`polling`, `workspace` and `settings` have no service and no repository** — each runs Drizzle
+   inline from `routes.ts`, and `settings/feature-models.ts` queries `container.db` from a plain
+   helper. **Three of eight modules.** A new route gets one.
+   `pulls` was the worst case (402 lines, ~20 inline queries interleaved with GitHub calls, a
+   diff-stat backfill and two rollups) and was extracted into `service.ts` +
+   `repository/pull.repo.ts` + `helpers.ts`, keeping the already-pure `status.ts`. Both of its
+   exclusions were deleted from `.dependency-cruiser.cjs`, so the rules now hold it.
 2. **`adapters/astgrep/index.ts:25` and `adapters/depgraph/index.ts:20` import
    `modules/repo-intel/constants.js`** — ring 4 reaching into a feature module.
    `adapters/auth/local.ts` additionally runs Drizzle queries and imports from `db/seed.ts`.
 3. **`platform/container.ts` imports three feature modules**, and `RepoIntelService` imports
    `Container` back — a cycle the composition root gets a pass on, nothing else does.
-4. **ast-grep has no port**, so it is imported directly by `repo-intel/service.ts` and
-   `pipeline/full.ts` and cannot be overridden in tests. `p-queue` and `graphology` are likewise
-   imported directly. ast-grep is the one worth fixing first — it is the only untestable seam.
+4. **`p-queue` and `graphology` are imported directly** by the indexer pipeline, so neither can be
+   substituted in a test. ast-grep no longer belongs on this list: it got the `CodeParser` port
+   (`adapters/astgrep/port.ts`), `MockCodeParser`, and `container.codeParser`, enforced by the
+   `astgrep-only-through-its-port` rule — §6 above still cites it as the cautionary example of what
+   skipping those steps costs.
 5. **No route declares a `response:` schema**, so the shared Zod contracts validate inputs only;
    handler return shapes are guaranteed by `tsc`, not at runtime.
 6. **Repositories return two different kinds of thing** — mostly rows, but `run.repo.ts` and
