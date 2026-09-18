@@ -110,3 +110,15 @@ Extends: "A file-level `eslint-disable` + `@ts-nocheck` module passes every qual
 **Insight:** the first run reported `2 skipped` (`repo-intel-symbol-clamp.it.test.ts` self-skipped via `const d = hasDocker ? describe : describe.skip`); the second reported **30/30 with 0 skipped**, same commit, `docker info` succeeding throughout. The probe is racy, and a skipped suite exits 0 — indistinguishable from a pass in CI, which is exactly why `server-integration.yml` "degrades to a no-op rather than a hard failure".
 **Apply:** read the skipped count, never just the exit code, when integration tests "pass"; in CI, assert Docker is present instead of self-skipping.
 **Evidence:** `server/test/repo-intel-symbol-clamp.it.test.ts:17-18`; `.github/workflows/server-integration.yml:6-9`.
+
+### 2026-09-18 — [dep] Adding a method to a repository breaks its hand-rolled test stub, and typecheck cannot see it
+**Context:** moving the indexer's delete+insert+insert into one transactional `replaceSymbolsAndReferences`.
+**Insight:** `indexer-pipeline.test.ts` fakes the repository as an object literal cast `as unknown as RepoIntelRepository` — a structural cast, so it satisfies the type while implementing only the methods the pipeline happened to call. Changing the pipeline to call a new method failed **6 tests at runtime** (`TypeError: … is not a function`), and `pnpm typecheck` stayed green because `server/tsconfig.json` excludes `test/**` entirely. The cast and the tsconfig gap compound: neither alone would have hidden it.
+**Apply:** when you change which repository methods a pipeline calls, grep `test/` for a stub of that repository and update it in the same edit; an `as unknown as` cast in a test is an unchecked contract, not a typed one.
+**Evidence:** `server/test/indexer-pipeline.test.ts:115` (the cast), `:66-71` (the partial surface); `server/tsconfig.json:28` (`include` omits `test/**`).
+
+### 2026-09-18 — [odd] `pnpm arch`'s no-orphans rule is module-level, so dead *methods* stay invisible
+**Context:** after routing both indexer pipelines through one transactional method.
+**Insight:** `deleteAllForRepo` and `deleteForFiles` now have **zero** callers anywhere but the test stub, and `insertSymbols`/`insertReferences` survive only because `repo-intel-symbol-clamp.it.test.ts` exercises them directly against a real DB. depcruise reports orphaned *files*, never unused exports or class members, so all four keep passing every gate. A side effect: `clampIndexedName` is now applied in two places, which will drift.
+**Apply:** after moving logic behind a new method, grep for `.<oldMethod>(` in `src` before assuming the old one is still load-bearing; `pnpm arch` will not tell you. Consider `knip` if unused-export detection is wanted.
+**Evidence:** `server/src/modules/repo-intel/repository.ts:246` / `:256` (0 `src` callers), `:269`/`:280` (clamp, duplicated at the new method).
