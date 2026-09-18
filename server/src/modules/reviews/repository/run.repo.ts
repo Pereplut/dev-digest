@@ -1,5 +1,5 @@
 import { and, desc, eq } from 'drizzle-orm';
-import type { Db, DbOrTx } from '../../../db/client.js';
+import type { DbOrTx } from '../../../db/client.js';
 import * as t from '../../../db/schema.js';
 import type { RunSummary } from '@devdigest/shared';
 import { RunTrace as RunTraceSchema, type RunTrace } from '@devdigest/shared';
@@ -74,33 +74,37 @@ export async function listRunsForPull(
 }
 
 /**
- * Delete one agent run (+ its trace via FK cascade) AND the review it produced.
- * Workspace-scoped. `reviews.run_id` has no FK to `agent_runs`, so the review
- * (and its findings, which DO cascade from `reviews`) must be removed explicitly
- * here — otherwise deleting a run from the timeline leaves its findings orphaned
- * in the Review Runs list below.
+ * Delete one agent run. Workspace-scoped.
  *
- * The two deletes run in ONE transaction: without it, a failure between them
- * removed the review (and its findings) while leaving the run row behind, so
- * the timeline showed a run whose findings had silently vanished.
+ * The run's trace, the review it produced, and that review's findings all go
+ * with it via FK cascades — `run_traces.run_id` and (since migration 0013)
+ * `reviews.run_id`, from which `findings.review_id` cascades in turn.
+ *
+ * This used to delete the review explicitly in a transaction, because
+ * `reviews.run_id` had no foreign key and a failure between the two statements
+ * left a run whose findings had silently vanished. Migration 0013 added that FK
+ * with ON DELETE CASCADE, so the database now enforces the invariant and a
+ * single statement is atomic on its own.
+ *
+ * The old explicit delete was workspace-scoped and the cascade is not, which is
+ * a difference on paper only: a review's workspace always matches its run's
+ * (verified across every row before the FK was added), and the cascade is
+ * arguably more correct — no review should outlive the run that produced it.
+ *
+ * Covered by `test/reviews.it.test.ts` "DELETE /runs/:id removes the run AND
+ * its review + findings", which was written against the previous two-step
+ * implementation and passes unchanged here.
  */
 export async function deleteAgentRun(
   db: DbOrTx,
   workspaceId: string,
   runId: string,
 ): Promise<boolean> {
-  // A Tx also exposes `.transaction` (Drizzle turns a nested call into a
-  // savepoint), so this is safe whether a pool or a transaction is passed.
-  return (db as Db).transaction(async (tx) => {
-    await tx
-      .delete(t.reviews)
-      .where(and(eq(t.reviews.runId, runId), eq(t.reviews.workspaceId, workspaceId)));
-    const rows = await tx
-      .delete(t.agentRuns)
-      .where(and(eq(t.agentRuns.id, runId), eq(t.agentRuns.workspaceId, workspaceId)))
-      .returning({ id: t.agentRuns.id });
-    return rows.length > 0;
-  });
+  const rows = await db
+    .delete(t.agentRuns)
+    .where(and(eq(t.agentRuns.id, runId), eq(t.agentRuns.workspaceId, workspaceId)))
+    .returning({ id: t.agentRuns.id });
+  return rows.length > 0;
 }
 
 /** Mark a still-running run as cancelled (no-op if it already finished). */
