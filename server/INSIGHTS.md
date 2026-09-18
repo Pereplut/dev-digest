@@ -122,3 +122,15 @@ Extends: "A file-level `eslint-disable` + `@ts-nocheck` module passes every qual
 **Insight:** `deleteAllForRepo` and `deleteForFiles` now have **zero** callers anywhere but the test stub, and `insertSymbols`/`insertReferences` survive only because `repo-intel-symbol-clamp.it.test.ts` exercises them directly against a real DB. depcruise reports orphaned *files*, never unused exports or class members, so all four keep passing every gate. A side effect: `clampIndexedName` is now applied in two places, which will drift.
 **Apply:** after moving logic behind a new method, grep for `.<oldMethod>(` in `src` before assuming the old one is still load-bearing; `pnpm arch` will not tell you. Consider `knip` if unused-export detection is wanted.
 **Evidence:** `server/src/modules/repo-intel/repository.ts:246` / `:256` (0 `src` callers), `:269`/`:280` (clamp, duplicated at the new method).
+
+### 2026-09-18 — [odd] `implements` does not stop a class declaring FEWER parameters than its interface
+**Context:** type-checking `test/**` for the first time surfaced `adapters.test.ts:37` — "Expected 0 arguments, but got 1".
+**Insight:** `MockCodeIndex implements CodeIndex` compiled cleanly while declaring `symbols()` with no parameters, although the port declares `symbols(repo: RepoRef)`. TypeScript treats a function with fewer parameters as assignable to one with more, so `implements` passes — and the mock's own narrower signature then breaks every caller that passes the argument the real adapter requires. The mock had been wrong since it was written; nothing caught it because tests were not type-checked.
+**Apply:** `implements` is not proof a mock matches its port for *callers*. When a mock ignores an argument, write `_repo: RepoRef` rather than dropping the parameter — the `^_` argsIgnorePattern already allows it.
+**Evidence:** `server/src/adapters/mocks.ts:303` (now `symbols(_repo: RepoRef)`); `server/src/vendor/shared/adapters.ts:252` (the port).
+
+### 2026-09-18 — [dep] `tsconfig.json` is the BUILD config, so test/** cannot simply be added to it
+**Context:** closing the gap where `include: ["src/**/*.ts"]` left every test file unchecked.
+**Insight:** adding `test/**` to `server/tsconfig.json` would have worked for typecheck and quietly broken the build — that file carries `declaration: true` + `outDir: dist` and `pnpm build` runs `tsc -p tsconfig.json`, so the whole suite would have been emitted into `dist/`. A separate `tsconfig.test.json` (extends the base, `noEmit`, includes both) keeps `typecheck` broad and `build` narrow. Verified: `pnpm build` exits 0 and `dist` holds 116 js files and **0** test files. reviewer-core needs no split — it is `noEmit`, so typecheck *is* its build.
+**Apply:** before widening a tsconfig `include`, check whether that same config is what `build` runs; split configs rather than widening a build config. Turning this on found **14** real type errors across the two packages.
+**Evidence:** `server/tsconfig.test.json:1`; `server/package.json:10` (typecheck → tsconfig.test.json), `:8` (build → tsconfig.json).
