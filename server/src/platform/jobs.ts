@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import type { Db } from '../db/client.js';
 import * as t from '../db/schema.js';
 import { withTimeout, withRetry } from './resilience.js';
+import { redactCredentials } from './redact.js';
 
 /**
  * JobRunner — async work (clone, PR import, indexing, polling) on a
@@ -90,12 +91,23 @@ export class JobRunner {
           .set({
             status: 'failed',
             finishedAt: new Date(),
-            error: (err as Error).message,
+            // A clone URL can carry a PAT; git echoes it in its failure stderr
+            // and simple-git copies that into the Error message. Never persist
+            // it in cleartext — see platform/redact.ts.
+            error: redactCredentials((err as Error).message),
           })
           .where(eq(t.jobs.id, jobId));
         throw err;
       }
     }) as Promise<void>;
+
+    // No caller consumes `done` today, and p-queue rejects it when a handler
+    // ultimately fails — which under Node's default unhandled-rejection policy
+    // terminates the API on a routine failure like an unreachable repo URL.
+    // Attach a sink so the rejection is handled; the failure is already
+    // recorded on the `jobs` row above. Callers that DO await `done` still get
+    // the rejection, since a promise may carry more than one handler.
+    void done.catch(() => undefined);
 
     return { id: jobId, done };
   }

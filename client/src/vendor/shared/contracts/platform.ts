@@ -95,11 +95,21 @@ export const SettingsKnown = z.object({
 });
 export type SettingsKnown = z.infer<typeof SettingsKnown>;
 
-/** Full settings payload: well-known keys + arbitrary extras. */
+/**
+ * Full settings payload: well-known keys + arbitrary extras.
+ * READ side stays passthrough so rows already persisted under unknown keys
+ * still parse (`rowsToSettings` collapses whatever is in the table).
+ */
 export const Settings = SettingsKnown.passthrough();
 export type Settings = z.infer<typeof Settings>;
 
-export const SettingsUpdate = Settings.partial();
+/**
+ * WRITE side is strict. `PUT /settings` persists every entry of the body
+ * verbatim, so inheriting `.passthrough()` here turned it into an unbounded
+ * key/value write on an API with no authentication. Strict also surfaces a
+ * typo'd field as a 422 instead of silently dropping it.
+ */
+export const SettingsUpdate = SettingsKnown.partial().strict();
 export type SettingsUpdate = z.infer<typeof SettingsUpdate>;
 
 // ---- Connection test ----

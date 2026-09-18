@@ -21,8 +21,17 @@ export function RunStatus({
   const wasRunning = React.useRef(false);
 
   React.useEffect(() => {
-    if (running) wasRunning.current = true;
-    if (!running && wasRunning.current) onDone?.();
+    if (running) {
+      wasRunning.current = true;
+      return;
+    }
+    if (!wasRunning.current) return;
+    // Reset BEFORE notifying: `onDone` is a fresh closure on every parent
+    // render, so without this the effect re-runs after the run settles and
+    // fires onDone again each time — each call invalidating two queries and
+    // refetching reviews, i.e. a request storm until the component unmounts.
+    wasRunning.current = false;
+    onDone?.();
   }, [running, onDone]);
 
   if (runIds.length === 0) return null;
