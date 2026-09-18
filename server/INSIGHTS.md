@@ -61,3 +61,34 @@ Supersedes: "Seeded PR #482 finding counts are asserted by tests and e2e too"
 **Insight:** `git ls-files -v server/package.json` returns `H`, not `S`, in this clone — all four `package.json` files are `H`. The flag lives in a clone's index and travels with nobody. CI keeps the workaround anyway (`pnpm exec eslint .` rather than `pnpm lint`).
 **Apply:** verify git-state claims with `git ls-files -v`, never from a doc; the doc now says "may be `skip-worktree` in some clones".
 **Evidence:** `server/AGENTS.md:25`; `.github/workflows/server-unit.yml:68` (`pnpm exec eslint .`), `:101` (comment on the differing committed `package.json`).
+
+### 2026-09-18 — [tool] Only `viaOnly.pathNot` ignores dependency-cruiser cycles routed THROUGH a module
+**Context:** exempting the known `container.ts` ⇄ `RepoIntelService` composition-root cycle from the new architecture ruleset.
+**Insight:** three spellings look equivalent; two silently don't work. `from.pathNot` exempts only a cycle's **starting** module. `via.pathNot` means "SOME module in the cycle is not X" — true of every multi-module cycle, so it suppresses nothing. Only `viaOnly.pathNot` means "NO module is X". Violations went 5 → 4 → 0 across the three spellings.
+**Apply:** to ignore cycles passing through a module write `to: { circular: true, viaOnly: { pathNot } }`; `viaNot` is deprecated in its favour.
+**Evidence:** `server/.dependency-cruiser.cjs:109`.
+
+### 2026-09-18 — [tool] dependency-cruiser under-reports silently without `tsConfig` / `tsPreCompilationDeps`
+**Context:** pointing dependency-cruiser at this repo for the first time (it was already a dependency, used only at runtime to index *other* repos).
+**Insight:** without `options.tsConfig` the `@devdigest/shared` and `../reviewer-core/src` path aliases don't resolve, and without `tsPreCompilationDeps: true` type-only imports are invisible. Neither emits a warning — the cruise just sees fewer dependencies, so a ruleset can exit 0 while checking almost nothing.
+**Apply:** set both, watch the "N dependencies cruised" figure (462 here), and prove a rule fires by deliberately breaking it before trusting a clean run.
+**Evidence:** `server/.dependency-cruiser.cjs:128-130`.
+
+### 2026-09-18 — [fix] A type-only import created a helpers ⇄ repository cycle in `agents/`
+**Context:** the first architecture cruise flagged a cycle inside a single module.
+**Insight:** `helpers.ts` imported `AgentRow`/`AgentVersionRow` (type-only) from `./repository.js`, while `repository.ts` imports `isConfigChange` back from `./helpers.js`. `db/rows.ts` already exported both types identically, so the import was redundant and the cycle accidental. Type-only edges still count once `tsPreCompilationDeps` is on.
+**Apply:** name a row shape from `db/rows.ts`, never from another file's repository — that is exactly what it exists for.
+**Evidence:** `server/src/modules/agents/helpers.ts:7`, `server/src/modules/agents/repository.ts:6`.
+
+### 2026-09-18 — [odd] `platform/model-router.ts` is referenced by nothing
+Extends: "A file-level `eslint-disable` + `@ts-nocheck` module passes every quality gate silently"
+**Context:** the only remaining hit from the new `no-orphans` rule.
+**Insight:** `server/src/platform/model-router.ts` (77 lines) is imported nowhere — `grep -rn 'model-router\|modelRouter' src test` matches only the file itself. Typecheck, lint and 103/103 tests all pass regardless, precisely the blind spot the entry above describes.
+**Apply:** don't assume code under `platform/` is wired in; `pnpm arch` now surfaces orphans as warnings. Decide whether to wire or delete this one.
+**Evidence:** `server/src/platform/model-router.ts:1`.
+
+### 2026-09-18 — [dep] `pnpm arch` does not gate CI
+**Context:** wiring the onion-architecture boundary rules into `pnpm lint`.
+**Insight:** `lint` is now `eslint . && pnpm arch`, but CI never invokes the script — `server-unit.yml` runs `pnpm exec eslint .` directly (the same skip-worktree workaround noted above), so the boundary rules currently run on developer machines only.
+**Apply:** add a `pnpm exec depcruise src` step to `.github/workflows/server-unit.yml` if these rules should block a PR; until then a violation reaches `main` freely.
+**Evidence:** `.github/workflows/server-unit.yml:70`, `server/package.json:15`.
