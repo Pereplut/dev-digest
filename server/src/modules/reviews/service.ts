@@ -168,13 +168,14 @@ export class ReviewService {
     const pull = await this.repo.getPull(workspaceId, prId);
     if (!pull) throw new NotFoundError('Pull request not found');
     const rows = await this.repo.reviewsForPull(prId);
-    const names = new Map<string, string>();
-    for (const { review } of rows) {
-      if (review.agentId && !names.has(review.agentId)) {
-        const a = await this.agents.getById(workspaceId, review.agentId);
-        if (a) names.set(review.agentId, a.name);
-      }
-    }
+    // One query for every agent named on this PR, rather than one per distinct
+    // agent awaited in a loop (D11). The old loop was already deduped, so this
+    // trades a handful of round-trips for one — not a hot-path rescue, but
+    // there is no reason to pay per agent.
+    const agentIds = [...new Set(rows.map(({ review }) => review.agentId).filter((id): id is string => !!id))];
+    const names = new Map<string, string>(
+      (await this.agents.listByIds(workspaceId, agentIds)).map((a) => [a.id, a.name]),
+    );
     return rows.map(({ review, findings }) =>
       reviewToDto(review, findings, review.agentId ? names.get(review.agentId) : null),
     );
