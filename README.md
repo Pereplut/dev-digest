@@ -17,6 +17,11 @@ aliases, not published modules):
 | `e2e/`           | `@devdigest/e2e`            | Deterministic browser e2e (agent-browser)             | —    |
 | `server/src/vendor/shared` | `@devdigest/shared` | Zod contracts shared across every package             | —    |
 
+Instructions for coding agents live in **`AGENTS.md`** — one at the root and one per
+package. The `CLAUDE.md` next to each is a three-line shim that imports it (Claude Code
+reads only `CLAUDE.md`), so edit `AGENTS.md` and leave the shim alone;
+`scripts/check-agent-docs.sh` checks the pairing.
+
 `repo-intel` (the codebase indexer that powers the **Indexed** badge and feeds
 project context into reviews) lives inside the server at
 [`server/src/modules/repo-intel`](server/src/modules/repo-intel). Only

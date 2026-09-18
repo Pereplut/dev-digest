@@ -49,3 +49,15 @@ Supersedes: "Seeded PR #482 finding counts are asserted by tests and e2e too"
 **Insight:** the seed inserts General (with the review) before Security (no review), so Security is the newest done run, yet FINDINGS resolve to General only because the latest-run query requires a `kind='review'` review. `$0.016` is now 0.0149 + 0.0011 over all done runs. Linking a review to the Security run, or reordering the seed, flips the list to that run's counts (and the "2 FINDINGS IN THIS RUN" title in e2e flow 02).
 **Apply:** when touching the seed's #482 runs/reviews, re-check `integration.it.test.ts` (cost + findings tests) and e2e flows 02/04 together; the list is no longer "every agent's newest run".
 **Evidence:** `server/test/integration.it.test.ts:156` (0.016), `:261` (`findings_run_id` = seeded General); `server/src/db/seed.ts:268-272` (review linked to General only); `e2e/flows/02-repo-pulls-detail.flow.json:12`.
+
+### 2026-09-18 — [measured] A file-level `eslint-disable` + `@ts-nocheck` module passes every quality gate silently
+**Context:** building a deliberately bad fixture module (`server/src/modules/export/`, 4 files, +364 lines) to test the review engine.
+**Insight:** each file opened with `/* eslint-disable */` then `// @ts-nocheck`, and the module was never registered in `src/modules/index.ts`. `pnpm typecheck` exited 0, `pnpm lint` exited 0 with **the same 6 pre-existing warnings**, and tests stayed 103/103 — although the code contains hardcoded secrets, `sql.raw` string concatenation, path traversal and an open proxy. tsc honours `@ts-nocheck`, ESLint honours the file-level disable, and an unregistered module is never imported by a test.
+**Apply:** "lint is clean" does not mean new code was linted — compare the warning *count* against the baseline, and grep a new module for `@ts-nocheck` / `eslint-disable` before trusting CI. Only the review engine catches a PR like this.
+**Evidence:** `server/src/modules/index.ts` (no reference to the module); commit `e2fabbd` on `demo/export-service`.
+
+### 2026-09-18 — [tool] `skip-worktree` is per-clone index state, not a repo fact
+**Context:** `server/AGENTS.md` claimed `package.json` was `skip-worktree`; an audit subagent had propagated the claim.
+**Insight:** `git ls-files -v server/package.json` returns `H`, not `S`, in this clone — all four `package.json` files are `H`. The flag lives in a clone's index and travels with nobody. CI keeps the workaround anyway (`pnpm exec eslint .` rather than `pnpm lint`).
+**Apply:** verify git-state claims with `git ls-files -v`, never from a doc; the doc now says "may be `skip-worktree` in some clones".
+**Evidence:** `server/AGENTS.md:25`; `.github/workflows/server-unit.yml:68` (`pnpm exec eslint .`), `:101` (comment on the differing committed `package.json`).

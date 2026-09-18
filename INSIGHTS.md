@@ -65,4 +65,16 @@ Supersedes: "Claude Code Stop hooks fire after every reply, not at session end"
 **Context:** verifying run cost by running reviewer-core, server and client checks as parallel Bash calls, each starting with `cd <pkg>`.
 **Insight:** the calls share a shell session, so a `cd` in one leaks into the others — `pnpm typecheck` "in server/" actually ran reviewer-core's scripts and the server results were bogus.
 **Apply:** wrap each parallel package command in a subshell with an absolute path: `(cd /abs/server && pnpm …)`; confirm with `pwd` in the output.
-**Evidence:** `CLAUDE.md:3-4` (package commands must run from inside each package dir).
+**Evidence:** `AGENTS.md:3-4` (package commands must run from inside each package dir).
+
+### 2026-09-18 — [llm] A subagent's `file:line` evidence may be quoting a doc, not the repo state
+**Context:** an Explore audit reported `package.json` as `skip-worktree`, citing `server/CLAUDE.md:25`; a Plan agent then ran `git ls-files -v` and got `H`.
+**Insight:** a subagent finding *looks* like evidence because it carries a `file:line`, but the cited line can be documentation that was already stale. The audit had faithfully quoted a wrong doc.
+**Apply:** before building a spec on a subagent's finding, check whether its evidence is a command's output or a doc; if it's a doc, re-derive it from the command yourself.
+**Evidence:** `server/AGENTS.md:25` (the claim, now hedged to "some clones"); `git ls-files -v server/package.json` → `H`.
+
+### 2026-09-18 — [tool] Claude Code reads only CLAUDE.md; AGENTS.md needs an import stub
+**Context:** moving the repo's agent docs to the cross-tool `AGENTS.md` name (spec 0004).
+**Insight:** there is no setting, env var or fallback that makes Claude Code read `AGENTS.md`. The documented options are a `CLAUDE.md` containing a bare `@AGENTS.md` import (resolved relative to the importing file, up to 4 hops, expanded when that `CLAUDE.md` loads — nested ones included) or a symlink. A backticked `` `@AGENTS.md` `` is literal text and is **not** imported.
+**Apply:** keep every `AGENTS.md` paired with its `CLAUDE.md` stub; `scripts/check-agent-docs.sh` enforces it. Content edits go in `AGENTS.md`; anything the `#` memory shortcut appends to a `CLAUDE.md` should be moved across.
+**Evidence:** `CLAUDE.md:5` (the import), `scripts/check-agent-docs.sh:20` (the bare-line check); `code.claude.com/docs/en/memory.md`.

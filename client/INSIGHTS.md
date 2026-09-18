@@ -29,3 +29,16 @@ Written via the [`engineering-insights`](../.claude/skills/engineering-insights/
 **Insight:** `npm view eslint-config-next@15.5.19 peerDependencies` → `eslint: ^7.23.0 || ^8.0.0 || ^9.0.0`, so ESLint 10 is unsupported. Its presets are eslintrc-style, so a flat `eslint.config.mjs` must load them through `FlatCompat` from `@eslint/eslintrc`.
 **Apply:** keep the client on `eslint@9.x` until the Next major that supports ESLint 10; don't bump eslint alone. Lint with `pnpm lint` (`eslint .`), not the deprecated `next lint`.
 **Evidence:** `client/eslint.config.mjs:3-9` (FlatCompat + the ≤ 9 note); `client/package.json` devDependencies `eslint 9.39.5`, `eslint-config-next 15.5.19`.
+
+### 2026-09-18 — [dep] Adding `eslint.config.mjs` turns `next build` into a lint gate in a different workflow
+**Context:** giving the client a `pnpm lint` (homework criterion 4).
+**Insight:** once an ESLint config exists in `client/`, `next build` lints as part of the build — and `next build` is run by the **e2e-web** workflow, not by the lint task. `eslint: { ignoreDuringBuilds: true }` in `next.config.mjs` is what keeps the build independent of lint findings. (The breakage was prevented, not observed: the verification build passed with the flag in place.)
+**Apply:** when adding a lint config to a Next package, set `ignoreDuringBuilds` in the same change, or expect an unrelated CI job to start failing on lint.
+**Evidence:** `client/next.config.mjs:12-14` (the flag and its comment).
+
+### 2026-09-18 — [tool] A manual `pnpm build` with `NEXT_DIST_DIR` also rewrites tsconfig.json / next-env.d.ts
+Extends: "`next dev` rewrites tsconfig.json and next-env.d.ts for a custom distDir"
+**Context:** a one-off `NEXT_DIST_DIR=.next-buildcheck pnpm build` to verify the client still builds.
+**Insight:** `next build` rewrites both files for its dist dir exactly as `next dev` does, but a manual build is outside `scripts/e2e.sh`, so nothing restores them — they show up modified in `git status` afterwards.
+**Apply:** back both files up before a manual build with a custom dist dir and copy them back, or `git checkout -- tsconfig.json next-env.d.ts` after.
+**Evidence:** `scripts/e2e.sh:91` (the snapshot that only covers the script's own runs), `client/next.config.mjs:11`.

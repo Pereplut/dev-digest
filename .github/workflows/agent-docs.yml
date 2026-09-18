@@ -1,0 +1,26 @@
+name: agent-docs
+
+# Every AGENTS.md must keep its CLAUDE.md import stub, so Claude Code keeps
+# reading the same instructions as every other agent.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**/AGENTS.md"
+      - "**/CLAUDE.md"
+      - "scripts/check-agent-docs.sh"
+      - ".github/workflows/agent-docs.yml"
+  pull_request:
+    paths:
+      - "**/AGENTS.md"
+      - "**/CLAUDE.md"
+      - "scripts/check-agent-docs.sh"
+      - ".github/workflows/agent-docs.yml"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check AGENTS.md / CLAUDE.md pairing
+        run: bash scripts/check-agent-docs.sh
