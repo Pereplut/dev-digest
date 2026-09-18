@@ -16,7 +16,7 @@ import { OverviewTab } from "./_components/OverviewTab";
 import { FindingsTab } from "./_components/FindingsTab";
 import { DiffTab } from "./_components/DiffTab";
 import RunTraceDrawer from "./_components/RunTraceDrawer";
-import { usePullDetail, usePulls } from "../../../../../lib/hooks";
+import { usePullByNumber } from "../../../../../lib/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePrReviews, useCancelRun, usePrActiveRuns, usePrRuns, useDeleteRun } from "../../../../../lib/hooks/reviews";
 import { useActiveRepo, useRepoNotFound } from "../../../../../lib/repo-context";
@@ -32,13 +32,11 @@ export default function PRDetailPage() {
   const { repoId, number } = params;
   const { activeRepo } = useActiveRepo();
   const repoNotFound = useRepoNotFound(repoId);
-  // The route is keyed by PR number, but every PR API is keyed by the row's
-  // uuid — resolve number → uuid via the (cached) pulls list before fetching.
-  const { data: pulls, isLoading: pullsLoading } = usePulls(repoId);
-  const prId = pulls?.find((p) => p.number === Number(number))?.id ?? null;
-  const { data: pr, isLoading: detailLoading, isError, error, refetch } = usePullDetail(prId);
+  // Resolved in ONE request by repo + PR number. This used to load the whole
+  // PR list first purely to turn the number in the URL into a row uuid.
+  const { data: pr, isLoading, isError, error, refetch } = usePullByNumber(repoId, number);
+  const prId = pr?.id ?? null;
 
-  const isLoading = pullsLoading || (prId != null && detailLoading);
   const { data: reviews, refetch: refetchReviews } = usePrReviews(prId);
 
   // Live run tracking is SERVER-SOURCED (agent_runs status='running'): survives

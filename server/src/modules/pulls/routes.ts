@@ -3,7 +3,7 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import type { PrDetail, PrMeta, PrReviewComment } from '@devdigest/shared';
 import { PrCommentInput } from '@devdigest/shared';
 import { getContext } from '../_shared/context.js';
-import { IdParams } from '../_shared/schemas.js';
+import { IdParams, RepoPullNumberParams } from '../_shared/schemas.js';
 import { PullsService } from './service.js';
 
 /**
@@ -33,6 +33,17 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
     const { workspaceId } = await getContext(app.container, req);
     return service.detail(workspaceId, req.params.id, req.log);
   });
+
+  // Addressed the way the UI's route is keyed (repo + PR number), so the
+  // detail page no longer loads the whole PR list just to resolve a uuid.
+  app.get(
+    '/repos/:id/pulls/:number',
+    { schema: { params: RepoPullNumberParams } },
+    async (req): Promise<PrDetail> => {
+      const { workspaceId } = await getContext(app.container, req);
+      return service.detailByNumber(workspaceId, req.params.id, req.params.number, req.log);
+    },
+  );
 
   app.get(
     '/pulls/:id/comments',

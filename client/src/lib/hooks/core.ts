@@ -119,6 +119,25 @@ export function usePullDetail(prId: string | number | null | undefined) {
   });
 }
 
+/**
+ * PR detail addressed the way the route is keyed: repo + PR number.
+ *
+ * The detail page used to call `usePulls` purely to translate the number in
+ * the URL into a row uuid, which meant waiting for the entire PR list — an
+ * endpoint that also syncs from GitHub and backfills diff stats — before the
+ * detail request could even start.
+ */
+export function usePullByNumber(
+  repoId: string | null | undefined,
+  number: string | number | null | undefined,
+) {
+  return useQuery({
+    queryKey: ["pull-by-number", repoId, number],
+    queryFn: () => api.get<PrDetail>(`/repos/${repoId}/pulls/${number}`),
+    enabled: !!repoId && number != null,
+  });
+}
+
 // ---- Project Context (A3 contract; safe to call once API exposes it) ----
 export function useContextFiles(repoId: string | null | undefined) {
   return useQuery({

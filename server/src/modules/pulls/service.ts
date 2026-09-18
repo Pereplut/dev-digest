@@ -8,7 +8,8 @@ import type {
 import type { Container } from '../../platform/container.js';
 import type { PinoLike } from '../../platform/run-logger.js';
 import { AppError, NotFoundError } from '../../platform/errors.js';
-import { PullsRepository } from './repository/pull.repo.js';
+import type { PullRow } from '../../db/rows.js';
+import { PullsRepository, type RepoRow } from './repository/pull.repo.js';
 import { toPrDetail, toPrMeta, toPullUpsert } from './helpers.js';
 
 /**
@@ -118,7 +119,37 @@ export class PullsService {
    */
   async detail(workspaceId: string, prId: string, logger?: PinoLike): Promise<PrDetail> {
     const { pr, repo } = await this.resolvePrAndRepo(workspaceId, prId);
+    return this.detailFor(pr, repo, logger);
+  }
 
+  /**
+   * The same detail, addressed by repo + PR NUMBER — which is how the UI's
+   * route is keyed.
+   *
+   * Without this the detail page had to load the entire PR list purely to turn
+   * a number into a uuid, and that list endpoint syncs from GitHub and issues
+   * up to BACKFILL_LIMIT extra detail fetches. One page view therefore paid for
+   * a sync plus ~10 GitHub round-trips before its own request could start, and
+   * every dependent query (reviews, runs) waited on it.
+   */
+  async detailByNumber(
+    workspaceId: string,
+    repoId: string,
+    number: number,
+    logger?: PinoLike,
+  ): Promise<PrDetail> {
+    const pr = await this.repo.getPullByNumber(workspaceId, repoId, number);
+    if (!pr) throw new NotFoundError('Pull request not found');
+    const repo = await this.repo.getRepoById(pr.repoId);
+    if (!repo) throw new NotFoundError('Repo not found');
+    return this.detailFor(pr, repo, logger);
+  }
+
+  private async detailFor(
+    pr: PullRow,
+    repo: RepoRow,
+    logger?: PinoLike,
+  ): Promise<PrDetail> {
     try {
       const gh = await this.container.github();
       const detail = await gh.getPullRequest({ owner: repo.owner, name: repo.name }, pr.number);

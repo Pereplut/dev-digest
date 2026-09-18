@@ -10,3 +10,14 @@ import { z } from 'zod';
  */
 export const IdParams = z.object({ id: z.string().uuid() });
 export type IdParams = z.infer<typeof IdParams>;
+
+/**
+ * A repo uuid plus a PR NUMBER (GitHub's per-repo counter, not a row id).
+ * Path segments arrive as strings, so `number` is coerced — and bounded, so a
+ * junk segment is a 422 at the edge rather than a miss deeper in.
+ */
+export const RepoPullNumberParams = z.object({
+  id: z.string().uuid(),
+  number: z.coerce.number().int().positive(),
+});
+export type RepoPullNumberParams = z.infer<typeof RepoPullNumberParams>;

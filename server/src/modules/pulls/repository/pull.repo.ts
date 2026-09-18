@@ -112,6 +112,33 @@ export class PullsRepository {
     return this.db.select().from(t.pullRequests).where(eq(t.pullRequests.repoId, repoId));
   }
 
+  /**
+   * Resolve a PR by its GitHub number within a repo, in ONE query — the
+   * lookup the detail page used to pay for by fetching the whole PR list.
+   *
+   * Scoped by workspace as well as repo: `(repo_id, number)` is unique, so the
+   * workspace predicate is redundant for correctness today, but every other
+   * read here is tenancy-scoped and a lookup that only trusts a path param is
+   * the shape plan item G1 is about.
+   */
+  async getPullByNumber(
+    workspaceId: string,
+    repoId: string,
+    number: number,
+  ): Promise<PullRow | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(t.pullRequests)
+      .where(
+        and(
+          eq(t.pullRequests.workspaceId, workspaceId),
+          eq(t.pullRequests.repoId, repoId),
+          eq(t.pullRequests.number, number),
+        ),
+      );
+    return row;
+  }
+
   // ---- writes --------------------------------------------------------------
 
   /**
