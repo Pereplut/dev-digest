@@ -1,8 +1,15 @@
 # `@devdigest/reviewer-core` — the review engine
 
 Pure review logic: **diff → prompt → LLM → grounded findings**. No database,
-GitHub, or filesystem; the only side effect is an LLM call through an **injected**
-`LLMProvider`, which is what makes it mock-testable.
+GitHub, or filesystem, and the **engine** only ever talks to an **injected**
+`LLMProvider` — which is what makes it mock-testable.
+
+One thing that phrase used to hide: the package also *ships* a first-party
+provider, [`llm/openrouter.ts`](src/llm/openrouter.ts), and that is real network
+I/O — an OpenAI SDK client plus a raw `fetch` to `/models`. It lives here because
+both consumers need it (the studio server and the CI runner), and it is still
+injectable, so nothing in the pipeline depends on it. "No side effects but the
+injected provider" describes the engine, not the whole package.
 
 In the starter the **server** (`@devdigest/api`) is its only consumer — for local
 reviews in the studio. (The CI runner that runs the same engine in GitHub Actions

@@ -9,7 +9,10 @@ Pipeline diagram and public API: [README.md](README.md)
 - `npm run lint` — ESLint flat config (`eslint.config.mjs`)
 
 ## Boundaries
-- **No DB, GitHub, or filesystem.** The only side effect is the injected `LLMProvider`.
+- **No DB, GitHub, or filesystem.** The *engine's* only side effect is the injected `LLMProvider`.
+  The package does ship one first-party provider (`src/llm/openrouter.ts`) that makes real HTTP
+  calls (OpenAI SDK client + a raw `fetch` to `/models`); it is injectable, so the pipeline never
+  depends on it. Don't add a second one without a reason.
 - Consumed as TypeScript source by the server via path alias (`../reviewer-core/src`);
   a change here can break `server` typecheck/tests — run them too.
 - Public surface is `src/index.ts`; contracts (`Review`, `Finding`, …) come from `@devdigest/shared`
