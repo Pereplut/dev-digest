@@ -15,13 +15,10 @@ module.exports = {
       comment:
         'routes.ts is transport only (onion ring 4): parse, getContext, call the service, set the ' +
         'status. Move the query into repository/<entity>.repo.ts. ' +
-        'Excluded: polling/workspace/settings have no service yet — SKILL.md §11 deviation 1. ' +
-        '(pulls was extracted in B1 and is now held to the rule.)',
+        'NO exclusions: B1 gave pulls, polling, workspace and settings a service, so every module ' +
+        'is held to this rule.',
       severity: 'error',
-      from: {
-        path: '^src/modules/[^/]+/routes\\.ts$',
-        pathNot: '^src/modules/(polling|workspace|settings)/',
-      },
+      from: { path: '^src/modules/[^/]+/routes\\.ts$' },
       to: { path: '^(node_modules/drizzle-orm|src/db/schema)' },
     },
     {
@@ -37,13 +34,12 @@ module.exports = {
       name: 'drizzle-only-in-repositories',
       comment:
         'Only the data layer imports drizzle-orm: repository.ts and repository/*.repo.ts. ' +
-        'Excluded: the three remaining service-less modules, and settings/feature-models.ts — ' +
-        'SKILL.md §11. (pulls was extracted in B1 and is now held to the rule.)',
+        'NO module exclusions left: B1 extracted all four service-less modules, and ' +
+        'settings/feature-models.ts now reads through SettingsRepository.',
       severity: 'error',
       from: {
         path: '^src/modules/',
-        pathNot:
-          '^(src/modules/[^/]+/repository|src/modules/(polling|workspace|settings)/)',
+        pathNot: '^src/modules/[^/]+/repository',
       },
       to: { path: '^node_modules/drizzle-orm' },
     },
@@ -52,7 +48,7 @@ module.exports = {
       comment:
         'Adapters (ring 4 infrastructure) must not import feature modules — that is an inner ring ' +
         'depending on an outer one. Excluded: astgrep + depgraph import repo-intel/constants, ' +
-        'auth/local imports db/seed — SKILL.md §11 deviation 2.',
+        'auth/local imports db/seed — SKILL.md §11 deviation 1.',
       severity: 'error',
       from: { path: '^src/adapters/', pathNot: '^src/adapters/(astgrep|depgraph|auth)/' },
       to: { path: '^src/modules/' },
@@ -74,7 +70,7 @@ module.exports = {
       comment:
         'platform/** is cross-cutting infrastructure and must not import feature modules. ' +
         'Excluded: container.ts is the composition root and is allowed to wire them — ' +
-        'SKILL.md §11 deviation 3.',
+        'SKILL.md §11 deviation 2.',
       severity: 'error',
       from: { path: '^src/platform/', pathNot: '^src/platform/container\\.ts$' },
       to: { path: '^src/modules/' },
@@ -114,7 +110,7 @@ module.exports = {
       comment:
         'A cycle means the rings are not layered. `viaOnly.pathNot` exempts cycles that pass ' +
         'THROUGH the composition root (container.ts <-> RepoIntelService) — SKILL.md §11 ' +
-        'deviation 3. Two wrong spellings to avoid: `from.pathNot` only exempts a cycle’s ' +
+        'deviation 2. Two wrong spellings to avoid: `from.pathNot` only exempts a cycle’s ' +
         'STARTING module, and `via.pathNot` means "SOME module is not container.ts" (true of every ' +
         'multi-module cycle). `viaOnly.pathNot` means "NO module is container.ts", which is the one ' +
         'that works. `viaNot` is deprecated in favour of it.',
