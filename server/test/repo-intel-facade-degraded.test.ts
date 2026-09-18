@@ -40,6 +40,16 @@ function buildDegradedService(opts: {
   return svc;
 }
 
+/**
+ * A minimal `RepoBasics`. Built through a helper so a new required field breaks
+ * one line instead of every call site — `defaultBranch` was added to the type
+ * after these tests were written and went unnoticed until test/** started being
+ * type-checked.
+ */
+function basics(over: Partial<RepoBasics> = {}): RepoBasics {
+  return { id: 'r1', owner: 'a', name: 'b', clonePath: null, defaultBranch: 'main', ...over };
+}
+
 describe('RepoIntel facade — degraded contract (flag off)', () => {
   it('getUnresolvedReferences → [] when repoIntelEnabled=false', async () => {
     const svc = buildDegradedService({ flag: false });
@@ -109,17 +119,17 @@ describe('RepoIntel facade — degraded contract (flag off)', () => {
 
 describe('RepoIntel facade — degraded contract (flag on, but no data)', () => {
   it('getCallerSignatures with no clone → [] (graceful degrade, no throw)', async () => {
-    const svc = buildDegradedService({ flag: true, basics: { id: 'r1', owner: 'a', name: 'b', clonePath: null } });
+    const svc = buildDegradedService({ flag: true, basics: basics() });
     await expect(svc.getCallerSignatures('r1', ['a.ts'])).resolves.toEqual([]);
   });
 
   it('getUnresolvedReferences with no clone → []', async () => {
-    const svc = buildDegradedService({ flag: true, basics: { id: 'r1', owner: 'a', name: 'b', clonePath: null } });
+    const svc = buildDegradedService({ flag: true, basics: basics() });
     await expect(svc.getUnresolvedReferences('r1', ['a.ts'])).resolves.toEqual([]);
   });
 
   it('getCallerSignatures with empty changedFiles → []', async () => {
-    const svc = buildDegradedService({ flag: true, basics: { id: 'r1', owner: 'a', name: 'b', clonePath: '/tmp' } });
+    const svc = buildDegradedService({ flag: true, basics: basics({ clonePath: '/tmp' }) });
     await expect(svc.getCallerSignatures('r1', [])).resolves.toEqual([]);
   });
 });

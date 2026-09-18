@@ -14,12 +14,22 @@ on:
     paths:
       - 'client/**'
       - 'server/**'
+      # The API imports @devdigest/reviewer-core's raw source at runtime (tsx
+      # resolves the tsconfig alias), and this workflow has a dedicated
+      # "Install reviewer-core deps" step for exactly that reason — so a
+      # reviewer-core change can break the stack without touching server/**.
+      - 'reviewer-core/**'
       - 'e2e/**'
       - '.github/workflows/e2e-web.yml'
   pull_request:
     paths:
       - 'client/**'
       - 'server/**'
+      # The API imports @devdigest/reviewer-core's raw source at runtime (tsx
+      # resolves the tsconfig alias), and this workflow has a dedicated
+      # "Install reviewer-core deps" step for exactly that reason — so a
+      # reviewer-core change can break the stack without touching server/**.
+      - 'reviewer-core/**'
       - 'e2e/**'
       - '.github/workflows/e2e-web.yml'
 

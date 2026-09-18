@@ -300,7 +300,11 @@ export class MockCodeIndex implements CodeIndex {
   async grep(_repo: RepoRef, pattern: string): Promise<CodeMatch[]> {
     return [{ path: 'src/config.ts', line: 12, text: `match for ${pattern}` }];
   }
-  async symbols(): Promise<CodeSymbol[]> {
+  // Takes `_repo` even though it is unused: the CodeIndex port declares
+  // `symbols(repo: RepoRef)`, and TypeScript lets an implementation drop
+  // parameters — so a 0-arg version still satisfies `implements CodeIndex`
+  // while breaking every caller that passes one.
+  async symbols(_repo: RepoRef): Promise<CodeSymbol[]> {
     return [{ path: 'src/middleware/ratelimit.ts', name: 'rateLimit', kind: 'function', line: 25 }];
   }
   async references(_repo: RepoRef, symbol: string): Promise<CodeReference[]> {
