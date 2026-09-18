@@ -12,7 +12,10 @@
  * the same wrong-type-for-money problem as `agent_runs.cost_usd`. Convert them
  * together — see `docs/run-cost.md`.
  */
-import { pgTable, uuid, text, integer, boolean, jsonb, timestamp, doublePrecision } from 'drizzle-orm/pg-core';
+// Both: `doublePrecision` still serves recall/precision/citation_accuracy/
+// completeness_pct (statistical ratios, where binary float is fine); `numeric`
+// is only for cost_usd, which is money.
+import { pgTable, uuid, text, integer, boolean, jsonb, timestamp, doublePrecision, numeric } from 'drizzle-orm/pg-core';
 import { workspaces } from './core';
 import { pullRequests } from './pulls';
 
@@ -45,7 +48,10 @@ export const evalRuns = pgTable('eval_runs', {
   precision: doublePrecision('precision'),
   citationAccuracy: doublePrecision('citation_accuracy'),
   durationMs: integer('duration_ms'),
-  costUsd: doublePrecision('cost_usd'),
+  // numeric, matching agent_runs.cost_usd — money must not be a binary float.
+  // Free to change here: this table is roadmap scaffolding with no reads or
+  // writes anywhere in src/ (see the note in db/schema.ts).
+  costUsd: numeric('cost_usd', { precision: 12, scale: 6 }),
 });
 
 export const conformanceChecks = pgTable('conformance_checks', {

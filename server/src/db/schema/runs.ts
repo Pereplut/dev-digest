@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { pgTable, uuid, text, integer, jsonb, timestamp, doublePrecision, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, integer, jsonb, timestamp, numeric, index } from 'drizzle-orm/pg-core';
 import { workspaces } from './core';
 import { agents } from './agents';
 import { pullRequests } from './pulls';
@@ -21,9 +21,17 @@ export const agentRuns = pgTable(
     durationMs: integer('duration_ms'),
     tokensIn: integer('tokens_in'),
     tokensOut: integer('tokens_out'),
-    /** USD spent on this run (provider-reported, or usage × pricing); null when
-        the price is unknown or the run failed/was cancelled — the UI shows "—". */
-    costUsd: doublePrecision('cost_usd'),
+    /**
+     * USD spent on this run (provider-reported, or usage × pricing); null when
+     * the price is unknown or the run failed/was cancelled — the UI shows "—".
+     *
+     * `numeric`, not `doublePrecision`: this column is SUM()-ed in SQL for the
+     * PR-list total, and binary-float accumulation makes that total
+     * non-reproducible. Drizzle 0.38 has no `mode: 'number'` for numeric, so it
+     * infers as a STRING — the conversion to/from `number` lives in
+     * `repository/run.repo.ts`, which is already the row↔DTO mapping layer.
+     */
+    costUsd: numeric('cost_usd', { precision: 12, scale: 6 }),
     status: text('status'),
     /** Failure reason when status='failed' (LLM/API error, timeout, quota, …). */
     error: text('error'),

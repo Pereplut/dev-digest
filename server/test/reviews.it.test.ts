@@ -211,10 +211,16 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
 
     // run cost: persisted on the row (mock LLM reports a cost per call) and
     // surfaced identically in the trace stats and the PR run list
-    expect(run!.costUsd).toBeGreaterThan(0);
-    expect(trace.stats.cost_usd).toBeCloseTo(run!.costUsd!, 10);
+    // `agent_runs.cost_usd` is `numeric`, which Drizzle surfaces as a string
+    // (0.38 has no `mode: 'number'`), so the raw row needs converting before a
+    // numeric matcher. The API and the trace both still expose a real number —
+    // repository/run.repo.ts converts at the row↔DTO boundary.
+    const runCost = Number(run!.costUsd);
+    expect(runCost).toBeGreaterThan(0);
+    expect(trace.stats.cost_usd).toBeCloseTo(runCost, 10);
     const prRuns = (await app.inject({ method: 'GET', url: `/pulls/${pr.id}/runs` })).json();
-    expect(prRuns[0].cost_usd).toBeCloseTo(run!.costUsd!, 10);
+    expect(prRuns[0].cost_usd).toBeCloseTo(runCost, 10);
+    expect(typeof prRuns[0].cost_usd).toBe('number');
 
     await app.close();
   });

@@ -167,10 +167,13 @@ d('Testcontainers: DB-backed routes via app.inject', () => {
     const inserted = await db
       .insert(t.agentRuns)
       .values([
+        // `cost_usd` is `numeric`, which Drizzle types as a string on writes
+        // (0.38 has no `mode: 'number'`). The assertions below still read real
+        // numbers — run.repo.ts converts at the row↔DTO boundary.
         // a re-run by the same agent ADDS to the total (all done runs count)
-        { ...base, agentId: agentId('Security Reviewer'), status: 'done', costUsd: 0.002, ranAt: at(60) },
+        { ...base, agentId: agentId('Security Reviewer'), status: 'done', costUsd: String(0.002), ranAt: at(60) },
         // a FAILED run is never counted
-        { ...base, agentId: agentId('General Reviewer'), status: 'failed', costUsd: 0.5, ranAt: at(120) },
+        { ...base, agentId: agentId('General Reviewer'), status: 'failed', costUsd: String(0.5), ranAt: at(120) },
       ])
       .returning({ id: t.agentRuns.id });
     row = await pr482();
@@ -192,7 +195,7 @@ d('Testcontainers: DB-backed routes via app.inject', () => {
     inserted.push(
       ...(await db
         .insert(t.agentRuns)
-        .values({ ...base, agentId: null, status: 'done', costUsd: 0.001, ranAt: at(240) })
+        .values({ ...base, agentId: null, status: 'done', costUsd: String(0.001), ranAt: at(240) })
         .returning({ id: t.agentRuns.id })),
     );
     row = await pr482();

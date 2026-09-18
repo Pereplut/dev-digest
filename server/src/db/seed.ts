@@ -256,7 +256,8 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
             durationMs: r.durationMs,
             tokensIn: r.tokensIn,
             tokensOut: r.tokensOut,
-            costUsd: r.costUsd,
+            // `cost_usd` is `numeric`, which Drizzle types as a string.
+            costUsd: String(r.costUsd),
             status: 'done',
             source: 'local',
             findingsCount: r.findingsCount,

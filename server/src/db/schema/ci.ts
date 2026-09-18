@@ -11,7 +11,7 @@
  * same wrong-type-for-money problem as `agent_runs.cost_usd`. Convert both to
  * `numeric(12,6)` together — see `docs/run-cost.md`.
  */
-import { pgTable, uuid, text, integer, timestamp, doublePrecision } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, integer, timestamp, numeric } from 'drizzle-orm/pg-core';
 import { agents } from './agents';
 
 export const ciInstallations = pgTable('ci_installations', {
@@ -33,7 +33,10 @@ export const ciRuns = pgTable('ci_runs', {
   ranAt: timestamp('ran_at', { withTimezone: true }),
   status: text('status'),
   findingsCount: integer('findings_count'),
-  costUsd: doublePrecision('cost_usd'),
+  // numeric, matching agent_runs.cost_usd — money must not be a binary float.
+  // Free to change here: this table is roadmap scaffolding with no reads or
+  // writes anywhere in src/ (see the note in db/schema.ts).
+  costUsd: numeric('cost_usd', { precision: 12, scale: 6 }),
   githubUrl: text('github_url'),
   source: text('source'),
 });

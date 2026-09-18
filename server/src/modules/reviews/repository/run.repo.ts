@@ -64,7 +64,11 @@ export async function listRunsForPull(
     duration_ms: run.durationMs,
     tokens_in: run.tokensIn,
     tokens_out: run.tokensOut,
-    cost_usd: run.costUsd,
+    // `cost_usd` is `numeric` in Postgres, which Drizzle 0.38 surfaces as a
+    // STRING (it has no `mode: 'number'`). The RunSummary contract declares
+    // `z.number()`, and no route has a response schema to catch a violation at
+    // runtime — so convert here, at the row↔DTO boundary, not in the callers.
+    cost_usd: run.costUsd == null ? null : Number(run.costUsd),
     findings_count: run.findingsCount,
     grounding: run.grounding,
     ran_at: run.ranAt ? run.ranAt.toISOString() : null,
@@ -183,7 +187,9 @@ export async function completeAgentRun(
       durationMs: values.durationMs,
       tokensIn: values.tokensIn,
       tokensOut: values.tokensOut,
-      costUsd: values.costUsd ?? null,
+      // Callers keep passing `number | null` (see the signature above); the
+      // string conversion for the `numeric` column is contained here.
+      costUsd: values.costUsd == null ? null : String(values.costUsd),
       findingsCount: values.findingsCount,
       grounding: values.grounding,
       score: values.score ?? null,
