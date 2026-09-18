@@ -3,6 +3,8 @@ import { pgTable, uuid, text, integer, jsonb, timestamp, doublePrecision, index 
 import { now } from './_shared';
 import { workspaces } from './core';
 import { pullRequests } from './pulls';
+import { agents } from './agents';
+import { agentRuns } from './runs';
 
 // ============================================================ Review & findings
 
@@ -16,9 +18,22 @@ export const reviews = pgTable(
     prId: uuid('pr_id')
       .notNull()
       .references(() => pullRequests.id, { onDelete: 'cascade' }),
-    agentId: uuid('agent_id'),
-    /** The agent_run that produced this review (links the timeline run ↔ review). */
-    runId: uuid('run_id'),
+    /**
+     * FK added in migration 0013. Mirrors `agent_runs.agent_id`: deleting an
+     * agent keeps its reviews but forgets which agent produced them, rather
+     * than leaving a dangling uuid that `reviews/service.ts` then looks up and
+     * silently gets no name for.
+     */
+    agentId: uuid('agent_id').references(() => agents.id, { onDelete: 'set null' }),
+    /**
+     * The agent_run that produced this review (links the timeline run ↔ review).
+     *
+     * FK added in migration 0013. `cascade` encodes in the schema what
+     * `run.repo.ts deleteAgentRun` had to do by hand: without it, deleting a run
+     * left its review — and the review's findings, which DO cascade from
+     * `reviews` — orphaned in the Review Runs list.
+     */
+    runId: uuid('run_id').references(() => agentRuns.id, { onDelete: 'cascade' }),
     kind: text('kind', { enum: ['summary', 'review'] }).notNull(),
     verdict: text('verdict'),
     summary: text('summary'),
