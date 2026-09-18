@@ -44,6 +44,11 @@ env:
   DATABASE_URL: postgres://devdigest:devdigest@localhost:5432/devdigest
   NEXT_PUBLIC_API_BASE: http://localhost:3001
   E2E_BASE_URL: http://localhost:3000
+  # Run the flows that WRITE (flow 08 rejects a finding). Safe here and only
+  # here: this job's Postgres is a fresh container, seeded once and thrown away.
+  # Locally the runner skips them unless a developer opts in, because `npm test`
+  # can be aimed at a real dev database and the UI has no undo.
+  E2E_ALLOW_MUTATING: "1"
 
 jobs:
   # Lint + typecheck the runner itself — cheap, no stack needed.

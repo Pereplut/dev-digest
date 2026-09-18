@@ -18,6 +18,13 @@ export interface Step {
 export interface Flow {
   name: string;
   description?: string;
+  /**
+   * This flow WRITES (accepts/rejects a finding, deletes a run, …). The runner
+   * skips it unless `E2E_ALLOW_MUTATING=1`, because `npm test` can be pointed
+   * at a developer's dev database and a dismissal cannot be undone from the UI.
+   * A mutating flow must also sort last — every flow shares one seeded stack.
+   */
+  mutates?: boolean;
   steps: Step[];
 }
 

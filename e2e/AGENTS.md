@@ -11,11 +11,16 @@ Flow format, env knobs, coverage table: [README.md](README.md)
 ## Boundaries
 - Browser flows live in `flows/NN-name.flow.json`, run in lexical order by `run.ts`.
   (`specs/` is for feature specs, like every other package.)
-- Flows use only read-only seeded data (`acme/payments-api`, PR #482, built-in agents) — nothing may trigger a model call.
+- Flows use the seeded data only (`acme/payments-api`, PR #482, built-in agents) and nothing may
+  trigger a model call. All but one are read-only — see the mutating-flow exception below.
 
 ## Conventions
 - Deterministic locators only (`wait --url`, `wait --text`, `find role|text|label [--exact]`, and `wait --fn "!…innerText.includes(…)"` for text that must disappear); never the AI `chat` command. Details: [docs/locators.md](docs/locators.md).
-- Never click mutating controls (Accept/Reject, Delete, Run review); undo any filter a flow toggles.
+- Read-only by default: never click mutating controls (Accept/Reject, Delete, Run review), and undo
+  any filter a flow toggles. **One exception**: a flow may declare `"mutates": true`, which the
+  runner skips unless `E2E_ALLOW_MUTATING=1` (CI sets it; `npm test` against a dev DB does not, and
+  a rejection cannot be undone from the UI). Such a flow must sort LAST — all flows share one seeded
+  stack — and must still never trigger a model call. `08-pr-finding-actions` is the only one.
 - A non-zero command exit is the assertion; add `"assert": { "stdoutIncludes": … }` only when needed.
 - Every step gets a human `label`. When adding a flow, add a row to the README coverage table.
 
