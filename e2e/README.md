@@ -31,6 +31,11 @@ A flow lives in `flows/NN-name.flow.json`:
   command's stdout.
 - Locators are deterministic only (`--url`, `--text`, `find role|text|label`).
   We never use the AI `chat` command, so runs are stable and key-free.
+- To assert that text **disappeared** (e.g. a filter hid a card), use
+  `wait --fn "!document.body.innerText.includes('…')"` — still deterministic.
+- Before clicking a control that may be below the fold, run `scrollintoview '<css>'`:
+  `find … click` doesn't scroll the app's inner container, and silently misses.
+  See [docs/locators.md](docs/locators.md).
 
 Flows target **read-only seeded data** (the demo repo `acme/payments-api`, PR
 #482, the seeded agents), so nothing triggers a model call.
@@ -94,7 +99,7 @@ a CI artifact by `.github/workflows/e2e-web.yml`).
 | Flow file | Journey |
 |-----------|---------|
 | `01-app-boot` | root → redirect to first repo's PR list → seeded PR #482 |
-| `02-repo-pulls-detail` | PR list (COST, FINDINGS chips + hover popover) → open PR #482 → review detail route |
+| `02-repo-pulls-detail` | PR list (COST = all successful runs, FINDINGS chips + read-only "N FINDINGS IN THIS RUN" popover) → open PR #482 → review detail route |
 | `03-agents` | agents list renders the seeded reviewer agents |
 | `04-pr-findings` | PR #482 → Agent runs tab → seeded run verdict + findings; expand → FindingCard |
 | `05-pr-diff` | PR #482 → Files changed tab → seeded file renders in the diff viewer |

@@ -6,6 +6,7 @@ Pipeline diagram and public API: [README.md](README.md)
 ## Commands (npm)
 - `npm test` — hermetic vitest with a stubbed `LLMProvider`
 - `npm run typecheck` (also the `build` — the package never emits JS)
+- `npm run lint` — ESLint flat config (`eslint.config.mjs`)
 
 ## Boundaries
 - **No DB, GitHub, or filesystem.** The only side effect is the injected `LLMProvider`.

@@ -1,7 +1,7 @@
 /**
  * findings-summary helpers — counting and grouping behind the PR list FINDINGS
  * column and the timeline chips: dismissed findings never count, summary
- * reviews are ignored, and the list popover sticks to the latest-round runs.
+ * reviews are ignored, and the list popover sticks to the latest run.
  */
 import { describe, it, expect } from "vitest";
 import type { FindingRecord, ReviewRecord } from "@devdigest/shared";
@@ -10,7 +10,7 @@ import {
   isOpenFinding,
   lineRange,
   openFindingsByRun,
-  roundFindings,
+  runFindings,
   sortBySeverity,
   totalFindings,
 } from "./helpers";
@@ -92,7 +92,7 @@ describe("sortBySeverity / lineRange", () => {
   });
 });
 
-describe("openFindingsByRun / roundFindings", () => {
+describe("openFindingsByRun / runFindings", () => {
   const reviews = [
     review({
       id: "rv1",
@@ -114,9 +114,10 @@ describe("openFindingsByRun / roundFindings", () => {
     expect(byRun.size).toBe(2);
   });
 
-  it("keeps only the given round's runs", () => {
-    expect(roundFindings(reviews, ["run-1"]).map((f) => f.id)).toEqual(["open"]);
-    expect(roundFindings(reviews, ["run-1", "run-old"]).map((f) => f.id)).toEqual(["old", "open"]);
-    expect(roundFindings(reviews, null)).toEqual([]);
+  it("keeps only the given run's open findings", () => {
+    expect(runFindings(reviews, "run-1").map((f) => f.id)).toEqual(["open"]);
+    expect(runFindings(reviews, "run-old").map((f) => f.id)).toEqual(["old"]);
+    expect(runFindings(reviews, "run-missing")).toEqual([]);
+    expect(runFindings(reviews, null)).toEqual([]);
   });
 });

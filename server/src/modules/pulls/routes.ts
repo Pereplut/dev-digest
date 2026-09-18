@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
-import { and, count, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNull, sum } from 'drizzle-orm';
 import type { PrMeta, PrDetail, GitHubClient, PrReviewComment } from '@devdigest/shared';
 import { PrCommentInput } from '@devdigest/shared';
 import * as t from '../../db/schema.js';
@@ -113,7 +113,7 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
 
     // Latest-review SCORE per PR for the list's score ring. Computed on read
     // from reviews (no FK denorm); the list is small, so one IN-query + JS
-    // grouping is cheap. FINDINGS use the review round below, not this review.
+    // grouping is cheap. FINDINGS use the latest run with a review, below.
     const prIds = rows.map((r) => r.id);
     const latestReviewByPr = new Map<string, { score: number | null }>();
     if (prIds.length > 0) {
@@ -128,18 +128,21 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
       }
     }
 
-    // Latest review round COST per PR: the sum of each agent's newest DONE run
-    // (a failed newest run doesn't hide that agent's previous priced run).
-    // DISTINCT ON keeps one row per (PR, agent); summing per PR happens in JS.
-    const roundCostByPr = new Map<string, { total: number | null; complete: boolean }>();
-    const roundRunIdsByPr = new Map<string, string[]>();
+    // COST per PR: the sum over ALL successful (status='done') runs, whatever
+    // the agent (a deleted agent's runs still cost money). One GROUP BY; a done
+    // run without a price makes the total a lower bound (cost_complete=false).
+    const costByPr = new Map<string, { total: number | null; complete: boolean }>();
+    // FINDINGS per PR: the latest single run, i.e. the newest done run that
+    // has a kind='review' review (a newer failed/review-less run doesn't hide it).
+    const findingsRunByPr = new Map<string, string>();
     const severityRowsByPr = new Map<string, { severity: string; n: number }[]>();
     if (prIds.length > 0) {
-      const latestRuns = await container.db
-        .selectDistinctOn([t.agentRuns.prId, t.agentRuns.agentId], {
-          id: t.agentRuns.id,
+      const costRows = await container.db
+        .select({
           prId: t.agentRuns.prId,
-          costUsd: t.agentRuns.costUsd,
+          total: sum(t.agentRuns.costUsd),
+          runs: count(),
+          priced: count(t.agentRuns.costUsd),
         })
         .from(t.agentRuns)
         .where(
@@ -147,23 +150,37 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
             eq(t.agentRuns.workspaceId, workspaceId),
             inArray(t.agentRuns.prId, prIds),
             eq(t.agentRuns.status, 'done'),
-            isNotNull(t.agentRuns.agentId),
           ),
         )
-        .orderBy(t.agentRuns.prId, t.agentRuns.agentId, desc(t.agentRuns.ranAt));
-      for (const run of latestRuns) {
-        if (!run.prId) continue;
-        const acc = roundCostByPr.get(run.prId) ?? { total: null, complete: true };
-        if (run.costUsd == null) acc.complete = false;
-        else acc.total = (acc.total ?? 0) + run.costUsd;
-        roundCostByPr.set(run.prId, acc);
-        roundRunIdsByPr.set(run.prId, [...(roundRunIdsByPr.get(run.prId) ?? []), run.id]);
+        .groupBy(t.agentRuns.prId);
+      for (const row of costRows) {
+        if (!row.prId) continue;
+        // postgres returns numeric sums as strings
+        costByPr.set(row.prId, {
+          total: row.total == null ? null : Number(row.total),
+          complete: row.priced === row.runs,
+        });
       }
 
-      // Open FINDINGS of the same round: the runs' reviews, dismissed excluded,
-      // grouped per PR + severity in SQL (a run without a review adds nothing).
-      const roundRunIds = [...roundRunIdsByPr.values()].flat();
-      if (roundRunIds.length > 0) {
+      const latestReviewedRuns = await container.db
+        .selectDistinctOn([t.reviews.prId], { prId: t.reviews.prId, runId: t.agentRuns.id })
+        .from(t.reviews)
+        .innerJoin(t.agentRuns, eq(t.agentRuns.id, t.reviews.runId))
+        .where(
+          and(
+            eq(t.reviews.workspaceId, workspaceId),
+            inArray(t.reviews.prId, prIds),
+            eq(t.reviews.kind, 'review'),
+            eq(t.agentRuns.status, 'done'),
+          ),
+        )
+        .orderBy(t.reviews.prId, desc(t.agentRuns.ranAt), desc(t.reviews.createdAt));
+      for (const run of latestReviewedRuns) findingsRunByPr.set(run.prId, run.runId);
+
+      // Open FINDINGS of those runs: dismissed excluded, grouped per PR +
+      // severity in SQL.
+      const findingsRunIds = [...findingsRunByPr.values()];
+      if (findingsRunIds.length > 0) {
         const severityRows = await container.db
           .select({ prId: t.reviews.prId, severity: t.findings.severity, n: count() })
           .from(t.findings)
@@ -171,7 +188,7 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
           .where(
             and(
               eq(t.reviews.workspaceId, workspaceId),
-              inArray(t.reviews.runId, roundRunIds),
+              inArray(t.reviews.runId, findingsRunIds),
               eq(t.reviews.kind, 'review'),
               isNull(t.findings.dismissedAt),
             ),
@@ -186,7 +203,7 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
     const now = Date.now();
     return rows.map((r) => {
       const review = latestReviewByPr.get(r.id);
-      const cost = roundCostByPr.get(r.id);
+      const cost = costByPr.get(r.id);
       return {
         id: r.id,
         number: r.number,
@@ -210,10 +227,10 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
         score: review ? review.score : null,
         cost_usd: cost ? cost.total : null,
         cost_complete: cost ? cost.complete : null,
-        findings_counts: roundRunIdsByPr.has(r.id)
+        findings_counts: findingsRunByPr.has(r.id)
           ? rollupSeverities(severityRowsByPr.get(r.id) ?? [])
           : null,
-        findings_round_run_ids: roundRunIdsByPr.get(r.id) ?? null,
+        findings_run_id: findingsRunByPr.get(r.id) ?? null,
       };
     });
   });

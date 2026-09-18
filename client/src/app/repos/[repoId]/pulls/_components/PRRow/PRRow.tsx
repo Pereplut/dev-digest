@@ -9,7 +9,7 @@ import { RunCostBadge } from "@/components/run-cost-badge";
 import {
   FindingsPopover,
   SeverityCounts,
-  roundFindings,
+  runFindings,
   totalFindings,
   useSeverityCountsLabel,
 } from "@/components/findings-summary";
@@ -28,17 +28,14 @@ export function PRRow({ pr, repoId }: { pr: PrMeta; repoId: string }) {
   const reviewed = pr.score != null; // null score ⇒ PR has never been reviewed
   const detailHref = `/repos/${repoId}/pulls/${pr.number}`;
 
-  // FINDINGS: counts come with the list; the popover's findings are fetched on
-  // first open (shared ["reviews", prId] cache with the PR page) and narrowed
-  // to the same latest-round runs the server counted.
+  // FINDINGS: counts of the latest run with a review come with the list; the
+  // popover's read-only previews are fetched on first open (shared
+  // ["reviews", prId] cache with the PR page) and narrowed to that same run.
   const [findingsOpen, setFindingsOpen] = React.useState(false);
   const countsLabel = useSeverityCountsLabel(pr.findings_counts);
   const { data: reviews } = usePrReviews(findingsOpen ? pr.id : null);
-  const roundRunIds = pr.findings_round_run_ids;
-  const popoverFindings = React.useMemo(
-    () => roundFindings(reviews ?? [], roundRunIds),
-    [reviews, roundRunIds],
-  );
+  const runId = pr.findings_run_id;
+  const popoverFindings = React.useMemo(() => runFindings(reviews ?? [], runId), [reviews, runId]);
   return (
     <div
       onMouseEnter={() => setH(true)}
@@ -79,13 +76,12 @@ export function PRRow({ pr, repoId }: { pr: PrMeta; repoId: string }) {
         {totalFindings(pr.findings_counts) > 0 ? (
           <FindingsPopover
             label={countsLabel}
-            title={t("list.findingsPopoverTitle", {
+            title={t("findingsSummary.inRunTitle", {
               count: reviews ? popoverFindings.length : totalFindings(pr.findings_counts),
             })}
             findings={popoverFindings}
             loading={!reviews}
             onOpenChange={setFindingsOpen}
-            onSelectFinding={() => router.push(`${detailHref}?tab=findings`)}
           >
             <SeverityCounts counts={pr.findings_counts} />
           </FindingsPopover>

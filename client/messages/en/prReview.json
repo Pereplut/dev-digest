@@ -1,10 +1,10 @@
 {
   "finding": {
     "accepted": "accepted",
-    "dismissed": "dismissed",
+    "dismissed": "rejected",
     "suggestedFix": "Suggested fix",
     "accept": "Accept",
-    "dismiss": "Dismiss",
+    "reject": "Reject",
     "learn": "Learn",
     "replyToAuthor": "Reply to author",
     "replyPlaceholder": "Reply to the author about this finding…",
@@ -29,7 +29,13 @@
   "panel": {
     "hideLowConfidence": "Hide low confidence",
     "noMatchTitle": "No findings match",
-    "noMatchBody": "Adjust the filters above, or run a review to generate findings."
+    "noMatchBody": "Adjust the filters above, or run a review to generate findings.",
+    "severityFilter": "Filter findings by severity",
+    "severityPill": {
+      "CRITICAL": "{count} critical",
+      "WARNING": "{count} warning",
+      "SUGGESTION": "{count} suggestion"
+    }
   },
   "runReview": {
     "runAll": "Run all enabled agents",
@@ -96,8 +102,7 @@
       "cost": "Cost",
       "updated": "Updated"
     },
-    "costPartial": "Some runs in the latest review have no cost data",
-    "findingsPopoverTitle": "{count, plural, one {# finding} other {# findings}}",
+    "costPartial": "Some successful runs have no cost data",
     "filesCount": "{count} files",
     "errorTitle": "Couldn’t load pull requests",
     "errorBody": "The engine returned an error.",
@@ -108,8 +113,28 @@
   "timeline": {
     "goToReview": "Jump to this run’s findings below",
     "openTrace": "Open run trace & logs",
-    "deleteRun": "Delete run",
-    "findingsInRun": "{count, plural, one {# finding} other {# findings}} in this run"
+    "deleteRun": "Delete run"
+  },
+  "findingsTab": {
+    "liveReview": "Live review",
+    "cancel": "Cancel",
+    "openTrace": "Open run trace",
+    "reviewInProgress": "Review in progress…",
+    "reviewInProgressSub": "the agent is analyzing the diff — this can take a while on large PRs.",
+    "lethalTrifecta": "Lethal Trifecta detected",
+    "lethalTrifectaCount": "{count} finding(s)",
+    "timeline": "Timeline",
+    "timelineHint": "runs & commits · newest first",
+    "reviewRuns": "Review runs",
+    "reviewRunsHint": "grouped by run · newest first",
+    "emptyTitle": "No findings yet",
+    "emptyBody": "Run a review to generate findings. Use Run Review ▾ above (run all enabled agents or a specific one)."
+  },
+  "reviewRun": {
+    "findings": "{count, plural, one {# finding} other {# findings}}",
+    "blockers": " · {count, plural, one {# blocker} other {# blockers}}",
+    "deleteTitle": "Delete this review run",
+    "deleteConfirm": "Delete this “{agent}” review run and its findings?"
   },
   "findingsSummary": {
     "count": {
@@ -117,6 +142,7 @@
       "WARNING": "{count, plural, one {# warning} other {# warnings}}",
       "SUGGESTION": "{count, plural, one {# suggestion} other {# suggestions}}"
     },
+    "inRunTitle": "{count, plural, one {# finding} other {# findings}} in this run",
     "loading": "Loading findings…",
     "empty": "No open findings"
   }

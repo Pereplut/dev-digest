@@ -48,12 +48,8 @@ export function openFindingsByRun(reviews: ReviewRecord[]): Map<string, FindingR
   return map;
 }
 
-/** Open findings of the given runs — the PR list's latest review round. */
-export function roundFindings(
-  reviews: ReviewRecord[],
-  runIds: readonly string[] | null | undefined,
-): FindingRecord[] {
-  if (!runIds || runIds.length === 0) return [];
-  const byRun = openFindingsByRun(reviews);
-  return sortBySeverity(runIds.flatMap((id) => byRun.get(id) ?? []));
+/** Open findings of one run — the PR list's latest run with a review. */
+export function runFindings(reviews: ReviewRecord[], runId: string | null | undefined): FindingRecord[] {
+  if (!runId) return [];
+  return openFindingsByRun(reviews).get(runId) ?? [];
 }

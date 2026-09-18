@@ -6,10 +6,11 @@ Written via the [`engineering-insights`](../.claude/skills/engineering-insights/
 
 ---
 
-### 2026-09-15 — Flows 02/04/05 assume a single seeded repo
+### 2026-09-15 — [dep] Flows 02/04/05 assume a single seeded repo
 **Context:** flows fail when run with `npm test` against a normal dev DB.
 **Insight:** the home route redirects to the *first* repo, so any extra imported repo sends flows to the wrong PR list.
 **Apply:** use `./scripts/e2e.sh` (fresh, ephemeral Postgres) — and never `docker compose down -v` to "reset" the dev DB.
+**Evidence:** `client/src/app/page.tsx:16-17` (`router.replace` to `repos[0]`).
 
 ### 2026-09-15 — [tool] `wait --text` matches rendered text, including CSS `text-transform`
 **Context:** the new "Cost" column step in flow 02 timed out although the column rendered.
@@ -34,3 +35,15 @@ Written via the [`engineering-insights`](../.claude/skills/engineering-insights/
 **Insight:** `agent-browser find role button focus --name "1 critical"` fails with "Unknown subaction: focus", although `agent-browser find --help` lists `focus` as an action. `hover` and `click` work.
 **Apply:** to test focus behaviour, use `eval` with `el.focus()` (React's `onFocus` fires), then `press Escape` / `press Enter`. Don't put `find … focus` in a flow.
 **Evidence:** `e2e/README.md:32` (the allowed `find role|text|label` locators). Confirmed against the dev app on :3000.
+
+### 2026-09-15 — [tool] `find … click` silently misses controls below the fold (inner scroll container)
+**Context:** flow 04's severity-pill click passed (`✓ Done`) but the filter never applied, so the following `wait --fn` timed out — only on the hermetic stack, where Timeline tiles push the Review runs card below the fold.
+**Insight:** the studio scrolls a nested container, not the window; agent-browser's `find role button click` (and `hover`, and `scroll down`) don't bring the target into view there, so the click lands nowhere while still exiting 0. Reproduced on the dev app with `set viewport 1280 420` (pill at y=529 stayed `aria-pressed=false`); after `scrollintoview 'button[aria-label="1 warning"]'` (pill at y=223) the same click set it to `true`.
+**Apply:** before clicking anything that can be below the fold, add a `scrollintoview '<css>'` step, and always follow a click with an assertion of its effect (`wait --text` / `wait --fn`) — never trust the click's exit code alone.
+**Evidence:** `e2e/flows/04-pr-findings.flow.json:20` (the `scrollintoview` step).
+
+### 2026-09-15 — [tool] `find role … --name X --exact` really is exact; `wait --fn` accepts negated expressions
+**Context:** suspected that `--exact` ignored `--name`, since the Timeline chip trigger "1 critical, 1 warning" contains the pill name "1 warning".
+**Insight:** with a decoy `role="button"` named "1 critical, 1 warning" injected before the pill, `--name "1 warning" --exact` clicked the pill (decoy 0 clicks) while the same command without `--exact` clicked the decoy. `wait --fn "!document.body.innerText.includes('…')"` resolves as soon as the text is gone.
+**Apply:** use `--exact` whenever one control's accessible name is a substring of another's; `wait --fn` is the deterministic way to assert disappearance.
+**Evidence:** `e2e/flows/04-pr-findings.flow.json:21-22` (exact click + `wait --fn`).

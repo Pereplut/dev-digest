@@ -6,7 +6,7 @@
  * finding chips with a hover card; an unmatched run keeps the text line.
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, within } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import type { RunSummary, ReviewRecord } from "@devdigest/shared";
 import messages from "../../../../../../../../messages/en/prReview.json";
@@ -158,12 +158,16 @@ describe("RunHistory — finding chips", () => {
     expect(screen.queryByText("Dismissed warning")).not.toBeInTheDocument();
   });
 
-  it("clicking a finding in the card jumps to that run's review", () => {
+  it("the chips and their card are read-only: no buttons, and clicking a finding doesn't navigate", () => {
     const onGoToReview = vi.fn();
     renderRuns([run({ findings_count: 3, blockers: 1, score: 38 })], { reviews, onGoToReview });
-    fireEvent.keyDown(screen.getByRole("button", { name: "1 critical, 1 suggestion" }), { key: "Enter" });
+    const trigger = screen.getByRole("button", { name: "1 critical, 1 suggestion" });
+    fireEvent.click(trigger);
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    const card = screen.getByRole("dialog", { name: "2 findings in this run" });
+    expect(within(card).queryAllByRole("button")).toHaveLength(0);
     fireEvent.click(screen.getByText("Hardcoded Stripe secret key in commit"));
-    expect(onGoToReview).toHaveBeenCalledWith("run-1");
+    expect(onGoToReview).not.toHaveBeenCalled();
   });
 
   it("a run without a matched review keeps the text line from the run row", () => {

@@ -228,7 +228,7 @@ describe('platform DTOs', () => {
     const row = PrMeta.parse({
       ...base,
       findings_counts: { CRITICAL: 1, WARNING: 0, SUGGESTION: 2 },
-      findings_round_run_ids: ['run-1'],
+      findings_run_id: 'run-1',
     });
     expect(row.findings_counts?.SUGGESTION).toBe(2);
     expect(() =>

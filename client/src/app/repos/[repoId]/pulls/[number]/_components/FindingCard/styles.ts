@@ -73,11 +73,13 @@ export const s = {
     marginBottom: 8,
     textTransform: "uppercase",
   } satisfies CSSProperties,
-  actions: {
+  // Accept / Reject in the header — visible on every card, collapsed or not.
+  headerActions: {
     display: "flex",
+    alignItems: "center",
     gap: 8,
-    marginTop: 14,
-    flexWrap: "wrap",
+    flexShrink: 0,
+    cursor: "default",
   } satisfies CSSProperties,
   composer: {
     marginTop: 12,

@@ -23,3 +23,9 @@ Written via the [`engineering-insights`](../.claude/skills/engineering-insights/
 **Insight:** Next regenerates both files for whichever build folder the last-started dev server uses, so they flip between runs.
 **Apply:** never commit those rewrites; `scripts/e2e.sh` snapshots both files at start and restores them in `cleanup()`.
 **Evidence:** `scripts/e2e.sh:91` (snapshot), `scripts/e2e.sh:83` (restore on exit).
+
+### 2026-09-15 — [tool] eslint-config-next 15.5 caps ESLint at 9 and still ships legacy configs
+**Context:** adding `pnpm lint` to the client (homework criterion 4); the latest `eslint` on npm is 10.x.
+**Insight:** `npm view eslint-config-next@15.5.19 peerDependencies` → `eslint: ^7.23.0 || ^8.0.0 || ^9.0.0`, so ESLint 10 is unsupported. Its presets are eslintrc-style, so a flat `eslint.config.mjs` must load them through `FlatCompat` from `@eslint/eslintrc`.
+**Apply:** keep the client on `eslint@9.x` until the Next major that supports ESLint 10; don't bump eslint alone. Lint with `pnpm lint` (`eslint .`), not the deprecated `next lint`.
+**Evidence:** `client/eslint.config.mjs:3-9` (FlatCompat + the ≤ 9 note); `client/package.json` devDependencies `eslint 9.39.5`, `eslint-config-next 15.5.19`.

@@ -27,6 +27,14 @@ Non-goals:
 - backfilling reviews that have no `run_id`
 
 ## Design
+> **Amended 2026-09-15 by [spec 0003](0003-hw-validation-alignment.md):**
+> - the list counts and popover now use the **latest single run** with a review (`PrMeta.findings_run_id` replaced `findings_round_run_ids`)
+> - the list popover is titled "N findings in this run"
+> - popover previews are read-only (no click-through)
+> - the Review runs card gained severity pills + a filter ([client spec 0001](../client/specs/0001-review-runs-severity-filter.md))
+>
+> The round-based rules below are historical.
+
 - **PR list value = latest review round**, the same round as COST (spec 0001): each agent's newest `done` run.
   - Findings of those runs' `kind='review'` reviews are counted, joined via `reviews.run_id`.
   - `dismissed_at IS NULL` only: pending and accepted findings count, dismissed ones don't.

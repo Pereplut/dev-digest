@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback } from "react";
+import { useTranslations } from "next-intl";
 import { Icon, Badge, Button, SectionLabel, EmptyState } from "@devdigest/ui";
 import { RunStatus } from "../RunStatus";
 import { RunHistory } from "../RunHistory/RunHistory";
@@ -26,6 +27,12 @@ interface FindingsTabProps {
   onRunDone: () => void;
 }
 
+/**
+ * The PR's "Agent runs" tab: a live-run strip, then two sections —
+ * "Timeline" (run + commit tiles, newest first; severity chips are read-only)
+ * and "Review runs" (one expandable card per run with severity pills, a
+ * severity filter, and Accept/Reject on every finding).
+ */
 export function FindingsTab({
   prId,
   liveRunIds,
@@ -41,6 +48,8 @@ export function FindingsTab({
   onDelete,
   onRunDone,
 }: FindingsTabProps) {
+  const t = useTranslations("prReview.findingsTab");
+
   const handleCancelAll = useCallback(() => {
     liveRunIds.forEach((id) => cancelMutation.mutate(id));
   }, [liveRunIds, cancelMutation]);
@@ -86,15 +95,15 @@ export function FindingsTab({
                   loading={cancelMutation.isPending}
                   onClick={handleCancelAll}
                 >
-                  Cancel
+                  {t("cancel")}
                 </Button>
                 <Button kind="ghost" size="sm" icon="FileText" onClick={handleOpenFirstTrace}>
-                  Open run trace
+                  {t("openTrace")}
                 </Button>
               </div>
             }
           >
-            Live review
+            {t("liveReview")}
           </SectionLabel>
           <RunStatus runIds={liveRunIds} onDone={onRunDone} />
         </div>
@@ -103,19 +112,17 @@ export function FindingsTab({
       {reviewRunning && (
         <div style={s.reviewInProgress}>
           <Icon.RefreshCw size={16} style={{ color: "var(--accent)", animation: "ddspin 1s linear infinite" }} />
-          <span style={s.reviewInProgressText}>Review in progress…</span>
-          <span style={s.reviewInProgressSub}>
-            the agent is analyzing the diff — this can take a while on large PRs.
-          </span>
+          <span style={s.reviewInProgressText}>{t("reviewInProgress")}</span>
+          <span style={s.reviewInProgressSub}>{t("reviewInProgressSub")}</span>
         </div>
       )}
 
       {lethalTrifecta.length > 0 && (
         <div style={s.lethalTrifecta}>
           <Icon.Shield size={16} style={{ color: "var(--crit)" }} />
-          <span style={s.lethalTrifectaTitle}>Lethal Trifecta detected</span>
+          <span style={s.lethalTrifectaTitle}>{t("lethalTrifecta")}</span>
           <Badge color="var(--crit)" bg="transparent">
-            {lethalTrifecta.length} finding(s)
+            {t("lethalTrifectaCount", { count: lethalTrifecta.length })}
           </Badge>
         </div>
       )}
@@ -124,9 +131,9 @@ export function FindingsTab({
         <div style={s.timelineSection}>
           <SectionLabel
             icon="Activity"
-            right={<span style={{ fontSize: 12, color: "var(--text-muted)" }}>runs &amp; commits · newest first</span>}
+            right={<span style={{ fontSize: 12, color: "var(--text-muted)" }}>{t("timelineHint")}</span>}
           >
-            Timeline
+            {t("timeline")}
           </SectionLabel>
           {/* Naming trap: `runs` here are ReviewRecords, `prRuns` the agent runs. */}
           <RunHistory
@@ -142,17 +149,13 @@ export function FindingsTab({
 
       <SectionLabel
         icon="AlertOctagon"
-        right={<span style={{ fontSize: 12, color: "var(--text-muted)" }}>grouped by run · newest first</span>}
+        right={<span style={{ fontSize: 12, color: "var(--text-muted)" }}>{t("reviewRunsHint")}</span>}
       >
-        Review runs
+        {t("reviewRuns")}
       </SectionLabel>
       {runs.length === 0 ? (
         reviewRunning || liveRunIds.length > 0 ? null : (
-          <EmptyState
-            icon="Sparkles"
-            title="No findings yet"
-            body="Run a review to generate findings. Use Run Review ▾ above (run all enabled agents or a specific one)."
-          />
+          <EmptyState icon="Sparkles" title={t("emptyTitle")} body={t("emptyBody")} />
         )
       ) : (
         prId &&

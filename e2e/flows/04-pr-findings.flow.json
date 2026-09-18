@@ -13,6 +13,17 @@
     { "cmd": ["wait", "--text", "request changes"], "label": "seeded run accordion shows its verdict" },
     { "cmd": ["wait", "--text", "2 findings"], "label": "accordion header shows the seeded finding count" },
     { "cmd": ["wait", "--text", "Hardcoded Stripe secret key in commit"], "label": "seeded FindingCard is visible (newest run is open by default)" },
+    { "cmd": ["wait", "--text", "REVIEW RUNS"], "label": "Agent runs tab has the Review runs section (heading is CSS-uppercased)" },
+    { "cmd": ["wait", "--text", "1 CRITICAL"], "label": "severity pill under the verdict + PR SCORE (CSS-uppercased)" },
+    { "cmd": ["wait", "--text", "1 WARNING"], "label": "second severity pill; no SUGGESTION pill for a severity with no findings" },
+    { "cmd": ["wait", "--text", "Reject"], "label": "finding cards expose Accept / Reject (never clicked: it would mutate the seed)" },
+    { "cmd": ["scrollintoview", "button[aria-label=\"1 warning\"]"], "label": "scroll the WARNING pill into view (find … click doesn't scroll the app's inner scroll container)" },
+    { "cmd": ["find", "role", "button", "click", "--name", "1 warning", "--exact"], "label": "click the WARNING pill (exact name, so the Timeline's '1 critical, 1 warning' chips don't match)" },
+    { "cmd": ["wait", "--fn", "!document.body.innerText.includes('Hardcoded Stripe secret key in commit')"], "label": "the critical card is filtered out" },
+    { "cmd": ["wait", "--text", "N+1 query in user list endpoint"], "label": "the warning card stays" },
+    { "cmd": ["find", "role", "button", "click", "--name", "1 warning", "--exact"], "label": "click the WARNING pill again to clear the filter" },
+    { "cmd": ["wait", "--text", "Hardcoded Stripe secret key in commit"], "label": "the full list of the run's findings is back" },
+    { "cmd": ["scrollintoview", "[role=\"button\"][aria-label=\"1 critical, 1 warning\"]"], "label": "scroll back up to the Timeline chips (the pill steps scrolled the inner container down)" },
     { "cmd": ["find", "role", "button", "hover", "--name", "1 critical, 1 warning"], "label": "hover the seeded General Reviewer run's severity chips in the Timeline" },
     { "cmd": ["wait", "--text", "2 FINDINGS IN THIS RUN"], "label": "run findings popover opens (title is CSS-uppercased)" }
   ]

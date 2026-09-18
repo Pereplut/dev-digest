@@ -48,13 +48,29 @@ describe("FindingCard (smoke, both themes)", () => {
       expect(screen.getByText("security")).toBeInTheDocument();
     });
   });
+});
 
-  it("fires accept/dismiss actions", () => {
+describe("FindingCard — Accept / Reject", () => {
+  it("a collapsed card still shows Accept and Reject (no Dismiss wording)", () => {
+    renderWithIntl(<FindingCard f={FINDING} onAction={() => {}} />);
+    expect(screen.getByText("Accept")).toBeInTheDocument();
+    expect(screen.getByText("Reject")).toBeInTheDocument();
+    expect(screen.queryByText("Dismiss")).not.toBeInTheDocument();
+    expect(screen.queryByText("Move the key to an environment variable.")).not.toBeInTheDocument();
+  });
+
+  it("fires accept / reject (dismiss) without toggling the card", () => {
     const onAction = vi.fn();
-    renderWithIntl(<FindingCard f={FINDING} defaultExpanded onAction={onAction} />);
+    renderWithIntl(<FindingCard f={FINDING} onAction={onAction} />);
     fireEvent.click(screen.getByText("Accept"));
     expect(onAction).toHaveBeenCalledWith("accept");
-    fireEvent.click(screen.getByText("Dismiss"));
+    fireEvent.click(screen.getByText("Reject"));
     expect(onAction).toHaveBeenCalledWith("dismiss");
+    expect(screen.queryByText("Move the key to an environment variable.")).not.toBeInTheDocument();
+  });
+
+  it("a rejected finding is labelled rejected", () => {
+    renderWithIntl(<FindingCard f={{ ...FINDING, dismissed_at: "2026-09-15T10:00:00Z" }} onAction={() => {}} />);
+    expect(screen.getByText("rejected")).toBeInTheDocument();
   });
 });

@@ -16,34 +16,37 @@ skill (tags: `dep`, `fix`, `measured`, `odd`, `tool`, `llm`). Entry format:
 
 ---
 
-### 2026-09-15 — `@devdigest/shared` exists in two copies
+### 2026-09-15 — [odd] `@devdigest/shared` exists in two copies
 **Context:** Setting up per-package CLAUDE.md files.
 **Insight:** `server/src/vendor/shared` is aliased by server and reviewer-core;
 `client/src/vendor/shared` is a separate copy and has already drifted
 (`adapters.ts`, `trace.ts`, `knowledge.ts`, `eval-ci.ts`, `productionize.ts`).
 **Apply:** a contract change the UI consumes must be mirrored into the client copy by hand.
+**Evidence:** `server/src/vendor/shared/CLAUDE.md:6-8` (the two aliases and the client's own copy).
 
-### 2026-09-15 — Mixed package managers
+### 2026-09-15 — [tool] Mixed package managers
 **Context:** Running tests across packages.
 **Insight:** `server/` and `client/` use pnpm; `reviewer-core/` and `e2e/` use npm (they ship `package-lock.json`).
 **Apply:** use the manager matching the lockfile; don't add a second lockfile.
+**Evidence:** `.github/workflows/client.yml:45` (`pnpm install --frozen-lockfile`), `.github/workflows/reviewer-core.yml:45` (`npm ci`).
 
-### 2026-09-15 — CI path filters encode cross-package aliases
+### 2026-09-15 — [dep] CI path filters encode cross-package aliases
 **Context:** Reading `TESTING.md`.
 **Insight:** e.g. `reviewer-core/**` triggers `server-unit` because the server type-checks against `../reviewer-core/src`.
 **Apply:** when adding a new path alias, add the matching `paths:` filter to the consuming package's workflow.
+**Evidence:** `.github/workflows/server-unit.yml:19-21` (`paths:` includes `reviewer-core/**`).
 
 ### 2026-09-15 — [tool] No `jq` in the dev environment; write hook scripts in python3
 **Context:** Building the engineering-insights Stop hook, which parses hook stdin JSON.
 **Insight:** `jq` is not installed, and `node` lives under `~/.nvm`, so it may be missing from a hook's non-interactive PATH; `/usr/bin/python3` is always there.
 **Apply:** write `.claude/hooks/*` scripts in python3 (stdlib `json`), not jq/node one-liners.
-**Evidence:** `jq: command not found`; `which node` → `~/.nvm/versions/node/v22.23.2/bin/node`.
+**Evidence:** `.claude/hooks/insights-session-start.py:1` (python3 shebang); `jq: command not found`; `which node` → `~/.nvm/versions/node/v22.23.2/bin/node`.
 
 ### 2026-09-15 — [tool] Claude Code Stop hooks fire after every reply, not at session end
 **Context:** Wiring `.claude/hooks/insights-wrapup.py` into `.claude/settings.json`.
 **Insight:** a Stop hook that returns `{"decision":"block"}` unconditionally loops or nags on every reply. A project `settings.json` created mid-session was picked up without `/hooks` or a restart.
 **Apply:** return early when `stop_hook_active` is true, and keep per-session state (transcript offset) so each batch of work triggers only one reminder.
-**Evidence:** `.claude/hooks/insights-wrapup.py` (`stop_hook_active` guard + `claude-insights-hook/<session>.offset`).
+**Evidence:** `.claude/settings.json:3` (the hook event now used instead); the removed `.claude/hooks/insights-wrapup.py` had the `stop_hook_active` guard + `claude-insights-hook/<session>.offset`.
 
 ### 2026-09-15 — [tool] Pushing a commit that touches `.github/workflows/` needs the `workflow` token scope
 **Context:** `git push` of the CLAUDE.md/INSIGHTS.md branch, which also edited comments in the e2e workflow.

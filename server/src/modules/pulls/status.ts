@@ -3,8 +3,8 @@ import type { FindingsCounts, PrStatus } from '@devdigest/shared';
 /**
  * PR-list rollup helpers (pure — no DB / `this`, so they unit-test cleanly).
  *
- * The Pull Requests list shows, per PR: the latest review's SCORE, the latest
- * review round's open FINDINGS per severity, and a review STATUS. The DB `status` column holds
+ * The Pull Requests list shows, per PR: the latest review's SCORE, the open
+ * FINDINGS per severity of the latest run with a review, and a review STATUS. The DB `status` column holds
  * GitHub's merge state (open/merged/closed); the review status
  * (needs_review / reviewed / stale) is DERIVED here for OPEN PRs from the
  * commit a review last ran against (`lastReviewedSha`) vs the PR head, plus age.

@@ -19,4 +19,19 @@ packages: [server, client]
 ## Design
 ## Acceptance criteria
 ## Test plan
+## Phases
+| Phase | Date | Note |
+|---|---|---|
+| Initiation | | request read, specs + INSIGHTS checked |
+| Planning | | spec approved, decisions |
+| Implementation | | |
+| Validation | | typecheck · lint · tests · e2e · manual |
+| Completion | | status done, docs, insights wrap-up |
 ```
+
+## Index
+| Spec | Status | Packages |
+|---|---|---|
+| [0001-run-cost-badge](0001-run-cost-badge.md) | in-progress | server, client, e2e |
+| [0002-findings-list-timeline](0002-findings-list-timeline.md) | done | server, client, e2e |
+| [0003-hw-validation-alignment](0003-hw-validation-alignment.md) | done | all |

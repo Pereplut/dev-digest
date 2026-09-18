@@ -109,6 +109,8 @@ Before writing, the entry must pass all five checks:
    (`Extends: "<original title>"`).
 3. **Contradictions:** never edit or delete old entries. Append a new entry with
    `Supersedes: "<original title>"` explaining what changed.
+   *Exception:* a legacy entry missing its `[tag]` or `**Evidence:**` line may get
+   those added in place (no rewording). This happened once on 2026-09-15 (spec 0003).
 4. Append the new entries at the bottom, in the format above.
 5. If the file has grown past ~200 entries, tell the user and propose splitting
    it by tag (e.g. `INSIGHTS-llm.md`) — don't split without asking.
