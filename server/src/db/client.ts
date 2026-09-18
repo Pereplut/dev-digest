@@ -4,6 +4,24 @@ import { schema } from './schema.js';
 
 export type Db = PostgresJsDatabase<typeof schema>;
 
+/**
+ * The transaction handle Drizzle passes to `db.transaction(cb)`. Derived from
+ * `Db` rather than imported from drizzle's internals so it cannot drift from
+ * the actual driver/schema generics.
+ */
+export type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
+
+/**
+ * Either the pool or an open transaction. Repository functions take this so a
+ * service can compose several of them into ONE atomic unit without every query
+ * being duplicated in a tx-flavoured variant:
+ *
+ *   await db.transaction(async (tx) => { await insertReview(tx, …); … });
+ *
+ * Passing `db` keeps the existing auto-commit behaviour.
+ */
+export type DbOrTx = Db | Tx;
+
 export interface DbHandle {
   db: Db;
   sql: postgres.Sql;

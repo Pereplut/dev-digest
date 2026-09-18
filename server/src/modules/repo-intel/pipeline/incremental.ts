@@ -202,9 +202,8 @@ export async function runIncremental(
     }
   }
 
-  await repository.deleteForFiles(repoId, changed);
-  await repository.insertSymbols(symbolsBuf);
-  await repository.insertReferences(refsBuf);
+  // One transaction over the sliced replace (same reason as the full index).
+  await repository.replaceSymbolsAndReferences(repoId, changed, symbolsBuf, refsBuf);
   await repository.patchFileFacts(repoId, changed, factsBuf);
 
   // --- T3: rebuild graph + rank, re-resolve, invalidate the repo-map -----

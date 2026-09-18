@@ -69,6 +69,32 @@ function makeRepoStub(opts: {
     insertReferences: async (rows: unknown[]) => {
       references.push(...rows);
     },
+    // The pipeline now performs the delete + both inserts through this single
+    // transactional entry point instead of three separate calls, so the stub
+    // composes the same in-memory effects. `paths === null` = full reset.
+    replaceSymbolsAndReferences: async (
+      _repoId: string,
+      paths: string[] | null,
+      symbolRows: unknown[],
+      referenceRows: unknown[],
+    ) => {
+      if (paths === null) {
+        symbols.length = 0;
+        references.length = 0;
+      } else if (paths.length > 0) {
+        const set = new Set(paths);
+        for (let i = symbols.length - 1; i >= 0; i--) {
+          if (set.has((symbols[i] as { path: string }).path)) symbols.splice(i, 1);
+        }
+        for (let i = references.length - 1; i >= 0; i--) {
+          if (set.has((references[i] as { fromPath: string }).fromPath)) {
+            references.splice(i, 1);
+          }
+        }
+      }
+      symbols.push(...symbolRows);
+      references.push(...referenceRows);
+    },
     upsertIndexState: async (s: {
       repoId: string;
       lastIndexedSha: string;

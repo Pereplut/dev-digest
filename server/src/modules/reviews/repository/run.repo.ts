@@ -1,14 +1,19 @@
 import { and, desc, eq } from 'drizzle-orm';
-import type { Db } from '../../../db/client.js';
+import type { Db, DbOrTx } from '../../../db/client.js';
 import * as t from '../../../db/schema.js';
-import type { RunSummary, RunTrace } from '@devdigest/shared';
+import type { RunSummary } from '@devdigest/shared';
+import { RunTrace as RunTraceSchema, type RunTrace } from '@devdigest/shared';
+
+// Every function takes `DbOrTx` so a caller can compose several of them into a
+// single transaction (see ReviewRepository.transaction). Passing the pool keeps
+// the previous auto-commit behaviour.
 
 // ---- in-flight / history --------------------------------------------------
 
 /** In-flight runs for a PR (status='running') — the server-side source of
  *  truth for "which agents are running now". Joined with the agent name. */
 export async function activeRunsForPull(
-  db: Db,
+  db: DbOrTx,
   workspaceId: string,
   prId: string,
 ): Promise<{ run_id: string; agent_id: string | null; agent_name: string | null; ran_at: string | null }[]> {
@@ -38,7 +43,7 @@ export async function activeRunsForPull(
 
 /** All runs for a PR (any status), newest first — the PR run history. */
 export async function listRunsForPull(
-  db: Db,
+  db: DbOrTx,
   workspaceId: string,
   prId: string,
 ): Promise<RunSummary[]> {
@@ -74,24 +79,32 @@ export async function listRunsForPull(
  * (and its findings, which DO cascade from `reviews`) must be removed explicitly
  * here — otherwise deleting a run from the timeline leaves its findings orphaned
  * in the Review Runs list below.
+ *
+ * The two deletes run in ONE transaction: without it, a failure between them
+ * removed the review (and its findings) while leaving the run row behind, so
+ * the timeline showed a run whose findings had silently vanished.
  */
 export async function deleteAgentRun(
-  db: Db,
+  db: DbOrTx,
   workspaceId: string,
   runId: string,
 ): Promise<boolean> {
-  await db
-    .delete(t.reviews)
-    .where(and(eq(t.reviews.runId, runId), eq(t.reviews.workspaceId, workspaceId)));
-  const rows = await db
-    .delete(t.agentRuns)
-    .where(and(eq(t.agentRuns.id, runId), eq(t.agentRuns.workspaceId, workspaceId)))
-    .returning({ id: t.agentRuns.id });
-  return rows.length > 0;
+  // A Tx also exposes `.transaction` (Drizzle turns a nested call into a
+  // savepoint), so this is safe whether a pool or a transaction is passed.
+  return (db as Db).transaction(async (tx) => {
+    await tx
+      .delete(t.reviews)
+      .where(and(eq(t.reviews.runId, runId), eq(t.reviews.workspaceId, workspaceId)));
+    const rows = await tx
+      .delete(t.agentRuns)
+      .where(and(eq(t.agentRuns.id, runId), eq(t.agentRuns.workspaceId, workspaceId)))
+      .returning({ id: t.agentRuns.id });
+    return rows.length > 0;
+  });
 }
 
 /** Mark a still-running run as cancelled (no-op if it already finished). */
-export async function cancelRunIfRunning(db: Db, runId: string): Promise<boolean> {
+export async function cancelRunIfRunning(db: DbOrTx, runId: string): Promise<boolean> {
   const rows = await db
     .update(t.agentRuns)
     .set({ status: 'cancelled' })
@@ -102,7 +115,7 @@ export async function cancelRunIfRunning(db: Db, runId: string): Promise<boolean
 
 /** On boot: any run still 'running' is orphaned (its process died / restarted),
  *  so mark it failed. Prevents permanently stuck "running" runs in the UI. */
-export async function reapStaleRunningRuns(db: Db): Promise<number> {
+export async function reapStaleRunningRuns(db: DbOrTx): Promise<number> {
   const rows = await db
     .update(t.agentRuns)
     .set({ status: 'failed' })
@@ -115,7 +128,7 @@ export async function reapStaleRunningRuns(db: Db): Promise<number> {
 
 /** Create an agent_runs row in `running` state; returns its id (= the runId). */
 export async function createAgentRun(
-  db: Db,
+  db: DbOrTx,
   values: {
     workspaceId: string;
     agentId: string | null;
@@ -140,7 +153,7 @@ export async function createAgentRun(
 }
 
 export async function completeAgentRun(
-  db: Db,
+  db: DbOrTx,
   runId: string,
   values: {
     status: 'done' | 'failed' | 'cancelled';
@@ -177,14 +190,24 @@ export async function completeAgentRun(
 }
 
 /** Persist the WHOLE run log as ONE document. PK = runId → agent_runs. */
-export async function saveRunTrace(db: Db, runId: string, trace: RunTrace): Promise<void> {
+export async function saveRunTrace(
+  db: DbOrTx,
+  runId: string,
+  trace: RunTrace,
+): Promise<void> {
   await db
     .insert(t.runTraces)
     .values({ runId, trace })
     .onConflictDoUpdate({ target: t.runTraces.runId, set: { trace } });
 }
 
-export async function getRunTrace(db: Db, runId: string): Promise<RunTrace | undefined> {
+export async function getRunTrace(db: DbOrTx, runId: string): Promise<RunTrace | undefined> {
   const [row] = await db.select().from(t.runTraces).where(eq(t.runTraces.runId, runId));
-  return row ? (row.trace as RunTrace) : undefined;
+  if (!row) return undefined;
+  // jsonb comes back as `unknown`; validate rather than cast blindly. Traces
+  // written before a schema field existed are tolerated on READ (they are
+  // historical data we cannot retro-fix, and the drawer should still open) —
+  // the guarantee is enforced at WRITE time via buildRunTrace instead.
+  const parsed = RunTraceSchema.safeParse(row.trace);
+  return parsed.success ? parsed.data : (row.trace as RunTrace);
 }
