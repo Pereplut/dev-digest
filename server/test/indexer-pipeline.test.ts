@@ -25,6 +25,7 @@ import type { RepoIntelRepository } from '../src/modules/repo-intel/repository.j
 import { INDEXER_VERSION } from '../src/modules/repo-intel/constants.js';
 import type { IndexState } from '../src/modules/repo-intel/types.js';
 import type { Container } from '../src/platform/container.js';
+import { AstGrepParser } from '../src/adapters/astgrep/index.js';
 
 // ---------------------------------------------------------------------------
 // In-memory repository stub — matches RepoIntelRepository's surface.
@@ -160,6 +161,10 @@ function makeContainer(git: MiniGit): Container {
     // T3 adapters — stubbed: empty graph (rank degrades to flat) + char/4 tokens.
     depgraph: { buildEdges: async () => [] },
     tokenizer: { count: (text: string) => Math.ceil(text.length / 4) },
+    // The REAL parser, not MockCodeParser: these tests assert on genuine
+    // tree-sitter output (e.g. that a non-function `const` is not emitted as a
+    // symbol), so fixtures would hollow out what they verify.
+    codeParser: new AstGrepParser(),
   } as unknown as Container;
 }
 

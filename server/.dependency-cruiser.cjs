@@ -56,6 +56,18 @@ module.exports = {
       to: { path: '^src/modules/' },
     },
     {
+      name: 'astgrep-only-through-its-port',
+      comment:
+        'Feature modules depend on the CodeParser PORT (adapters/astgrep/port.ts), never on the ' +
+        'implementation that imports @ast-grep/napi. Resolve it from `container.codeParser`. ' +
+        'SKILL.md §6 names ast-grep as the cautionary example of an external system smuggled in ' +
+        'without a port; this rule is what keeps it fixed. `tsPreCompilationDeps` is on, so an ' +
+        '`import type` from the implementation trips this too.',
+      severity: 'error',
+      from: { path: '^src/modules/' },
+      to: { path: '^src/adapters/astgrep/index\\.ts$' },
+    },
+    {
       name: 'platform-no-modules',
       comment:
         'platform/** is cross-cutting infrastructure and must not import feature modules. ' +

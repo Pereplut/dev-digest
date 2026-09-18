@@ -26,7 +26,6 @@ import PQueue from 'p-queue';
 import type { RepoRef } from '@devdigest/shared';
 import type { Container } from '../../../platform/container.js';
 import { withTimeout } from '../../../platform/resilience.js';
-import { parseSymbols, parseReferences, langForFile } from '../../../adapters/astgrep/index.js';
 import { extractEndpoints, extractCrons } from '../../../adapters/codeindex/extract.js';
 import {
   DEFAULT_REPO_MAP_TOKEN_BUDGET,
@@ -134,8 +133,7 @@ export async function runFullIndex(
     }
 
     void parseQ.add(async () => {
-      const lang = langForFile(relPath);
-      if (!lang) {
+      if (!container.codeParser.supports(relPath)) {
         filesSkipped += 1;
         return;
       }
@@ -154,8 +152,8 @@ export async function runFullIndex(
       try {
         const parsed = await withTimeout(
           Promise.resolve().then(() => ({
-            symbols: parseSymbols(relPath, source),
-            references: parseReferences(relPath, source),
+            symbols: container.codeParser.parseSymbols(relPath, source),
+            references: container.codeParser.parseReferences(relPath, source),
           })),
           MAX_PARSE_MS_PER_FILE,
         );

@@ -32,6 +32,13 @@ import type {
   SecretsProvider,
   SecretKey,
 } from '@devdigest/shared';
+import type {
+  CodeParser,
+  ParsedImport,
+  ParsedInvocationHead,
+  ParsedReference,
+  ParsedSymbol,
+} from './astgrep/port.js';
 import { parseUnifiedDiff } from './git/diff-parser.js';
 
 /**
@@ -330,5 +337,55 @@ export class MockSecretsProvider implements SecretsProvider {
   constructor(private secrets: Partial<Record<string, string>> = {}) {}
   async get(key: SecretKey): Promise<string | undefined> {
     return this.secrets[key as string];
+  }
+}
+
+// ---------- Mock CodeParser ----------
+/** Fixtures keyed by file path; an unlisted file simply parses to nothing. */
+export interface MockCodeParserOptions {
+  symbols?: Record<string, ParsedSymbol[]>;
+  references?: Record<string, ParsedReference[]>;
+  imports?: Record<string, ParsedImport[]>;
+  invocationHeads?: Record<string, ParsedInvocationHead[]>;
+  /** Extensions `supports()` accepts. Defaults to the adapter's TS/JS set. */
+  supported?: readonly string[];
+}
+
+const MOCK_SUPPORTED_EXT = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'] as const;
+
+/**
+ * Deterministic CodeParser — no native bindings, no fs. Returns exactly the
+ * fixtures it was given, so a test can assert on what the indexer persisted
+ * without depending on tree-sitter's output.
+ */
+export class MockCodeParser implements CodeParser {
+  public calls: { method: string; file: string }[] = [];
+
+  constructor(private opts: MockCodeParserOptions = {}) {}
+
+  supports(file: string): boolean {
+    const exts = this.opts.supported ?? MOCK_SUPPORTED_EXT;
+    const lower = file.toLowerCase();
+    return exts.some((ext) => lower.endsWith(ext));
+  }
+
+  parseSymbols(file: string): ParsedSymbol[] {
+    this.calls.push({ method: 'parseSymbols', file });
+    return this.opts.symbols?.[file] ?? [];
+  }
+
+  parseReferences(file: string): ParsedReference[] {
+    this.calls.push({ method: 'parseReferences', file });
+    return this.opts.references?.[file] ?? [];
+  }
+
+  parseInvocationHeads(file: string): ParsedInvocationHead[] {
+    this.calls.push({ method: 'parseInvocationHeads', file });
+    return this.opts.invocationHeads?.[file] ?? [];
+  }
+
+  parseImports(file: string): ParsedImport[] {
+    this.calls.push({ method: 'parseImports', file });
+    return this.opts.imports?.[file] ?? [];
   }
 }
