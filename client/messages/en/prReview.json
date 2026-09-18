@@ -151,5 +151,32 @@
     "loadErrorTitle": "Couldn't load this pull request",
     "loadErrorBody": "PR #{number} could not be loaded.",
     "crumbPulls": "Pull Requests"
+  },
+  "header": {
+    "viewOnGitHub": "View on GitHub",
+    "staleBannerMerged": "This PR is already merged — running a review is informational and won’t affect the merged code.",
+    "staleBannerClosed": "This PR is already closed — running a review is informational and won’t affect the merged code.",
+    "status": {
+      "open": "open",
+      "closed": "closed",
+      "merged": "merged",
+      "needs_review": "needs review",
+      "reviewed": "reviewed",
+      "stale": "stale"
+    },
+    "tabs": {
+      "overview": "Overview",
+      "findings": "Agent runs",
+      "diff": "Files changed"
+    }
+  },
+  "overview": {
+    "description": "Description"
+  },
+  "diff": {
+    "filesChanged": "Files changed · {count} files",
+    "showComments": "Show comments ({count})",
+    "hideComments": "Hide comments ({count})",
+    "postError": "Couldn’t post the comment to GitHub."
   }
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { useTranslations } from "next-intl";
 import { SectionLabel, Button } from "@/components/ui-client";
 import { DiffViewer, type DiffCommentApi } from "@/components/diff-viewer";
 import { usePrComments, useCreatePrComment } from "@/lib/hooks/reviews";
@@ -16,6 +17,7 @@ interface DiffTabProps {
 }
 
 export function DiffTab({ prId, filesCount, files, canComment }: DiffTabProps) {
+  const t = useTranslations("prReview");
   const { data: comments } = usePrComments(prId);
   const create = useCreatePrComment(prId);
   // Comments start hidden so the diff is clean by default — toggle to reveal.
@@ -34,7 +36,7 @@ export function DiffTab({ prId, filesCount, files, canComment }: DiffTabProps) {
         setShowComments(true); // a just-posted comment shouldn't stay hidden
         return res;
       } catch (err) {
-        notify.error(err instanceof Error ? err.message : "Couldn't post the comment to GitHub.");
+        notify.error(err instanceof Error ? err.message : t("diff.postError"));
         throw err;
       }
     },
@@ -52,12 +54,16 @@ export function DiffTab({ prId, filesCount, files, canComment }: DiffTabProps) {
               icon={showComments ? "EyeOff" : "Eye"}
               onClick={() => setShowComments((v) => !v)}
             >
-              {showComments ? "Hide comments" : "Show comments"} ({commentCount})
+              {/* The count is inside the message, not concatenated after it —
+                  its position varies by language. */}
+              {showComments
+                ? t("diff.hideComments", { count: commentCount })
+                : t("diff.showComments", { count: commentCount })}
             </Button>
           ) : undefined
         }
       >
-        Files changed · {filesCount} files
+        {t("diff.filesChanged", { count: filesCount })}
       </SectionLabel>
       <DiffViewer files={files} commenting={commenting} />
     </section>
