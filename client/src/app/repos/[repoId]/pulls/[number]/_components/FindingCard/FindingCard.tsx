@@ -19,7 +19,7 @@ import {
   type Category,
 } from "@/components/ui-client";
 import type { FindingRecord, FindingActionKind } from "@devdigest/shared";
-import { SEV_COLOR, SEV_COLOR_FALLBACK } from "./constants";
+import { SEV_COLOR, SEV_COLOR_FALLBACK } from "@/components/findings-summary";
 import { lineLabel } from "./helpers";
 import { githubBlobUrl } from "../../../../../../../lib/github-urls";
 import { s } from "./styles";
@@ -54,7 +54,23 @@ export function FindingCard({
 
   return (
     <div data-finding-id={f.id} style={s.card(!!focused, sevColor, muted)}>
-      <div onClick={() => setExpanded((e) => !e)} style={s.header}>
+      {/* role="button" rather than a real <button>: this header contains the
+          accept/reject <Button>s below, and nesting a button inside a button is
+          invalid HTML. tabIndex + onKeyDown give it the keyboard path it had
+          been missing entirely. */}
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        onClick={() => setExpanded((x) => !x)}
+        onKeyDown={(ev) => {
+          if (ev.key === "Enter" || ev.key === " ") {
+            ev.preventDefault(); // Space would otherwise scroll the page
+            setExpanded((x) => !x);
+          }
+        }}
+        style={s.header}
+      >
         <div style={s.badgeWrap}>
           <SeverityBadge severity={f.severity as Severity} compact />
         </div>

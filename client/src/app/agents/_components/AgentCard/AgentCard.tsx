@@ -27,7 +27,26 @@ export function AgentCard({
   const del = useDeleteAgent();
   const color = modelColor(ag.model);
   return (
-    <div onClick={onClick} style={s.card(!!active, ag.enabled)}>
+    // Interactive attributes are attached ONLY when onClick is supplied:
+    // advertising role="button" on a card that does nothing would be worse than
+    // leaving it inert. Not a real <button> — the card contains a Toggle and a
+    // delete <button>, and nesting buttons is invalid HTML.
+    <div
+      onClick={onClick}
+      {...(onClick
+        ? {
+            role: "button",
+            tabIndex: 0,
+            onKeyDown: (ev: React.KeyboardEvent) => {
+              if (ev.key === "Enter" || ev.key === " ") {
+                ev.preventDefault(); // Space would otherwise scroll the page
+                onClick();
+              }
+            },
+          }
+        : {})}
+      style={s.card(!!active, ag.enabled)}
+    >
       <div style={s.headerRow}>
         <div style={s.iconBox}>
           <Icon.Cpu size={15} />
