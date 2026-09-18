@@ -11,6 +11,34 @@
  *
  * The tables are organized into domain files under `./schema/`; this barrel
  * re-exports them so every consumer keeps importing from `db/schema` unchanged.
+ *
+ * ---------------------------------------------------------------------------
+ * ROADMAP SCAFFOLDING — 16 of these 40 tables have no read or write anywhere in
+ * `src/` outside this schema and `db/seed.ts` (measured 2026-09-18). They are
+ * kept DELIBERATELY: they cost nothing at runtime and are expensive to re-add,
+ * but nothing is wired to them yet, so do not assume a feature exists because
+ * its table does — and do not spend effort indexing or constraining them until
+ * something reads them.
+ *
+ *   ci.ts        ciInstallations, ciRuns          (entire file unused)
+ *   eval.ts      evalCases, evalRuns,
+ *                conformanceChecks, composedReviews (entire file unused)
+ *   knowledge.ts memory, conventions              ← `memory` is a pgvector table
+ *   context.ts   codeChunks, onboarding           ← `codeChunks` is pgvector
+ *   ops.ts       installedPlugins, digests
+ *   runs.ts      multiAgentRuns
+ *   reviews.ts   prBrief
+ *   skills.ts    skillVersions
+ *   core.ts      workspaceMembers
+ *
+ * Both pgvector tables are in that list, which is why the missing ANN
+ * (ivfflat/hnsw) index does not bite yet — add one when they are first queried.
+ *
+ * Re-derive this list with:
+ *   grep -rhoE "export const [a-zA-Z0-9_]+ = pgTable" src/db/schema/*.ts
+ *   # then, per name: grep -rn "t\.<name>\b" src --include=*.ts \
+ *   #   | grep -v "^src/db/schema/" | grep -v "^src/db/seed"
+ * ---------------------------------------------------------------------------
  */
 export * from './schema/core';
 export * from './schema/repos';

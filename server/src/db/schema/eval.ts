@@ -1,3 +1,17 @@
+/**
+ * Eval / conformance / compose tables — ROADMAP SCAFFOLDING, not yet wired.
+ *
+ * None of the four tables in this file is read or written anywhere in `src/`
+ * outside the schema barrel and `db/seed.ts` (measured 2026-09-18). They are
+ * kept on purpose — see the "ROADMAP SCAFFOLDING" note in `db/schema.ts` — but
+ * nothing consumes them, so do not infer that eval runs or conformance checks
+ * exist because their tables do, and hold off on indexes/constraints until
+ * something queries them.
+ *
+ * Note for whoever wires this up: `eval_runs.cost_usd` is `doublePrecision`,
+ * the same wrong-type-for-money problem as `agent_runs.cost_usd`. Convert them
+ * together — see `docs/run-cost.md`.
+ */
 import { pgTable, uuid, text, integer, boolean, jsonb, timestamp, doublePrecision } from 'drizzle-orm/pg-core';
 import { workspaces } from './core';
 import { pullRequests } from './pulls';
