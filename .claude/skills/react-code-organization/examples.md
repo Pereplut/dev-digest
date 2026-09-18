@@ -277,3 +277,135 @@ export type Finding = z.infer<typeof Finding>;
 One declaration yields runtime validation *and* the static type, so they cannot drift. *DevDigest:*
 this is already the house rule — a schema and its `z.infer` type share one name — but remember
 `client/src/vendor/shared` is a separate vendored copy needing a manual mirror.
+
+---
+
+## 13. `app/` composes; it doesn't hold logic
+
+```
+src/
+  app/                                   # routing adapter
+    (dashboard)/                         # layout topology, not a URL segment
+      layout.tsx                         # shell only: chrome, no searchParams, no data→children
+      repos/[repoId]/
+        page.tsx                         # composes; awaits params
+        error.tsx                        # this segment owns its failure
+        loading.tsx                      # note: does NOT cover layout.tsx above it
+        _components/RepoHeader/           # route-private
+    global-error.tsx                     # the only thing that catches root-layout failures
+  features/reviews/
+    api/get-review.ts                    # data access
+    model/score.ts                       # pure domain — no next/* imports
+```
+
+`error.tsx` does not wrap the `layout.tsx` in its *own* segment — that's why `global-error.tsx`
+exists, and why it needs its own `<html>`/`<body>` and styles.
+
+---
+
+## 14. The `'use client'` boundary as a seam
+
+```tsx
+// ❌ directive on the layout: every transitive import ships to the browser
+"use client";
+export default function Layout({ children }) { … }
+
+// ✅ server layout, client leaf, provider as deep as possible
+export default function Layout({ children }) {          // Server Component
+  return <ThemeProvider>{children}</ThemeProvider>;     // ThemeProvider is its own 'use client' file
+}
+
+// ✅ server content inside a client shell: Modal is the PARENT, not the OWNER
+export default async function Page() {
+  const cart = await getCart();                          // server-only data access
+  return <Modal><Cart data={cart} /></Modal>;            // Cart's code never enters the client graph
+}
+```
+
+Two rules govern this: **code** crosses through imports and gets bundled; **data** crosses through
+props and must be serializable — so event handlers can't cross. Wrap a client-only third-party
+component in your own one-line `'use client'` file instead of marking your tree.
+
+**Gotcha:** dot-notation compounds break here. `Menu.Item` is `undefined` across the seam — export
+the parts as named exports.
+
+---
+
+## 15. Thin action over a server-only DAL
+
+```ts
+// ✅ lib/dal.ts — server-only, authorizes, returns a DTO
+import "server-only";
+import { cache } from "react";
+
+export const getSession = cache(async () => { /* read cookies, verify */ });
+
+export async function getInvoice(id: string) {
+  const session = await getSession();                     // re-read, never passed in as a prop
+  const row = await db.invoice.findUnique({ where: { id } });
+  if (row?.ownerId !== session.userId) return null;       // authorize the specific resource
+  return { id: row.id, total: row.total };                // DTO, not the row
+}
+
+// ✅ actions.ts — thin wrapper; a public POST endpoint
+"use server";
+export async function payInvoice(id: string, amount: number) {
+  const parsed = PaySchema.safeParse({ id, amount });     // shape only — NOT authorization
+  if (!parsed.success) return { success: false as const, error: "invalid" };
+  const invoice = await getInvoice(parsed.data.id);       // ownership re-derived from the session
+  if (!invoice) return { success: false as const, error: "not found" };
+  await db.payment.create({ … });
+  revalidatePath(`/invoices/${id}`);
+}
+```
+
+Accept an **ID plus the change**, never a whole object: a well-formed `Invoice` can still name a row
+the caller doesn't own. Rendering the form only on an authenticated page is **not** a security
+boundary — the action is reachable by direct POST.
+
+*DevDigest:* none of this exists in `client/`, and shouldn't — authority lives in the Fastify
+package. This example is for projects where Next *is* the backend.
+
+---
+
+## 16. Push request-scoped reads downward
+
+```tsx
+// ❌ awaiting at the top makes the whole subtree dynamic
+export default async function Layout({ children }) {
+  const cookieStore = await cookies();
+  return <Shell theme={cookieStore.get("theme")?.value}>{children}</Shell>;
+}
+
+// ✅ pass the promise down; resolve it where it's used, inside Suspense
+export default function Layout({ children }) {
+  const theme = cookies().then((c) => c.get("theme")?.value);
+  return (
+    <Suspense fallback={<ShellSkeleton />}>
+      <Shell themePromise={theme}>{children}</Shell>
+    </Suspense>
+  );
+}
+```
+
+Cookie *reads* work anywhere on the server; *writes* only in a Server Function or Route Handler —
+"HTTP does not allow setting cookies after streaming starts." That is the architectural reason
+mutations cannot live in render.
+
+---
+
+## 17. Don't build an API tier for your own Server Components
+
+```ts
+// ❌ prerendering fails at build (no server is listening) and costs a round trip at runtime
+const res = await fetch("http://localhost:3000/api/invoices");
+
+// ✅ call the data layer directly
+const invoices = await getInvoices();
+```
+
+Route Handlers are for genuinely public HTTP surface — webhooks, OAuth callbacks, `rss.xml`, CORS,
+mobile clients. Server Actions mutate, and are **queued**, so they are not a fetch layer either.
+
+*DevDigest:* the repo already follows the spirit — the client calls the Fastify API on :3001 rather
+than a Next API tier in front of it.

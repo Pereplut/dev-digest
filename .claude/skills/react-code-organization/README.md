@@ -1,6 +1,6 @@
 # react-code-organization
 
-**Version 1.0.0** · see [Version history](#version-history)
+**Version 1.1.0** · see [Version history](#version-history)
 
 | File | What it is |
 |---|---|
@@ -69,6 +69,7 @@ writing on this topic is 2019–2022 and predates React 18 / RSC.
 | How should they be divided? | [2. Decomposition](#2-decomposition--how-components-should-be-divided) |
 | Where does business logic go? | [3. Business logic & layering](#3-business-logic--layering--where-logic-lives) |
 | Where do constants go? What moves to utils/helpers? | [4. Constants, utils, types, naming](#4-constants-utils-types-naming) |
+| Where does it go in a **Next.js App Router** app? | [5. Next.js App Router architecture](#5-nextjs-app-router-architecture) |
 
 Each section ends with **Consensus** (what to encode as rules), **Contested** (where to make an
 explicit choice rather than pretend there's one answer), **Outdated advice to avoid**, and
@@ -979,6 +980,309 @@ Placement ladder: module scope in the same file → sibling domain-named module 
 
 ---
 
+## 5. Next.js App Router architecture
+
+> **Version warning, read first.** The official docs fetched for this section are **16.3.5**.
+> This repo runs **Next 15.5.19** (`client/package.json`: `next: ^15.1.3`). Several rules below
+> are v16-only — `proxy.ts`, mandatory `default.js`, `retry()`, generated `PageProps<'/route'>`
+> types, `cacheComponents` — and must **not** be applied to a 15.x codebase. Each is tagged
+> **[v16]**. Async `params`/`searchParams`/`cookies()` already apply in 15.
+>
+> Because this repo is on 15.x, the section ends with a table of **what applies here and what
+> does not** — several canonical Next rules are inapplicable by design, not by neglect.
+
+### 5.1 File and folder architecture
+
+**[Project structure and organization](https://nextjs.org/docs/app/getting-started/project-structure)** · Vercel · v16.3.5, updated **2026-07-21**
+The canonical page — and it refuses to mandate a layout.
+- "Next.js is **unopinionated** about how you organize and colocate your project files."
+- A route is not public until `page` or `route` exists, so "project files can be **safely colocated** inside route segments." Colocation needs no opt-in; `_folder` is a convenience.
+- Render hierarchy, outermost → innermost: `layout` → `template` → `error` → `loading` → `not-found` → `page`.
+- Three sanctioned strategies: files outside `app`, top-level folders inside `app`, or split by feature/route. Pick one, stay consistent.
+
+**[Route Groups](https://nextjs.org/docs/app/api-reference/file-conventions/route-groups)** · v16.3.5, updated 2025-06-16
+- Three architectural jobs only: organize by team/concern/feature, define multiple root layouts, opt a subset of siblings into a shared layout. **Never for URLs.**
+- Two groups resolving to one path is an **error**: "`(marketing)/about/page.js` and `(shop)/about/page.js` would both resolve to `/about` and cause an error."
+- Navigating between *different root layouts* forces a full page reload — this "**only** applies to multiple root layouts." Distinguish "route group" from "route group with its own root layout" before quoting the cost.
+
+**[`layout.js`](https://nextjs.org/docs/app/api-reference/file-conventions/layout)** · v16.3.5, updated 2026-05-27
+The constraint list is what pushes code out of layouts.
+- Never read `searchParams` or `pathname` in a layout — layouts "do not rerender," so the values go stale. Push to a page prop or a Client Component.
+- "Layouts cannot pass data to their `children`." Refetch in both and rely on `fetch` dedup or React `cache`.
+- Any layout with no layout above it is a root layout and must render `<html>`/`<body>`.
+
+**[`template.js`](https://nextjs.org/docs/app/api-reference/file-conventions/template)** · v16.3.5, updated 2026-03-05
+- Use it *only* to force a remount per navigation (resync `useEffect`, reset child client state, re-show a Suspense fallback). It renders between layout and children and "does **not** wrap the `layout.js` in the same segment."
+
+**[Error Handling](https://nextjs.org/docs/app/getting-started/error-handling)** · updated 2026-06-10 · **[`error.js`](https://nextjs.org/docs/app/api-reference/file-conventions/error)** · updated 2026-07-10
+- Put `error.tsx` at the level that can still render something useful; "Errors will bubble up to the nearest parent error boundary."
+- The documented gap that dictates placement: `error.js` "does **not** wrap the `layout.js` or `template.js` above it in the same segment. To handle errors in the root layout, use `global-error.js`."
+- `global-error.tsx` replaces the root layout, so it needs its own `<html>`/`<body>`, styles and fonts, and cannot use `metadata`.
+- **[v16]** Prefer `retry()` over `reset()` (stable 16.3.0). On 15.x it is `reset()`.
+
+**[`loading.js`](https://nextjs.org/docs/app/api-reference/file-conventions/loading)** · v16.3.5, updated 2026-06-08
+The one caching/streaming rule that genuinely forces code placement.
+- `loading.js` "does **not** wrap the `layout.js`, `template.js`, or `error.js` in the same segment."
+- Therefore: uncached runtime data access in a layout (`cookies()`, `headers()`, uncached `fetch`) must move into `page.js` or get its own `<Suspense>` — otherwise navigation blocks.
+- Scope a spinner to one page by wrapping that page in a route group with its own `loading.tsx`.
+
+**[`not-found.js`](https://nextjs.org/docs/app/api-reference/file-conventions/not-found)** · updated 2026-07-10
+- Segment-level `not-found.js` catches `notFound()`; root `app/not-found.js` additionally catches all unmatched URLs.
+- Experimental `global-not-found.js` (15.4.0, `experimental.globalNotFound`) exists for exactly two cases: multiple root layouts, or a root layout under a top-level dynamic segment.
+
+**[Parallel Routes](https://nextjs.org/docs/app/api-reference/file-conventions/parallel-routes)** · updated 2026-08-25 · **[Intercepting Routes](https://nextjs.org/docs/app/api-reference/file-conventions/intercepting-routes)** · updated 2025-06-16 · **[`default.js`](https://nextjs.org/docs/app/api-reference/file-conventions/default)** · updated 2025-10-09
+- Two named architectures only: slot-based dashboards/feeds, and modals with shareable URLs surviving refresh and back/forward.
+- **Never use a conditional slot as authorization:** "Both slots render on the server, regardless of which one the layout returns… `@admin/page.js` executes its data fetches for every user."
+- Prerender coupling: "if one slot is dynamic, all slots at that level must be dynamic."
+- `(..)` counts **route segments, not filesystem folders**, and ignores `@slot` folders — the top source of wrong nesting.
+- A modal costs ~4 files: `@slot/default.tsx`, the intercepted `(.)route/page.tsx`, the real `/route/page.tsx`, usually `@slot/[...catchAll]/page.tsx`.
+- **[v16]** `default.js` is now required for **every** slot including implicit `children`; builds fail without it. Optional on 15.x.
+
+**[`page.js`](https://nextjs.org/docs/app/api-reference/file-conventions/page)** · updated 2026-06-09 · **[Dynamic Segments](https://nextjs.org/docs/app/api-reference/file-conventions/dynamic-routes)** · **[`generateStaticParams`](https://nextjs.org/docs/app/api-reference/functions/generate-static-params)** · updated 2026-08-25
+- "A `page` is always the **leaf** of the route subtree" and is what makes a segment publicly accessible. `searchParams` exists on pages only.
+- `generateStaticParams` can only look **upward**: "You can generate params for dynamic segments above the current layout or page, but **not below**."
+- Use `[[...slug]]` when the parameterless path must match too.
+- **[v16]** Generated global helpers `PageProps<'/route'>`, `LayoutProps<'/route'>`, `RouteContext<'/route'>` (via typegen). Not available on 15.x — type params by hand.
+
+**[Backend for Frontend](https://nextjs.org/docs/app/guides/backend-for-frontend)** · updated 2026-06-25 · **[`route.js`](https://nextjs.org/docs/app/api-reference/file-conventions/route)** · updated 2026-04-30
+The clearest official statement on whether you need `route.ts` at all.
+- **Don't build an internal API tier for your own Server Components:** "Fetch data in Server Components directly from its source, not via Route Handlers." Prerendering fails at build (no server listening) and costs a round trip at runtime.
+- Add Route Handlers for genuinely public HTTP surface: webhooks, OAuth callbacks, non-HTML content types, CORS, proxying, mobile/3rd-party clients.
+- "Server Actions are queued. Using them for data fetching introduces sequential execution."
+- Folder names are the URL, literal filenames included: `app/rss.xml/route.ts` → `/rss.xml`.
+
+**[`src` folder](https://nextjs.org/docs/app/api-reference/file-conventions/src-folder)** · updated 2025-10-17 · **[Instrumentation](https://nextjs.org/docs/app/guides/instrumentation)** · **[Multi-Zones](https://nextjs.org/docs/app/guides/multi-zones)** · updated 2026-06-01
+- Stay at the true root regardless of `src`: `public/`, `package.json`, `next.config.js`, `tsconfig.json`, `.env.*`.
+- Silent footgun: "`src/app` or `src/pages` will be ignored if `app` or `pages` are present in the root directory."
+- `instrumentation.ts` goes at the root or in `src` beside `app` — "not inside the `app` or `pages` directory."
+- Multi-zones only for "collections of pages unrelated to the other pages"; cross-zone navigation is a hard navigation, linked with a plain `<a>`, not `<Link>`. Every non-default zone needs `assetPrefix`.
+
+**[`proxy.js`](https://nextjs.org/docs/app/api-reference/file-conventions/proxy)** · updated 2026-09-07 · **[v16 blog](https://nextjs.org/blog/next-16)** (Lai, Story, Markbåge, Neutkens, 2025-10-21) · **[Upgrade to v16](https://nextjs.org/docs/app/guides/upgrading/version-16)**
+- **[v16]** `proxy.ts` replaces `middleware.ts`, Node runtime only, one per project, at the root or in `src`. Codemod: `npx @next/codemod@canary middleware-to-proxy .`
+- **Keep `middleware.ts` if you need the Edge runtime** — "The `edge` runtime is **NOT** supported in `proxy`." On 15.x, `middleware.ts` *is* the current convention.
+- Always set a `matcher`, or it runs on `_next/static`, `_next/image` and `public/`.
+
+**Reference architectures** — [Bulletproof React docs](https://raw.githubusercontent.com/alan2207/bulletproof-react/master/docs/project-structure.md) and its [actual Next app](https://github.com/alan2207/bulletproof-react/tree/master/apps/nextjs-app/src) · [FSD Next.js guide](https://feature-sliced.design/docs/guides/tech/with-nextjs) · "The Ultimate Next.js App Router Architecture" at `feature-sliced.design/blog/nextjs-app-router-guide` (⚠️ **provenance unverifiable — not official FSD guidance**; see [Do not cite (section 5)](#do-not-cite-section-5)) · [create-t3-app](https://create.t3.gg/en/folder-structure-app) · [next-colocation-template](https://github.com/arhamkhnz/next-colocation-template) (74★ — an illustration of a camp, not an authority; its tree still shows pre-v16 `middleware.ts`)
+- The routing-shell position, as that unverified post puts it: "Use Next.js `app/` for routing only. Use `src/` for the product architecture (FSD layers)." Attribute it to an anonymous post, not to FSD.
+- FSD renames its colliding layers to `_app`/`_pages` and re-exports from `app/`.
+- **Complicating evidence:** Bulletproof React's *actual* Next app is a hybrid, not a pure shell — `src/app/` holds `provider.tsx` alongside route files, and `app/` sits **inside** `src` as a sibling of `features/`.
+- ⚠️ The FSD guide claims middleware/instrumentation "must remain in the project root, not within the `src` folder" — this **contradicts** the official docs, which require them inside `src` when `src` is used. **The official docs win.**
+- [Turborepo — Structuring a repository](https://turborepo.dev/docs/crafting-your-repository/structuring-a-repository): `apps/` + `packages/`, no nested packages, namespaced internal packages, and "If you ever find yourself writing `../` to get from one package to another, you likely have an opportunity to re-think your approach."
+
+### 5.2 The server/client boundary, and server-side layering
+
+**[The Server and Client Boundary](https://nextjs.org/docs/app/guides/server-and-client-boundary)** · v16.3.5, updated **2026-08-25**
+The best official statement of the boundary *as an architectural seam*.
+- The two-rule model, verbatim: "**Code** crosses through imports. Whatever a Client Component imports is pulled into the client bundle." / "**Data** crosses through props, and it must be serializable, so functions like event handlers cannot cross."
+- Owner vs parent: "Because `Cart`'s owner is a Server Component, `Cart` renders on the server. `Modal` is only the parent, so `Modal` receives `Cart`'s output to place but not its code to run."
+- Compound components break across the seam: "`Menu.Item` is `undefined`, and React throws 'Element type is invalid.'… expose them as named exports instead of static properties."
+- Name function props `action` or `*Action` — the TypeScript plugin flags other function props.
+- Wrap, don't convert: "create a Client Component wrapper that imports it and place the directive on the wrapper."
+
+**[Server and Client Components](https://nextjs.org/docs/app/getting-started/server-and-client-components)** · updated 2026-08-25 · **[`'use client'`](https://react.dev/reference/rsc/use-client)** · **[`'use server'`](https://react.dev/reference/rsc/use-server)** · **[Server Components](https://react.dev/reference/rsc/server-components)** · react.dev, current
+- "`'use client'` defines the boundary between server and client code on the *module dependency tree*, not the render tree."
+- Identity is by **usage**, not definition: a component imported and called in a Client Component *is* a Client Component.
+- Serializable across the seam: primitives, Date, plain objects, Map/Set/TypedArray, **JSX elements**, **Promises**, **Server Functions**. Not: non-`'use server'` functions, classes, class instances, null-prototype objects, ungrouped symbols.
+- "Server Components cannot create context, but they can render a context provider imported from a Client Component module."
+- Render providers as deep as possible — "`ThemeProvider` only wraps `{children}` instead of the entire `<html>` document."
+- `import 'server-only'` turns accidental client imports into build errors; installing the npm package is optional, Next handles it internally.
+
+**[Data security in Next.js](https://nextjs.org/docs/app/guides/data-security)** · v16.3.5, updated **2026-08-25**
+The current canonical home of the three-models taxonomy — it supersedes the 2023 blog post.
+- "We recommend choosing one data fetching approach and avoiding mixing them." HTTP APIs → existing large orgs; **DAL → new projects**; component-level queries → prototypes only.
+- The DAL's three rules: "Only run on the server. Perform authorization checks. Return safe, minimal Data Transfer Objects (DTOs)."
+- "only the Data Access Layer should access `process.env`."
+- Actions stay thin: "This keeps authentication, authorization, and database logic in a dedicated `server-only` module, while `"use server"` actions stay thin."
+
+**[Authentication](https://nextjs.org/docs/app/guides/authentication)** · v16.3.5, updated 2026-08-25
+The authoritative ranking of where auth checks belong.
+- Proxy/middleware is optimistic only: "it should not be your only line of defense… The majority of security checks should be performed as close as possible to your data source."
+- **Never gate a route in a layout**, for two documented reasons: layouts "don't re-render on navigation," and "A layout also does not control whether the rest of the route renders… a layout that hides or swaps them does not stop them from running or from appearing in the RSC Payload." The `return null` habit is called "**not recommended**."
+- Put the check inside the data function: "This guarantees that wherever `getUser()` is called within your application, the auth check is performed, and prevents developers from forgetting."
+- Memoize the session with React `cache()`; `import 'server-only'` at the top of the DAL. Client Components "can't import the DAL."
+
+**[Server Actions and Mutations](https://nextjs.org/docs/app/guides/server-actions)** · updated 2026-06-17 · **[Mutating Data](https://nextjs.org/docs/app/getting-started/mutating-data)** · **[Forms](https://nextjs.org/docs/app/guides/forms)** · updated 2026-08-25
+- **Every action is a public POST endpoint:** "A Server Action runs as a POST request against the page that invokes it… the route is reachable to anyone who can send the same POST. Treat every action as an untrusted entry point."
+- "Render-time gating (only rendering a form on an authenticated page) is not a security boundary."
+- **Schema validation is not authorization:** "Send a reference (typically an ID) plus the user's change, and re-read the rest from a trusted source using the session. Schema validation (zod or similar) only checks the *shape* of the input. A well-formed `Item` object can still refer to a row the caller does not own."
+- Actions are serialized per client — "do not rely on `Promise.all` to parallelize Server Actions from the client."
+- Official file placement examples: `app/lib/actions.ts` / `app/actions.ts`. Server Functions cannot be defined in Client Components; import them from a file with the directive.
+- Flow: mutate → `revalidatePath`/`updateTag`/`refresh` → optional `redirect` (which throws, so revalidate first).
+
+**[Building interactive apps](https://nextjs.org/docs/app/guides/interactive-apps)** · updated 2026-08-25
+The only official page that ships a **feature-folder** layout for actions and queries.
+- "The app is organized by feature. Everything for the task domain (queries, Server Functions, and components) lives under `features/task/`. Shared UI primitives live in `components/ui/`, and pages in `app/` compose feature components." Files: `features/task/task-queries.ts`, `task-actions.ts`.
+- Ownership split: `<Suspense>` streaming · `useOptimistic` for a value during async work · `useTransition` for pending/error · `useActionState` for pending/reset/result.
+- Actions return a discriminated result for *expected* failures; unexpected throws go to the nearest error boundary.
+
+**Request-scoped APIs push reads downward** — [`cookies`](https://nextjs.org/docs/app/api-reference/functions/cookies) · [`page.js`](https://nextjs.org/docs/app/api-reference/file-conventions/page) · [Streaming](https://nextjs.org/docs/app/guides/streaming) · [Fetching Data](https://nextjs.org/docs/app/getting-started/fetching-data) · [`cache`](https://react.dev/reference/react/cache)
+- The placement rule: "If you `await` any of these at the top of a layout or page, everything below that point becomes dynamic and cannot be prerendered… Instead, pass the promise down and let the consuming component resolve it inside a `<Suspense>` boundary."
+- Cookie **reads** work anywhere on the server; **writes** don't: "HTTP does not allow setting cookies after streaming starts, so you must use `.set` in a Server Function or Route Handler." That's the architectural reason mutations can't live in render.
+- Wrap non-`fetch` data functions in `React.cache` so components share one result per request. The trap: "Calling a memoized function outside of a component will not use the cache."
+
+**Core-author essays** — [How to Think About Security in Next.js](https://nextjs.org/blog/security-nextjs-server-components-actions) (**Sebastian Markbåge, 2023-10-23** — architecture unchanged, *syntax* stale: sync `cookies()`, "Next.js 14") · [What Does `'use client'` Do?](https://overreacted.io/what-does-use-client-do/) (Dan Abramov, 2025-04-25) · [Impossible Components](https://overreacted.io/impossible-components/) · [The Two Reacts](https://overreacted.io/the-two-reacts/)
+- Markbåge: "a Server Component function body should only see data that the current user issuing the request is authorized to have access to"; DTOs create "a layering where security audits can focus primarily on the Data Access Layer while the UI can rapidly iterate"; "always re-read access control and `cookies()` whenever reading data. Don't pass it as props or params."
+- ⚠️ `.bind()` args are **not** encrypted, unlike closure variables — don't rely on encryption to hide secrets.
+- Abramov: the directives "let you *open the door* from one environment to the other"; the architecture is "a *single program spanning two environments*."
+- The inversion that justifies the client-shell pattern: "The backend is the source of truth for the data—so it must be the frontend's parent."
+
+**[Postmortem on Next.js Middleware bypass](https://vercel.com/blog/postmortem-on-next-js-middleware-bypass)** · Vercel, 2025-03-25 · CVE-2025-29927, patched 12.3.5 / 13.5.9 / 14.2.25 / **15.2.3**
+- Empirical backing for "middleware is not authoritative": "We do not recommend Middleware to be the sole method of protecting routes in your application."
+
+**[Authentication with Cache Components](https://nextjs.org/docs/app/guides/authentication-with-cache-components)** · **[v16]** · updated 2026-08-25
+The clearest case where caching *forces* a layering decision.
+- A plain `use cache` function can't read `cookies()`, so the DAL splits: an exported getter that resolves the user, plus an **unexported** cached function keyed by id. "Keep `getNotesByUserId` unexported so a caller can't request another user's notes by passing a different id."
+- Cache keys and tags are plaintext — key on a stable id, keep secrets out of arguments and tags.
+
+**Practitioner & alternative layers** — [Component Composition Patterns](https://vercel.com/academy/nextjs-foundations/component-composition-patterns) (Vercel Academy, updated 2026-08-21: "Keep state in a tiny client wrapper"; names the "prop soup" anti-pattern) · [community discussion #184740](https://github.com/orgs/community/discussions/184740) (2026-01-20 — colocation consensus: "a global `/actions` folder is unnecessary and usually harms separation of concerns") · [vercel/next.js#74585](https://github.com/vercel/next.js/issues/74585) (verified compound-component breakage) · [nextjs-clean-architecture](https://github.com/nikolovlazar/nextjs-clean-architecture/blob/main/README.md) (Lazar Nikolov — five layers, actions and route handlers as interchangeable *drivers*; asked whether you should do this, the README answers "**No**. Not if you don't expect the project to grow") · [Centralizing Authorization with a Service Layer](https://sph.sh/en/posts/scalable-permission-systems-102-service-layer-centralization/) (2026-03-15, **no stated author** — "there is no chokepoint through which all data access must pass") · [next-safe-action](https://next-safe-action.dev/docs/getting-started) · [tRPC Server Actions](https://trpc.io/docs/client/nextjs/server-actions) (still `experimental_`) and [tRPC + RSC](https://trpc.io/docs/client/react/server-components) (conceding "RSC on its own solves a lot of the same problems tRPC was designed to solve, so you may not need tRPC at all")
+
+**Naming history worth knowing** — [React v19](https://react.dev/blog/2024/12/05/react-19) (2024-12-05) and [Server Functions](https://react.dev/reference/rsc/server-functions)
+- "There is no directive for Server Components. A common misunderstanding is that Server Components are denoted by `"use server"`" — that directive marks Server *Functions*.
+- "Until September 2024, we referred to all Server Functions as 'Server Actions'." A Server Action is a Server Function used in an action context.
+- `useFormState` → `useActionState` (from `react`), returning `[state, action, pending]`.
+
+### 5.3 Applied architectures, enforcement, failure modes
+
+**Reference repos — verified paths, versions and push dates** (no reference architecture found is on Next 16)
+
+| Repo | State | What it actually does |
+|---|---|---|
+| [bulletproof-react](https://github.com/alan2207/bulletproof-react) | 35.9k★, pushed 2026-05-14, **`next: ^14.2.5`, React 18, ESLint 8** | `apps/nextjs-app/src/` = `app components config features hooks lib styles testing types utils`. `features/discussions/` has `api/` + `components/` and **no `index.ts`**. Route shell: `src/app/app/discussions/{page.tsx,_components/,__tests__/}` |
+| [create-t3-app](https://github.com/t3-oss/create-t3-app) | 29.1k★, pushed 2025-12-13, template on `next: ^15.5.9` | Axis is **environment**, not feature: `src/app` (routes + `_components`) · `src/server/{api,auth,db}` · `src/trpc/{react.tsx,server.ts}` — two callers for one typed procedure layer |
+| [vercel/commerce](https://github.com/vercel/commerce) | pushed 2026-08-13, `next: 15.6.0-canary.60` | `app/` routes only; `components/` domain-grouped but globally shared; `lib/shopify` is the data layer. **No `features/`, no barrels, no import firewall at all** |
+| [next-learn dashboard](https://github.com/vercel/next-learn/tree/main/dashboard/final-example) | Vercel's own tutorial, pushed 2026-07-29 | Everything inside `app/`: `app/lib/{data,actions,definitions}.ts`, `app/ui/`. `data.ts` opens a Postgres client at module scope and **has no `import 'server-only'`** |
+| [vercel/platforms](https://github.com/vercel/platforms) | pushed 2026-07-08 | `app/actions.ts` and `subdomain-form.tsx` sit in the route root — the honest floor for a small app |
+
+**[FSD "Usage with Next.js"](https://feature-sliced.design/docs/guides/tech/with-nextjs)** · verified against repo source `src/content/docs/docs/guides/tech/with-nextjs.mdx` (repo pushed 2026-09-14)
+- The core instruction, verbatim: "To avoid conflicts, rename **both** `app` and `pages` FSD layers to `_app` and `_pages`, regardless of which router you use."
+- Route files become one-line re-exports: `export { ExamplePage as default, metadata } from '@/_pages/example';` Route handlers likewise: `export { getExampleData as GET } from '@/_app/api-routes';`
+- The RSC-specific fix worth knowing: "If a server-only module is exported from `index.ts`, server-only side effects can propagate into the client module graph when a Client Component imports that slice" → add **`index.server.ts`** as a second public API.
+- ⚠️ The widely-seen `views/` rename is a **community variant, not** what the official guide says.
+
+**[FSD Public API reference](https://feature-sliced.design/docs/reference/public-api)** — the re-export pattern's costs, from its own proponents
+- Wildcard re-exports "hurt the discoverability of a slice"; index files are "a clear opportunity to accidentally create a circular import"; bundlers "might have a hard time tree-shaking"; "Having a large amount of index files in a project can slow down the development server."
+- "No real protection against side-stepping the public API" → pair it with a linter.
+
+**Enforcement tooling**
+
+| Tool | State | Use it when |
+|---|---|---|
+| [`import/no-restricted-paths`](https://github.com/import-js/eslint-plugin-import/blob/main/docs/rules/no-restricted-paths.md) | The most-copied. [bulletproof-react's real config](https://github.com/alan2207/bulletproof-react/blob/master/apps/nextjs-app/.eslintrc.cjs) ships `zones` with **one entry per feature** plus `import/no-cycle` | Default choice. Allow-by-default; `except` must match `from`'s type; put a `message` on every zone |
+| [`eslint-plugin-boundaries`](https://github.com/javierbrea/eslint-plugin-boundaries) | v**7.2.0** (2026-08-09); docs site still 7.1.0. v7 consolidates into one `boundaries/dependencies` rule with `default: "disallow"` | You want **deny-by-default**, entry-point enforcement, and per-layer bans on external packages (e.g. no `next/*` inside domain code). Write new configs against `boundaries/dependencies` — `element-types`/`entry-point` are v6-era deprecated aliases |
+| [`no-restricted-imports`](https://eslint.org/docs/latest/rules/no-restricted-imports) | ESLint core | Ban `next/*`, `react` or a DB client inside domain modules via `patterns`. **Static imports only** — not a security control |
+| [Steiger](https://github.com/feature-sliced/steiger) | `0.6.0` (2026-07-14), **beta** | FSD structure checks (`fsd/forbidden-imports`, `no-public-api-sidestep`, `excessive-slicing`). Pin the version if CI gates on it |
+| [TS project references](https://www.typescriptlang.org/docs/handbook/project-references.html) | Stable | Layers are separate packages. The `.d.ts` boundary is **unforgeable**, unlike a lint rule — at the cost of `tsc -b` orchestration and committed build outputs. Usually too heavy inside one app |
+| `import 'server-only'` | Built into Next | **Every DAL module.** The only option enforced by the compiler at the boundary that matters. Installing the npm package is optional — Next handles the import internally |
+
+**[ESLint config reference](https://nextjs.org/docs/app/api-reference/config/eslint)** · v16.3.5, updated 2026-08-25
+- **[v16]** "`next lint` and the `eslint` next.config.js option were removed in favor of the ESLint CLI." Run `eslint .`
+- `eslint-config-next` bundles `@next/eslint-plugin-next`, `eslint-plugin-react`, `eslint-plugin-react-hooks` — **not** `eslint-plugin-import`. Install it yourself for boundary zones.
+
+**Testing seams** — [Testing overview](https://nextjs.org/docs/app/guides/testing) (updated 2026-02-03) · [Vitest guide](https://nextjs.org/docs/app/guides/testing/vitest) (updated 2026-08-25)
+- "Since `async` Server Components are new to the React ecosystem, some tools do not fully support them. In the meantime, we recommend using **End-to-End Testing** over **Unit Testing** for `async` components."
+- "Vitest currently does not support them. While you can still run **unit tests** for synchronous Server and Client Components, we recommend using **E2E tests** for `async` components."
+- [Vitest issue #8526](https://github.com/vitest-dev/vitest/issues/8526) (created 2025-09-04, **closed** without resolution, no minimal repro) — so cite the **Next.js docs** for this limitation, not the Vitest side. Don't expect async-RSC unit testing to land; architect so logic sits outside components.
+
+**[Pages → App migration](https://nextjs.org/docs/app/guides/migrating/app-router-migration)** · updated 2026-08-25
+- "The `app` directory is intentionally designed to work simultaneously with the `pages` directory to allow for incremental page-by-page migration."
+- Per-page recipe: move the existing default export into a `'use client'` component, then add a thin `app/**/page.tsx` Server Component that fetches and passes props — "the easiest migration path because it has the most comparable behavior to the `pages` directory." That seam is also where you later lift logic into a feature module.
+- Accepted cost: "there will be a hard navigation" across routers, and `next/link` won't prefetch across them. Group migrated routes so that's rare. `next/compat/router` for dual-router components.
+
+### Consensus for this section
+
+1. **`app/` is a routing adapter, not the application.** Every serious reference keeps composition out of route files — bulletproof-react's pages render a `_components` shell, FSD's route files are one-line re-exports, Commerce's pages compose `components/*` + `lib/shopify`.
+2. **Colocation inside `app/` is safe and needs no opt-in.** A route isn't public until `page`/`route` exists; `_folder` is convenience (editor sorting, separating UI from routing, future-proofing against new file conventions).
+3. **Route groups are for layout topology and ownership, never URLs.** Two groups resolving to one path is an error. The full-page-reload cost applies **only** to multiple root layouts.
+4. **Failure ownership is per-segment and nests upward, with documented gaps.** `error.js` does not cover its own segment's `layout`/`template`; `loading.js` covers neither. Hence `global-error.tsx` for root-layout failures, and uncached layout data must move to `page.js` or get its own `<Suspense>`.
+5. **Layouts are shells — enforced by the framework, not taste.** No re-render, no `searchParams`/`pathname`, and "Layouts cannot pass data to their `children`."
+6. **The boundary is a module-graph seam with two crossing rules.** Code crosses by import and gets bundled; data crosses by serializable props. `'use client'` goes on leaf entry points; server output enters client shells as `children`; providers as deep as possible; wrap third-party client-only libs rather than converting your tree.
+7. **A DAL is the official default for new projects:** server-only, authorizes, returns DTOs, monopolizes `process.env`. Actions stay thin wrappers over it.
+8. **Auth authority ranking is unanimous:** DAL/data-source > page/leaf > layout > proxy/middleware. Layout checks neither re-run on navigation nor stop nested segments, parallel slots, the RSC payload, or actions.
+9. **Every Server Action is a public POST endpoint.** Authenticate, authorize *the specific resource*, validate, constrain the return. Schema validation is not authorization — accept an ID plus the change and re-read the rest from the session.
+10. **Re-read request state; don't pass it.** `cookies()`/`headers()` inside cached DAL helpers, not threaded as props.
+11. **Request-scoped APIs push reads downward.** Awaiting them at the top of a layout makes the whole subtree dynamic — pass the promise down and resolve inside `<Suspense>`.
+12. **Don't call your own Route Handlers from Server Components** — prerender fails at build, round trip at runtime. Route Handlers are for real public HTTP surface; Server Actions mutate and are queued.
+13. **Dependencies flow one way and cross-feature imports are banned** — identical in bulletproof-react and FSD.
+14. **A convention that isn't linted decays.** Every camp says so out loud; that's why this tooling exists at all.
+15. **Barrels are out**, including around `app/`: bulletproof-react reversed itself, FSD documents the costs, TkDodo measured 11k → 3.5k modules (−68%).
+16. **RSC skews the test pyramid.** Pure logic and sync components unit-test; async Server Components don't → e2e. The DAL/domain split is what keeps most logic unit-testable.
+17. **Migration is incremental by design**, route by route.
+
+### Contested for this section
+
+1. **Should application code live inside `app/`?** Next.js lists both as valid and ranks neither. **Vercel's own published apps put everything inside `app/`** (next-learn: `app/lib`, `app/ui`; platforms: `actions.ts` at the route root), while bulletproof-react and FSD keep `app/` a thin shell over `src/features` / `src/_pages`. Complicating the shell camp: bulletproof-react's *actual* Next app is a hybrid — `src/app/provider.tsx` sits beside route files. No winner; the choice predicts how much `app/` grows.
+2. **The re-export pattern** (`export { Page as default } from '@/_pages/…'`). FSD prescribes it; FSD's own docs and TkDodo document the costs. Worth preserving the nuance: a **route-level re-export of 1–2 named bindings is not the same thing as a feature-wide barrel** — the measured harm is about large index files. A real constraint either way: route segment config is *file-level exported variables*, so anything a route must expose has to be re-exported binding by binding.
+3. **How many layers?** FSD's six vs bulletproof-react's three tiers vs T3's environment split vs Commerce's flat `app`+`components`+`lib`.
+4. **DAL vs component-level access.** The guide recommends a DAL; **Vercel's own teaching app queries Postgres from `app/lib/data.ts` with no `server-only` guard** — the docs' own audit checklist would flag it. Follow the guide, not the tutorial.
+5. **Which enforcement tool?** `no-restricted-paths` (most-copied, allow-by-default, one zone per feature, plugin not bundled) vs `boundaries` v7 (deny-by-default, can ban external packages, needs a classification model) vs Steiger (structure, beta) vs project references (unforgeable, heavy). Reasonable teams differ.
+6. **Where mutations live.** Colocated `actions.ts` has community consensus; centralization is argued specifically for the auth chokepoint. The official reconciliation: colocate thin `'use server'` wrappers, centralize auth/authz/DB in the DAL. The "actions own business logic" style is common and conflicts with that.
+7. **Colocated `actions.ts` vs a central folder.** Official examples are themselves inconsistent — `app/lib/actions.ts` and `app/actions.ts` vs feature-scoped `features/task/task-actions.ts` in the interactive-apps guide.
+8. **`server-only` — required or optional?** The *import* is load-bearing; the *npm dependency* is optional, since Next handles it internally and "The contents of these packages from NPM are not used."
+
+### Outdated advice to avoid (Next-specific)
+
+| Avoid | Replacement |
+|---|---|
+| Sync `cookies()` / `params.slug` / `searchParams.q` | `await` them (Promises since 15.0.0-RC, sync **removed** in 16); `use()` in Client Components; codemod `next-async-request-api` |
+| **[v16]** `middleware.ts` + `export function middleware()` | `proxy.ts` + `export function proxy()`, Node runtime, root or `src`. **Keep `middleware.ts` for the Edge runtime** — it is unsupported in `proxy`. On 15.x, `middleware.ts` is current |
+| Protecting routes in middleware/proxy alone | CVE-2025-29927 plus matcher blind spots (actions POST to the page's own route). Optimistic cookie check at most; authoritative checks in the DAL and in every action |
+| Auth check in `layout.tsx`, or `return null` there | Layouts don't re-render and don't gate siblings, parallel slots, the RSC payload or actions. Check in the DAL/page/leaf, re-check per action |
+| `useFormState` from `react-dom` | `useActionState` from `react` → `[state, action, pending]`; codemod `replace-use-form-state` |
+| "`'use server'` marks a Server Component" | There is **no** Server Component directive. `'use server'` marks Server Functions |
+| Calling everything "Server Actions" | Server Function is the superset; a Server Action is one used in an action context (renamed Sept 2024) |
+| Dot-notation compounds across the boundary | Named exports, or keep the compound on one side |
+| Fetching your own `/api/*` from a Server Component | Call the DAL/ORM directly |
+| **[v16]** `revalidateTag('tag')` single-arg | `updateTag(tag)` in actions for read-your-writes; `revalidateTag(tag, 'max')` for SWR |
+| **[v16]** `experimental.ppr` / `experimental_ppr` / `dynamicIO` | `cacheComponents: true` |
+| **[v16]** `export const dynamic`/`revalidate`/`fetchCache` as architectural dials | Removed when Cache Components is enabled |
+| Relying on closure encryption or `.bind()` to hide secrets | `.bind()` args are **not** encrypted. Pass IDs, re-read server-side |
+| Reading `cookies()` inside a plain `use cache` function | Read outside and pass in, or use `'use cache: private'` |
+| `getServerSideProps`/`getStaticProps`/`getStaticPaths`, `_app`/`_document`, `next/head`, `useRouter` from `next/router` | Server Component fetching, `generateStaticParams`, root `layout.tsx` + Metadata API, `next/navigation` (`next/compat/router` while dual-router) |
+| **[v16]** `next lint`; assuming `eslint-config-next` gives you `eslint-plugin-import` | `eslint .` with flat config; install `eslint-plugin-import` yourself |
+| Treating bulletproof-react's Next app as current | It's Next 14 / React 18 / ESLint 8. Steal the *rules* (unidirectional, no cross-feature, no barrels); modernize the mechanics |
+| Pre-RSC "hexagonal React = domain + hooks as ports" | Hooks are client-only and say nothing about the server graph. Use a server-only DAL + thin drivers |
+
+### Do not cite (section 5)
+
+- **`feature-sliced.design/blog/*` — provenance unverifiable. This retroactively affects sections 3 and 4 of this README.** The pages load and are bylined "Evan Carter", but the official FSD docs repo (`feature-sliced/documentation`, pushed 2026-09-14) is Astro/Starlight and contains **no blog content**; the `fsd.how` mirror returns **404**; no `/blog/` links appear on the FSD homepage. The three posts cited earlier here — *The Ultimate Next.js App Router Architecture*, *Clean Architecture in Frontend: A How-To Guide* (§3), *The 5 Frontend Architectures You Must Know in 2025* (§4) — are **plausible but not official FSD guidance**. Treat them as anonymous blog posts; prefer the verified `feature-sliced.design/docs/*` pages, which were checked against repo source.
+- `nextjs.org/docs/13/...` — 404; the versioned `/docs/13/` tree is gone. Never cite that URL shape.
+- `create.t3.gg/en/folder-structure` — 404. Real pages: `/en/folder-structure-app` and `-pages`.
+- `turborepo.com/...` — 301 to `turborepo.dev`. Cite `.dev` only.
+- `npmjs.com/package/eslint-plugin-boundaries` — HTTP 403 to automated fetches; use the GitHub README and `jsboundaries.dev`.
+- `robinwieruch.de/next-folder-structure/` and `/next-js-folder-structure/` — both 404.
+- `nextjs.org/docs/app/getting-started/updating-data` — 404; the path is `/mutating-data`.
+- `nextjs.org/blog/cve-2025-29927` — 308; cite `vercel.com/blog/postmortem-on-next-js-middleware-bypass`.
+- `matias-suez.com/blog/hexagonal-architecture-nextjs` — body unreadable across two attempts. **No credible long-form treatment of hexagonal architecture specifically with RSC was found** — treat that combination as thin ground.
+- `sph.sh/...service-layer-centralization/` — well argued but **no stated author**; attribute to the site.
+- `makerkit.dev/blog/tutorials/server-only-code-nextjs` — internally inconsistent metadata (dated 2024-12-10 while claiming Next 16). Cite at most for the `lib/server` convention.
+- `react.dev/blog/2024/04/25/react-19-upgrade-guide` — loads but does **not** contain the `useFormState` deprecation; cite the 2024-12-05 React 19 post.
+- **Claim that route segment config must be "statically analyzable"** — not found in the docs. Don't assert it.
+- **Claim that Next.js docs warn about barrel files in `app/`** — not found. Cite TkDodo / FSD / bulletproof-react instead.
+- `vercel/next.js` discussion #55908 — cite only as historical evidence of disagreement (Sept 2023, Next 13, unanswered, no Vercel reply).
+- `vercel/commerce` — a template pinned to a **canary**; an example, not guidance.
+- Assorted Medium/DEV/dev.to/SEO-farm "how I structure Next.js in 2026" posts, and the "FSD spreads one feature across layers" critique — unverified folklore.
+
+### In this repo (DevDigest) — what applies and what doesn't
+
+Measured facts about `client/` (2026-09-18): Next **15.5.19**, React 19 · 8 `page.tsx`, one `layout.tsx` · **no** `error.tsx` / `loading.tsx` / `not-found.tsx` / `template.tsx` · **no** route groups · **no** `src/features/` · **0** Server Actions · **0** route handlers · **no** `middleware.ts` · **no** `import 'server-only'` · **62** files with `'use client'`, including the root `src/app/page.tsx`.
+
+**The architectural fact that governs everything below:** this is an App Router app used as a **client SPA**. Authority over data lives in the Fastify API on :3001; all HTTP goes through `src/lib/api.ts` and state through TanStack Query, with `NEXT_PUBLIC_API_BASE` compiled into the bundle by `next.config.mjs`. That is a deliberate boundary set by `client/AGENTS.md` and the repo's package split.
+
+| Rule from this section | Applies here? |
+|---|---|
+| Data Access Layer, DTOs, `process.env` only in the DAL | **No — by design.** The DAL equivalent is the Fastify server, a separate package. Do not introduce DB access or secrets into `client/` |
+| Server Actions: auth per action, IDs not objects, thin wrappers | **No — none exist.** If one is ever added, every rule applies at once: it is a public POST endpoint |
+| Auth authority ranking (DAL > page > layout > proxy) | **Not applicable in `client/`.** Authorization belongs to the server package |
+| `'use client'` at the leaves; providers as deep as possible | **Partially violated.** The root `page.tsx` is a Client Component and there are 62 client modules. Defensible for an SPA, but new UI should not widen the client graph reflexively |
+| Failure ownership per segment (`error.tsx`, `not-found.tsx`) | **Applies, and is absent.** No segment owns its own failure today; `src/components/repo-not-found/` does this in userland instead. The cheapest real improvement available |
+| Layouts are shells; no `searchParams`/data-to-children | **Applies and is satisfied** — one thin root layout |
+| Don't call your own Route Handlers from Server Components | **Applies trivially** — neither exists. Note the repo already follows the spirit: the client calls the Fastify API, not a Next API tier |
+| `app/` as routing shell vs the whole app | **Currently "whole app"**: features live in `app/**/_components/` with no `src/features/`. Consistent with Vercel's own published apps; fine while route-private, but a component needed by two routes belongs in `src/components/` |
+| One-way dependencies, no cross-feature imports, lint-enforced | **Applies and is unenforced.** `client/eslint.config.mjs` has no `import/no-restricted-paths` zones. Nothing stops one route's `_components` importing another's |
+| Barrels | `src/components/<kebab-case>/index.ts` barrels exist — feature-edge form, the defensible one. Don't add a top-level re-export |
+| RSC testing seam | **Applies fully.** No async Server Components exist, so unit tests work today — a property to preserve, not to assume |
+| **[v16]** `proxy.ts`, mandatory `default.js`, `retry()`, `PageProps<>`, `cacheComponents` | **None apply on 15.5.19.** They are an upgrade checklist, not current advice |
+
 ## Version history
 
 The version lives in two places, kept in step: the `version` field in
@@ -986,6 +1290,7 @@ The version lives in two places, kept in step: the `version` field in
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-18 | Added section 5, **Next.js App Router architecture** (structure · server/client boundary and server layering · applied architectures, enforcement, failure modes), version-tagged for 15.x vs **[v16]**, with an applies/doesn't-apply table for this repo. Also downgraded three `feature-sliced.design/blog/*` citations in §3–§5 to unverifiable provenance |
 | 1.0.0 | 2026-09-18 | First release. Four rule sections, 146 verified sources, four contested calls made explicit, enforcement table, DevDigest mapping with three flagged deviations |
 
 Versioning policy — semver on the *rules*, not the prose:

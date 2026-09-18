@@ -1,7 +1,7 @@
 ---
 name: react-code-organization
-description: "Where React/frontend code belongs: which folder a component goes in, when to split it, where business logic lives, and where constants, utils, types and hooks go. Use when creating a new component/feature/hook, deciding a file's location or name, reviewing structure, extracting logic out of a component, choosing between a folder and a flat file, or debating barrel files, enums, feature folders and `utils/`. Complements react-best-practices (which covers whether code is correct)."
-version: 1.0.0
+description: "Where React/frontend code belongs: which folder a component goes in, when to split it, where business logic lives, and where constants, utils, types and hooks go — including Next.js App Router architecture (app/ vs features, route groups, the 'use client' boundary as a seam, Data Access Layer, where Server Actions live, which segment owns a failure). Use when creating a new component/feature/hook/route, deciding a file's location or name, reviewing structure, extracting logic out of a component, or debating barrel files, enums, feature folders, `utils/`, or layout vs page responsibilities. Complements react-best-practices (whether code is correct) and next-best-practices (Next mechanics and performance)."
+version: 1.1.0
 ---
 
 # React Code Organization
@@ -190,7 +190,74 @@ The layering, stated once:
   abstraction." When a util grows flags that select per-caller behaviour, **inline it back and
   re-derive** — don't add another flag.
 
----
+## 5. Next.js App Router architecture
+
+**Version discipline first.** Check the installed Next version before applying any rule here. Rules
+tagged **[v16]** do not exist on 15.x. This repo is on **15.5.19**. Async
+`params`/`searchParams`/`cookies()` already apply in 15.
+
+- **CRITICAL — `app/` is a routing adapter, not the application.** Route files compose; they don't
+  hold business logic. Colocation inside `app/` is safe by default — a segment isn't public until
+  `page`/`route` exists — so route-private UI belongs in `_components/`, and anything two routes
+  need moves to the shared layer. Next.js is explicitly **unopinionated** about the layout: "choose
+  a strategy that works for you and your team and be consistent."
+- **CRITICAL — Data access lives in a server-only module, not in `page.tsx`.** For new projects the
+  official recommendation is a Data Access Layer that: "Only run[s] on the server. Perform[s]
+  authorization checks. Return[s] safe, minimal Data Transfer Objects (DTOs)." Only the DAL reads
+  `process.env`. Never hand a DB row to a Client Component. Mark every such module
+  `import 'server-only'` — the one enforcement the compiler applies at the boundary that matters.
+- **CRITICAL — Every Server Action is a public POST endpoint.** "Render-time gating (only rendering
+  a form on an authenticated page) is not a security boundary." Each action authenticates,
+  authorizes *the specific resource*, validates input, and constrains its return value. **Schema
+  validation is not authorization:** accept an ID plus the user's change and re-read the rest from a
+  trusted source using the session — "A well-formed `Item` object can still refer to a row the
+  caller does not own." Keep actions thin wrappers over the DAL.
+- **CRITICAL — Never gate a route in a layout.** Layouts don't re-render on navigation, and "A
+  layout also does not control whether the rest of the route renders… a layout that hides or swaps
+  them does not stop them from running or from appearing in the RSC Payload." Auth authority ranks
+  **DAL/data-source > page/leaf > layout > proxy/middleware**; middleware is optimistic UX only
+  (CVE-2025-29927 is the empirical argument). Re-check in every action and route handler.
+- **CRITICAL — Never use a conditional parallel-route slot as authorization.** "Both slots render on
+  the server, regardless of which one the layout returns."
+- **HIGH — `'use client'` goes on leaf entry points.** The directive marks a module *and every
+  transitive import* as client code, so boundary placement is an architectural decision. Two
+  crossing rules: "**Code** crosses through imports… **Data** crosses through props, and it must be
+  serializable." Pass server-rendered output into client shells as `children` — the client component
+  is then the *parent* but not the *owner*. Render providers as deep as possible. Wrap third-party
+  client-only libraries in your own `'use client'` file instead of converting your tree.
+- **HIGH — Layouts are shells, by framework constraint.** They don't re-render, can't read
+  `searchParams` or `pathname`, and "Layouts cannot pass data to their `children`." Uncached runtime
+  data in a layout must move to `page.js` or get its own `<Suspense>`, because `loading.js` doesn't
+  wrap the layout in its own segment.
+- **HIGH — Each segment owns its failure.** `error.tsx` at the level that can still render something
+  useful; `global-error.tsx` for the root layout, because `error.js` "does **not** wrap the
+  `layout.js` or `template.js` above it in the same segment" — and it needs its own `<html>`/`<body>`
+  and styles. Root `not-found.tsx` also catches unmatched URLs.
+- **HIGH — Push request-scoped reads downward.** "If you `await` any of these at the top of a layout
+  or page, everything below that point becomes dynamic" — pass the promise down and resolve inside
+  `<Suspense>`. Cookie *reads* work anywhere on the server; *writes* only in a Server Function or
+  Route Handler, which is why mutations can't live in render.
+- **HIGH — Don't call your own Route Handlers from Server Components.** "Fetch data in Server
+  Components directly from its source" — via-handler fetching fails prerendering and adds a round
+  trip. Route Handlers are for real public HTTP surface (webhooks, callbacks, non-HTML content
+  types, third-party clients). Server Actions mutate and are **queued** — not a fetch layer.
+- **MEDIUM — Route groups are for layout topology and ownership, never URLs.** Two groups resolving
+  to one path is an error. The full-page-reload penalty applies **only** to multiple root layouts.
+- **MEDIUM — `template.tsx` only to force a remount** per navigation; otherwise use `layout.tsx`.
+- **MEDIUM — Parallel and intercepting routes are narrow, high-cost tools** for slot dashboards and
+  shareable-URL modals. `(..)` counts **route segments, not folders**, and ignores `@slot`. A modal
+  costs ~4 files. **[v16]** every slot now needs `default.js` or the build fails.
+- **MEDIUM — Respect root-level constraints.** `public/`, config and `.env.*` stay at the true root;
+  `instrumentation.ts` sits at the root or in `src` beside `app`, never inside `app/`. A stray root
+  `app/` **silently shadows** `src/app/`. **[v16]** `proxy.ts` replaces `middleware.ts` (Node-only,
+  one per project) — keep `middleware.ts` if you need the Edge runtime.
+- **MEDIUM — Architect for the testing seam.** Official guidance: use **e2e over unit tests for
+  `async` Server Components**, because tooling doesn't support them. Keep domain logic in plain
+  modules so it stays unit-testable without a renderer.
+- **MEDIUM — Migrate incrementally.** `app/` and `pages/` are designed to coexist. Per route: move
+  the existing export into a `'use client'` component, then add a thin server `page.tsx` that
+  fetches and passes props — that seam is also where logic later lifts into a feature module. Cost:
+  hard navigation across routers, so group migrated routes.
 
 ## Deliberate choices where sources disagree
 
@@ -203,6 +270,9 @@ advocates are in [README.md](README.md) under each section's *Contested* heading
 | **Filename casing** | kebab-case files + PascalCase exports | The newer trend (shadcn, Bulletproof React, Angular) and it avoids case-insensitive-filesystem problems. PascalCase files remain defensible — MUI and react.dev use them. **Consistency outranks this choice** |
 | **TS `enum`** | Avoid; union or `as const` | Node's default type stripping errors on `enum`. Google's TS guide dissents and permits plain enums |
 | **Layered domain architecture** | Earn it — extract a domain module when rules pass the Framework/Import tests, not up front | Even clean-architecture advocates gate it on project size and lifespan. Adopt formal layers (FSD, hexagonal) for long-lived multi-team products |
+| **Is `app/` the whole app or a thin shell?** | Route-private UI colocates in `_components/`; promote to a shared/feature layer on the second consumer | Next.js ranks neither. Vercel's *own* published apps put everything inside `app/`; bulletproof-react and FSD keep it a shell. The choice predicts how much `app/` grows |
+| **Route-file re-exports** (`export { Page as default } from '@/features/…'`) | Not by default | A one-line route shim is not a feature-wide barrel, so the measured barrel harm doesn't transfer — but it adds indirection, and route segment config must be re-exported binding by binding. Adopt it only with a formal layer scheme like FSD |
+| **Where Server Actions live** | Colocated `actions.ts` next to the domain, thin, over a shared DAL | Community consensus favours colocation ("a global `/actions` folder… usually harms separation of concerns"); centralization is argued for the auth chokepoint. Official examples are themselves inconsistent |
 
 ## Enforcement
 
@@ -217,6 +287,12 @@ A convention without a linter is a suggestion. The rules above map to:
 | Unnamed magic values | `no-magic-numbers` (keep its `ignoreArrayIndexes` / `ignoreDefaultValues` escapes) |
 | Enum comparison holes, if enums remain | `@typescript-eslint/no-unsafe-enum-comparison` |
 | Dead files/exports/deps | `knip` in CI — remove barrels first, or it can't see unused exports |
+| Server code reachable from the client graph | `import 'server-only'` on every DAL module (compiler-enforced at the real boundary) |
+| Deny-by-default layers, or banning `next/*` inside domain code | `eslint-plugin-boundaries` v7 (`boundaries/dependencies`), or ESLint core `no-restricted-imports` with `patterns` |
+| FSD structure, if you adopt FSD | `steiger` (beta — pin the version if CI gates on it) |
+
+Note for Next projects: `eslint-config-next` does **not** bundle `eslint-plugin-import`, so install it
+yourself for boundary zones. **[v16]** `next lint` was removed — run `eslint .`.
 
 ---
 
@@ -239,6 +315,29 @@ Mappings:
 - **Strings** → `next-intl` via `messages/<locale>/*.json`; no hardcoded copy.
 - **Server authority** → secrets only via `LocalSecretsProvider`; never from `AppConfig`, DB or logs.
 
+### Next.js specifics here
+
+This is an App Router app (**Next 15.5.19**) used as a **client SPA**: authority over data lives in
+the Fastify API on :3001, all HTTP goes through `src/lib/api.ts`, state through TanStack Query, and
+`NEXT_PUBLIC_API_BASE` is compiled into the bundle. That is a deliberate package boundary.
+
+So **most of section 5's server-side rules do not apply here, by design, not by neglect** — there
+are no Server Actions, no route handlers, no `middleware.ts`, no `server-only` imports, and the DAL
+equivalent *is* the server package. **Do not introduce DB access, secrets, or authorization into
+`client/`.** All **[v16]** rules are an upgrade checklist, not current advice.
+
+What *does* apply, in order of value:
+
+1. **No segment owns its failure.** There is no `error.tsx`, `not-found.tsx` or `loading.tsx`
+   anywhere in `src/app/` — `src/components/repo-not-found/` does this in userland instead. Adding
+   segment-level boundaries is the cheapest real improvement available.
+2. **Boundaries are unenforced.** `client/eslint.config.mjs` has no `import/no-restricted-paths`
+   zones, so nothing stops one route's `_components` importing another's.
+3. **The client graph is wide** — 62 `'use client'` modules including the root `page.tsx`.
+   Defensible for an SPA, but don't widen it reflexively in new UI.
+4. **The unit-test seam is currently intact** — no async Server Components exist, so tests work
+   today. Preserve that rather than assume it.
+
 **Three known deviations** — follow the repo, but know these are deviations, and don't propagate
 them into new shared code without a decision:
 
@@ -254,6 +353,10 @@ them into new shared code without a decision:
 
 ## Sources
 
-Every rule traces to [README.md](README.md) — 146 verified sources with dates, consensus vs
-contested findings, outdated advice to avoid, and a **Do not cite** list of URLs that failed
-verification (including several widely shared ones). Read it before overriding a rule here.
+Every rule traces to [README.md](README.md) — 200+ verified sources with dates and version stamps,
+consensus vs contested findings, outdated advice to avoid, and **Do not cite** lists of URLs that
+failed verification (including several widely shared ones, and three `feature-sliced.design/blog/*`
+posts whose provenance could not be confirmed). Read it before overriding a rule here.
+
+For Next.js rules, every official page cited self-reports **v16.3.5**; check your own version before
+applying anything tagged **[v16]**.
