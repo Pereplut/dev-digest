@@ -7,6 +7,7 @@
 
 import React from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { Skeleton, ErrorState } from "@/components/ui-client";
 import { AppShell } from "../../../../../components/app-shell";
 import { RepoNotFound } from "@/components/repo-not-found";
@@ -24,6 +25,7 @@ import { githubPrUrl } from "../../../../../lib/github-urls";
 import type { FindingRecord } from "@devdigest/shared";
 
 export default function PRDetailPage() {
+  const t = useTranslations("prReview");
   const params = useParams<{ repoId: string; number: string }>();
   const search = useSearchParams();
   const router = useRouter();
@@ -65,7 +67,7 @@ export default function PRDetailPage() {
     else sp.set(key, val);
     router.replace(`/repos/${repoId}/pulls/${number}${sp.toString() ? `?${sp.toString()}` : ""}`);
   };
-  const setTab = (t: string) => setParam("tab", t);
+  const setTab = (tb: string) => setParam("tab", tb);
 
   // Reviews come newest-first; each is its own run (grouped into accordions).
   const runs = reviews ?? [];
@@ -82,7 +84,7 @@ export default function PRDetailPage() {
   const repoFullName = activeRepo?.full_name ?? null;
   const crumb = [
     { label: repoName, mono: true, href: `/repos/${repoId}/pulls` },
-    { label: "Pull Requests", href: `/repos/${repoId}/pulls` },
+    { label: t("detail.crumbPulls"), href: `/repos/${repoId}/pulls` },
     { label: `#${number}`, mono: true },
   ];
 
@@ -112,8 +114,8 @@ export default function PRDetailPage() {
       <AppShell crumb={crumb}>
         <ErrorState
           fullScreen
-          title="Couldn't load this pull request"
-          body={error instanceof ApiError ? error.message : `PR #${number} could not be loaded.`}
+          title={t("detail.loadErrorTitle")}
+          body={error instanceof ApiError ? error.message : t("detail.loadErrorBody", { number })}
           onRetry={() => refetch()}
         />
       </AppShell>
@@ -150,8 +152,7 @@ export default function PRDetailPage() {
             cancelMutation={cancel}
             onOpenTrace={(id) => setParam("trace", id)}
             onDelete={(id) => {
-              if (window.confirm("Delete this run from history? (its logs are removed too)"))
-                deleteRun.mutate(id);
+              if (window.confirm(t("timeline.deleteRunConfirm"))) deleteRun.mutate(id);
             }}
             onRunDone={() => {
               invalidateActiveRuns();
