@@ -1,5 +1,5 @@
 import PQueue from 'p-queue';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import type { Db } from '../db/client.js';
 import * as t from '../db/schema.js';
 import { withTimeout, withRetry } from './resilience.js';
@@ -110,6 +110,33 @@ export class JobRunner {
     void done.catch(() => undefined);
 
     return { id: jobId, done };
+  }
+
+  /**
+   * On boot: mark jobs left `queued` or `running` by a previous process as
+   * failed. The queue is IN-MEMORY, so nothing will ever pick those rows up
+   * again — they are abandoned, not pending.
+   *
+   * This deliberately does NOT recover the work. Doing that needs a durable
+   * claim (`SELECT … FOR UPDATE SKIP LOCKED`) plus handler registration at
+   * boot, which is a feature rather than a fix. What it does is stop the table
+   * lying: nothing in the codebase ever SELECTs `jobs`, so an abandoned row sat
+   * at 'queued' forever and `jobs_status_idx` indexed a status no one read.
+   *
+   * `failed` is the only terminal state the status enum offers; adding an
+   * 'abandoned' value would be a migration for a column with no readers.
+   */
+  async reapOrphanedJobs(): Promise<number> {
+    const rows = await this.db
+      .update(t.jobs)
+      .set({
+        status: 'failed',
+        finishedAt: new Date(),
+        error: 'Abandoned: the process running this job exited before it finished.',
+      })
+      .where(inArray(t.jobs.status, ['queued', 'running']))
+      .returning({ id: t.jobs.id });
+    return rows.length;
   }
 
   /** Wait for the queue to drain (useful in tests). */
