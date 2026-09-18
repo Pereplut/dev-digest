@@ -8,6 +8,7 @@
 "use client";
 
 import React from "react";
+import { useTranslations } from "next-intl";
 import { ErrorState } from "@/components/ui-client";
 
 export default function PullsError({
@@ -17,14 +18,16 @@ export default function PullsError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const t = useTranslations("errors");
+
   React.useEffect(() => {
     console.error("Error in the PR list segment:", error);
   }, [error]);
 
   return (
     <ErrorState
-      title="Couldn't load pull requests"
-      body="The pull request list failed to render. The DevDigest engine may be unreachable."
+      title={t("boundary.pullsTitle")}
+      body={t("boundary.pullsBody")}
       onRetry={reset}
     />
   );

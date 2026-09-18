@@ -10,6 +10,7 @@
 "use client";
 
 import React from "react";
+import { useTranslations } from "next-intl";
 import { ErrorState } from "@/components/ui-client";
 
 export default function PrDetailError({
@@ -19,14 +20,16 @@ export default function PrDetailError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const t = useTranslations("errors");
+
   React.useEffect(() => {
     console.error("Error in the PR detail segment:", error);
   }, [error]);
 
   return (
     <ErrorState
-      title="Couldn't load this pull request"
-      body="Something went wrong rendering the pull request. Retrying may help; if not, check that the DevDigest engine is running."
+      title={t("boundary.prDetailTitle")}
+      body={t("boundary.prDetailBody")}
       onRetry={reset}
     />
   );

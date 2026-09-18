@@ -3,6 +3,7 @@
 
 import React from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { Icon, Avatar, Badge, CircularScore } from "@/components/ui-client";
 import { RunCostBadge } from "@/components/run-cost-badge";
@@ -46,7 +47,13 @@ export function PRRow({ pr, repoId }: { pr: PrMeta; repoId: string }) {
       <div style={s.rowTitleCell}>
         <Icon.GitPullRequest size={15} style={s.rowIcon(st.c)} />
         <div style={s.rowTitleWrap}>
-          <div style={s.rowTitle(h)}>{pr.title}</div>
+          {/* The row keeps its onClick for click-anywhere, but the title is a
+              real link: that makes the row reachable by keyboard, openable in a
+              new tab and middle-clickable — none of which a div onClick gives.
+              `all: unset` so the anchor inherits the existing row-title style. */}
+          <Link href={detailHref} style={{ all: "unset", cursor: "pointer" }}>
+            <div style={s.rowTitle(h)}>{pr.title}</div>
+          </Link>
           <span className="mono" style={s.rowNumber}>
             #{pr.number}
           </span>

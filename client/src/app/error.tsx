@@ -6,12 +6,16 @@
    risk here, not a theoretical one — 5 of 7 pages are client components and
    they render third-party code (mermaid, recharts, react-markdown).
 
+   This one CAN use next-intl: it lives inside the root layout, so
+   NextIntlClientProvider is mounted. (global-error.tsx cannot — see its note.)
+
    `reset()` re-renders the segment. NOTE: this is the Next 15 API. Current
    next.js docs describe v16, where it is `retry()` — see client/INSIGHTS.md
    ("The client is on Next 15, but current Next.js docs describe 16"). */
 "use client";
 
 import React from "react";
+import { useTranslations } from "next-intl";
 import { ErrorState } from "@/components/ui-client";
 
 export default function AppError({
@@ -21,6 +25,8 @@ export default function AppError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const t = useTranslations("errors");
+
   React.useEffect(() => {
     // Surface it for local debugging; Next strips message/stack in production
     // builds and leaves only `digest`.
@@ -30,11 +36,11 @@ export default function AppError({
   return (
     <ErrorState
       fullScreen
-      title="Something went wrong"
+      title={t("boundary.appTitle")}
       body={
         error.digest
-          ? `An unexpected error occurred. Reference: ${error.digest}`
-          : "An unexpected error occurred while rendering this page."
+          ? t("boundary.appBodyWithRef", { digest: error.digest })
+          : t("boundary.appBody")
       }
       onRetry={reset}
     />
