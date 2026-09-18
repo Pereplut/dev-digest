@@ -5,7 +5,8 @@
  * second click restores the full list.
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, cleanup, fireEvent, within } from "@testing-library/react";
+import { render, screen, cleanup, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import type { FindingRecord } from "@devdigest/shared";
 import messages from "../../../../../../../../messages/en/prReview.json";
@@ -87,40 +88,43 @@ describe("FindingsPanel — severity pills", () => {
     expect(ids.filter((id) => id.startsWith("w"))).toHaveLength(3); // rejected ones are still cards
   });
 
-  it("clicking a pill filters the cards; clicking it again restores the full list", () => {
+  it("clicking a pill filters the cards; clicking it again restores the full list", async () => {
+    const user = userEvent.setup();
     const { container } = renderWithIntl(<FindingsPanel findings={FINDINGS} prId="pr1" />);
     const warning = screen.getByRole("button", { name: "3 warning" });
     expect(warning).toHaveAttribute("aria-pressed", "false");
 
-    fireEvent.click(warning);
+    await user.click(warning);
     expect(warning).toHaveAttribute("aria-pressed", "true");
     expect(cardIds(container).sort()).toEqual(["w1", "w2", "w3"]);
     expect(screen.queryByText("Hardcoded secret")).not.toBeInTheDocument();
 
-    fireEvent.click(warning);
+    await user.click(warning);
     expect(warning).toHaveAttribute("aria-pressed", "false");
     expect(cardIds(container).sort()).toEqual(["c1", "w1", "w2", "w3"]);
   });
 
-  it("switching pills moves the filter to the other severity", () => {
+  it("switching pills moves the filter to the other severity", async () => {
+    const user = userEvent.setup();
     const { container } = renderWithIntl(<FindingsPanel findings={FINDINGS} prId="pr1" />);
-    fireEvent.click(screen.getByRole("button", { name: "3 warning" }));
-    fireEvent.click(screen.getByRole("button", { name: "1 critical" }));
+    await user.click(screen.getByRole("button", { name: "3 warning" }));
+    await user.click(screen.getByRole("button", { name: "1 critical" }));
     expect(screen.getByRole("button", { name: "1 critical" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "3 warning" })).toHaveAttribute("aria-pressed", "false");
     expect(cardIds(container)).toEqual(["c1"]);
   });
 
-  it("hiding low confidence updates the counts, and a filter whose cards all disappear clears itself", () => {
+  it("hiding low confidence updates the counts, and a filter whose cards all disappear clears itself", async () => {
+    const user = userEvent.setup();
     const lowCritical = [
       finding({ id: "c1", severity: "CRITICAL", confidence: 0.4 }),
       finding({ id: "w1", severity: "WARNING", title: "N+1 query", confidence: 0.9 }),
     ];
     const { container } = renderWithIntl(<FindingsPanel findings={lowCritical} prId="pr1" />);
-    fireEvent.click(screen.getByRole("button", { name: "1 critical" }));
+    await user.click(screen.getByRole("button", { name: "1 critical" }));
     expect(cardIds(container)).toEqual(["c1"]);
 
-    fireEvent.click(screen.getByRole("switch"));
+    await user.click(screen.getByRole("switch"));
     expect(screen.queryByRole("button", { name: /critical/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "1 warning" })).toHaveAttribute("aria-pressed", "false");
     expect(cardIds(container)).toEqual(["w1"]);

@@ -4,6 +4,16 @@
  * The FINDINGS column shows the open finding counts of the latest run with a
  * review; its popover ("N findings in this run") lists exactly those findings,
  * read-only, and never triggers the row navigation.
+ *
+ * The popover interactions below deliberately stay on fireEvent. PRRow renders
+ * FindingsPopover with its DEFAULT delayMs (150), so focusing the trigger
+ * schedules an open on a timer (FindingsPopover.tsx:82-86,137) while Enter
+ * toggles (FindingsPopover.tsx:140-147). user-event's click/tab fire real focus
+ * events, so focus-then-Enter races that timer: whether Enter opens or closes
+ * the card depends on wall-clock timing. fireEvent dispatches the keydown
+ * alone, which is deterministic. The popover's own hover/focus/Escape behaviour
+ * is covered in components/findings-summary/FindingsPopover.test.tsx, whose
+ * harness passes delayMs={0}.
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, cleanup, fireEvent, within } from "@testing-library/react";
