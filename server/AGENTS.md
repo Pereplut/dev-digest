@@ -16,6 +16,8 @@ API map, env vars: [README.md](README.md)
   adapters behind the DI container (`src/platform/container.ts`); mocks in `src/adapters/mocks.ts`.
 - Secrets are read only via `LocalSecretsProvider` (`src/adapters/secrets/local.ts`) — never from `AppConfig`, DB, or logs.
 - Review logic belongs in `reviewer-core` (aliased as source); the server gathers inputs and persists results.
+- Layering (which ring a file belongs to, what it may import) is the `onion-architecture` skill,
+  enforced by `.dependency-cruiser.cjs` via `pnpm arch` (folded into `pnpm lint`).
 
 ## Conventions
 - Zod contracts from `@devdigest/shared` are the route schemas (`fastify-type-provider-zod`);
