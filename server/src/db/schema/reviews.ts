@@ -26,8 +26,18 @@ export const reviews = pgTable(
     model: text('model'),
     createdAt: now(),
   },
-  // PR list: the latest review round's findings are joined via run_id.
-  (t) => ({ runIdx: index('reviews_run_id_idx').on(t.runId) }),
+  (t) => ({
+    // PR list: the latest review round's findings are joined via run_id.
+    runIdx: index('reviews_run_id_idx').on(t.runId),
+    // PR detail — `WHERE pr_id = ? ORDER BY created_at DESC`
+    // (repository/review.repo.ts reviewsForPull), run on every page load and
+    // previously a seq scan. No `.desc()`: Postgres scans a btree backwards,
+    // so a plain (pr_id, created_at) index already serves the DESC order.
+    prCreatedIdx: index('reviews_pr_created_idx').on(t.prId, t.createdAt),
+    // PR list — `WHERE workspace_id = ? AND pr_id IN (…) AND kind = 'review'`
+    // (modules/pulls/routes.ts), also previously a seq scan.
+    wsPrKindIdx: index('reviews_ws_pr_kind_idx').on(t.workspaceId, t.prId, t.kind),
+  }),
 );
 
 export const findings = pgTable(
