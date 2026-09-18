@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray, isNull, sum } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNull, sql, sum } from 'drizzle-orm';
 import type { Db } from '../../../db/client.js';
 import * as t from '../../../db/schema.js';
 import type { PullRow } from '../../../db/rows.js';
@@ -22,6 +22,18 @@ import type { PullRow } from '../../../db/rows.js';
 export type RepoRow = typeof t.repos.$inferSelect;
 export type PrFileRow = typeof t.prFiles.$inferSelect;
 export type PrCommitRow = typeof t.prCommits.$inferSelect;
+
+/**
+ * Decoded page boundary: the last row of the previous page. Declared HERE
+ * rather than in helpers.ts because helpers.ts already imports types from this
+ * file — defining it there and importing it back would close a
+ * helpers <-> repository cycle, which `no-circular` forbids and which
+ * `tsPreCompilationDeps` sees even for type-only imports.
+ */
+export interface PullCursor {
+  updatedAt: Date;
+  id: string;
+}
 
 /** Insert/update values for one PR synced from GitHub (built in helpers.ts). */
 export interface UpsertPullValues {
@@ -108,8 +120,43 @@ export class PullsRepository {
     return row;
   }
 
-  async listByRepo(repoId: string): Promise<PullRow[]> {
-    return this.db.select().from(t.pullRequests).where(eq(t.pullRequests.repoId, repoId));
+  /**
+   * One keyset page of a repo's PRs, newest-updated first.
+   *
+   * `updated_at` is nullable and a keyset needs a TOTAL order, so the sort key
+   * is `coalesce(updated_at, epoch)` with `id` breaking ties. The page boundary
+   * uses Postgres row-value comparison — `(key, id) < (key, id)` — which is the
+   * idiomatic keyset predicate and lets the composite ORDER BY drive it. The
+   * `::uuid` cast is required: the bound parameter is text, and `uuid < text`
+   * has no operator.
+   *
+   * Fetches `limit + 1` rows so "is there another page?" needs no second query.
+   */
+  async listPageByRepo(
+    repoId: string,
+    opts: { limit: number; cursor?: PullCursor | undefined },
+  ): Promise<{ rows: PullRow[]; hasMore: boolean }> {
+    const sortKey = sql`coalesce(${t.pullRequests.updatedAt}, to_timestamp(0))`;
+    const where = opts.cursor
+      ? and(
+          eq(t.pullRequests.repoId, repoId),
+          // Both bounds are bound as STRINGS and cast in SQL. A hand-written
+          // `sql` fragment has no column context, so a raw Date never reaches
+          // the timestamptz mapper that `eq(column, date)` would use and the
+          // driver rejects it ("Received an instance of Date"). Still fully
+          // parameterised — no sql.raw.
+          sql`(${sortKey}, ${t.pullRequests.id}) < (${opts.cursor.updatedAt.toISOString()}::timestamptz, ${opts.cursor.id}::uuid)`,
+        )
+      : eq(t.pullRequests.repoId, repoId);
+
+    const rows = await this.db
+      .select()
+      .from(t.pullRequests)
+      .where(where)
+      .orderBy(desc(sortKey), desc(t.pullRequests.id))
+      .limit(opts.limit + 1);
+
+    return { rows: rows.slice(0, opts.limit), hasMore: rows.length > opts.limit };
   }
 
   /**

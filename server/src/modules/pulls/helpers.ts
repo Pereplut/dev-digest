@@ -5,6 +5,7 @@ import type {
   PrCommitRow,
   PrCost,
   PrFileRow,
+  PullCursor,
   SeverityCount,
   UpsertPullValues,
 } from './repository/pull.repo.js';
@@ -18,6 +19,32 @@ import type {
  * helper mapping for new code. So the repository speaks rows and plain values,
  * and every snake_case contract shape is built here.
  */
+
+/**
+ * Encode a page boundary. Opaque to the client on purpose — it is an
+ * implementation detail of the ordering, not an API the caller composes.
+ * `base64url` so it survives a query string without escaping.
+ */
+export function encodePullCursor(row: PullRow): string {
+  const key = (row.updatedAt ?? new Date(0)).toISOString();
+  return Buffer.from(`${key}|${row.id}`, 'utf8').toString('base64url');
+}
+
+/** Decode a cursor; `null` for anything malformed, so a bad one is a 400 not a 500. */
+export function decodePullCursor(raw: string): PullCursor | null {
+  let decoded: string;
+  try {
+    decoded = Buffer.from(raw, 'base64url').toString('utf8');
+  } catch {
+    return null;
+  }
+  const sep = decoded.lastIndexOf('|');
+  if (sep <= 0) return null;
+  const updatedAt = new Date(decoded.slice(0, sep));
+  const id = decoded.slice(sep + 1);
+  if (!id || Number.isNaN(updatedAt.getTime())) return null;
+  return { updatedAt, id };
+}
 
 /** GitHub's PrMeta → the columns we persist for one imported PR. */
 export function toPullUpsert(

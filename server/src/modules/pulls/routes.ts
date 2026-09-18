@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
-import type { PrDetail, PrMeta, PrReviewComment } from '@devdigest/shared';
+import type { PrDetail, PrPage, PrReviewComment } from '@devdigest/shared';
 import { PrCommentInput } from '@devdigest/shared';
 import { getContext } from '../_shared/context.js';
-import { IdParams, RepoPullNumberParams } from '../_shared/schemas.js';
+import { IdParams, PageQuery, RepoPullNumberParams } from '../_shared/schemas.js';
 import { PullsService } from './service.js';
 
 /**
@@ -24,10 +24,19 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
   const app = appBase.withTypeProvider<ZodTypeProvider>();
   const service = new PullsService(app.container);
 
-  app.get('/repos/:id/pulls', { schema: { params: IdParams } }, async (req): Promise<PrMeta[]> => {
-    const { workspaceId } = await getContext(app.container, req);
-    return service.list(workspaceId, req.params.id, req.log);
-  });
+  app.get(
+    '/repos/:id/pulls',
+    { schema: { params: IdParams, querystring: PageQuery } },
+    async (req): Promise<PrPage> => {
+      const { workspaceId } = await getContext(app.container, req);
+      return service.list(
+        workspaceId,
+        req.params.id,
+        { limit: req.query.limit, ...(req.query.cursor ? { cursor: req.query.cursor } : {}) },
+        req.log,
+      );
+    },
+  );
 
   app.get('/pulls/:id', { schema: { params: IdParams } }, async (req): Promise<PrDetail> => {
     const { workspaceId } = await getContext(app.container, req);

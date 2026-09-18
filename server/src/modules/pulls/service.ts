@@ -2,7 +2,7 @@ import type {
   GitHubClient,
   PrCommentInput,
   PrDetail,
-  PrMeta,
+  PrPage,
   PrReviewComment,
 } from '@devdigest/shared';
 import type { Container } from '../../platform/container.js';
@@ -10,7 +10,13 @@ import type { PinoLike } from '../../platform/run-logger.js';
 import { AppError, NotFoundError } from '../../platform/errors.js';
 import type { PullRow } from '../../db/rows.js';
 import { PullsRepository, type RepoRow } from './repository/pull.repo.js';
-import { toPrDetail, toPrMeta, toPullUpsert } from './helpers.js';
+import {
+  decodePullCursor,
+  encodePullCursor,
+  toPrDetail,
+  toPrMeta,
+  toPullUpsert,
+} from './helpers.js';
 
 /**
  * F1 — pulls service. PR import (Octokit list + per-PR detail) and the inline
@@ -42,10 +48,20 @@ export class PullsService {
   ) {}
 
   /**
-   * The Pull Requests list: sync from GitHub when possible, then serve the
-   * persisted rows decorated with score, cost and open-finding counts.
+   * One page of the Pull Requests list: sync from GitHub when possible, then
+   * serve the persisted rows decorated with score, cost and open-finding counts.
+   *
+   * Paginated because this endpoint used to read the repo's ENTIRE PR table and
+   * then build three `IN` lists sized by that count. The decoration queries now
+   * span one page, so the work per request is bounded by `limit` rather than by
+   * how long the repo has existed.
    */
-  async list(workspaceId: string, repoId: string, logger?: PinoLike): Promise<PrMeta[]> {
+  async list(
+    workspaceId: string,
+    repoId: string,
+    page: { limit: number; cursor?: string | undefined },
+    logger?: PinoLike,
+  ): Promise<PrPage> {
     const repo = await this.repo.getRepo(workspaceId, repoId);
     if (!repo) throw new NotFoundError('Repo not found');
 
@@ -67,7 +83,16 @@ export class PullsService {
       }
     }
 
-    const rows = await this.repo.listByRepo(repo.id);
+    // A cursor that does not decode is the caller's mistake, not a server
+    // fault: fail it as a 400 rather than silently serving page one.
+    const cursor = page.cursor ? decodePullCursor(page.cursor) : undefined;
+    if (page.cursor && !cursor) {
+      throw new AppError('invalid_cursor', 'Malformed pagination cursor.', 400);
+    }
+    const { rows, hasMore } = await this.repo.listPageByRepo(repo.id, {
+      limit: page.limit,
+      ...(cursor ? { cursor } : {}),
+    });
 
     if (gh) {
       const needStats = rows
@@ -101,7 +126,7 @@ export class PullsService {
     ]);
 
     const now = Date.now();
-    return rows.map((r) =>
+    const items = rows.map((r) =>
       toPrMeta(r, {
         score: scoreByPr.get(r.id),
         cost: costByPr.get(r.id),
@@ -110,6 +135,11 @@ export class PullsService {
         now,
       }),
     );
+
+    // The cursor is the LAST ROW of this page, and only when another exists —
+    // so a caller can always tell "done" from "ask again" without a count.
+    const last = rows[rows.length - 1];
+    return { items, next_cursor: hasMore && last ? encodePullCursor(last) : null };
   }
 
   /**

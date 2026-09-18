@@ -201,6 +201,20 @@ export const PrMeta = z.object({
 });
 export type PrMeta = z.infer<typeof PrMeta>;
 
+/**
+ * One keyset page of a repo's PRs, newest-updated first.
+ *
+ * The list endpoint used to return a bare `PrMeta[]`, which made every request
+ * scan the repo's whole PR table AND build three `IN` lists sized by that
+ * count. `next_cursor` is opaque: pass it back as `?cursor=` to get the next
+ * page, and `null` means this was the last one.
+ */
+export const PrPage = z.object({
+  items: z.array(PrMeta),
+  next_cursor: z.string().nullable(),
+});
+export type PrPage = z.infer<typeof PrPage>;
+
 export const PrFile = z.object({
   path: z.string(),
   additions: z.number().int(),
