@@ -20,7 +20,11 @@ export function AgentEditor({ agent, tab, onTab }: { agent: Agent; tab: string; 
         <Tabs tabs={tabs} value={tab} onChange={onTab} pad="0 24px" />
       </div>
       <div style={s.body}>
-        <ConfigTab agent={agent} />
+        {/* `key` remounts the form when the agent changes, which is what resets
+            its local state. ConfigTab previously did that with an effect that
+            fired nine setState calls on [agent.id] — rendering the previous
+            agent's values for one frame on every switch. */}
+        <ConfigTab key={agent.id} agent={agent} />
       </div>
     </div>
   );
