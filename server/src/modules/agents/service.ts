@@ -49,11 +49,16 @@ export interface UpdateAgentInput {
 }
 
 export class AgentsService {
-  private repo: AgentsRepository;
-
-  constructor(private container: Container) {
-    this.repo = new AgentsRepository(container.db);
-  }
+  /**
+   * The repository is a constructor argument (B4) so a test can pass a stub
+   * instead of reaching into a private field after construction. It defaults
+   * to the real one over `container.db`, so every call site stays
+   * `new AgentsService(container)`.
+   */
+  constructor(
+    private container: Container,
+    private repo: AgentsRepository = new AgentsRepository(container.db),
+  ) {}
 
   async list(workspaceId: string): Promise<Agent[]> {
     const rows = await this.repo.list(workspaceId);

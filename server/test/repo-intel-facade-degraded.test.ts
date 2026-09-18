@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { RepoIntelService } from '../src/modules/repo-intel/service.js';
-import type { RepoBasics } from '../src/modules/repo-intel/repository.js';
+import type { RepoBasics, RepoIntelRepository } from '../src/modules/repo-intel/repository.js';
 import type { IndexState } from '../src/modules/repo-intel/types.js';
 
 /**
@@ -29,15 +29,16 @@ function buildDegradedService(opts: {
       references: async () => [],
     } as never,
   } as never;
-  const svc = new RepoIntelService(container);
-  (svc as unknown as { repo: Record<string, unknown> }).repo = {
+  // Injected through the constructor (B4) rather than assigned onto the
+  // private field afterwards — the service now offers a real seam.
+  const repo = {
     getRepoBasics: async () => opts.basics ?? null,
     tryGetIndexState: async () => opts.indexStateRow ?? null,
     getCachedSymbols: async () => [],
     getCachedSymbolsForFiles: async () => [],
     getCachedReferencesTo: async () => [],
-  };
-  return svc;
+  } as unknown as RepoIntelRepository;
+  return new RepoIntelService(container, repo);
 }
 
 /**

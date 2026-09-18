@@ -98,11 +98,16 @@ const PHANTOM_GLOBALS_ALLOWLIST: ReadonlySet<string> = new Set([
 ]);
 
 export class RepoIntelService implements RepoIntel {
-  private readonly repo: RepoIntelRepository;
-
-  constructor(private container: Container) {
-    this.repo = new RepoIntelRepository(container.db);
-  }
+  /**
+   * The repository is a constructor argument (B4). Two tests used to assign
+   * this private field after construction (`(svc as unknown as {repo}).repo =`)
+   * because there was no other seam; they now inject here. Defaults to the real
+   * one over `container.db`, so `new RepoIntelService(container)` is unchanged.
+   */
+  constructor(
+    private container: Container,
+    private readonly repo: RepoIntelRepository = new RepoIntelRepository(container.db),
+  ) {}
 
   // -------------------------------------------------------------------------
   // Indexing — T2.2 worker. The job handlers (registered via

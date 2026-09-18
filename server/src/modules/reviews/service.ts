@@ -26,12 +26,19 @@ export type { ReviewDto, ReviewDtoFinding } from './helpers.js';
  * run-executor; this class keeps the public method surface.
  */
 export class ReviewService {
-  private repo: ReviewRepository;
   private agents: Container['agentsRepo'];
   private executor: ReviewRunExecutor;
 
-  constructor(private container: Container) {
-    this.repo = new ReviewRepository(container.db);
+  /**
+   * The repository is a constructor argument (B4), matching ReviewRunExecutor
+   * below, which has always taken its repo and agents as arguments. The default
+   * keeps the previous behaviour — a fresh ReviewRepository over container.db,
+   * NOT container.reviewRepo, which is a separate instance of the same class.
+   */
+  constructor(
+    private container: Container,
+    private repo: ReviewRepository = new ReviewRepository(container.db),
+  ) {
     this.agents = container.agentsRepo;
     this.executor = new ReviewRunExecutor(container, this.repo, this.agents);
   }
