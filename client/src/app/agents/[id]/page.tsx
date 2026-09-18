@@ -5,7 +5,7 @@
 
 import React from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { Button, Dropdown, ErrorState, Skeleton, Icon, Badge } from "@devdigest/ui";
+import { Button, Dropdown, ErrorState, Skeleton, Icon, Badge } from "@/components/ui-client";
 import { AppShell } from "../../../components/app-shell";
 import { AgentCard } from "../_components/AgentCard";
 import { AgentEditor } from "./_components/AgentEditor";

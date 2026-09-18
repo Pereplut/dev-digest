@@ -2,7 +2,7 @@
 
 import React, { useCallback } from "react";
 import { useTranslations } from "next-intl";
-import { Icon, Badge, Button, SectionLabel, EmptyState } from "@devdigest/ui";
+import { Icon, Badge, Button, SectionLabel, EmptyState } from "@/components/ui-client";
 import { RunStatus } from "../RunStatus";
 import { RunHistory } from "../RunHistory/RunHistory";
 import { ReviewRunAccordion } from "../ReviewRunAccordion";

@@ -1,4 +1,4 @@
-import type { IconName } from "@devdigest/ui";
+import type { IconName } from "@/components/ui-client";
 import type { Verdict } from "@devdigest/shared";
 
 /** Per-verdict visual meta. `labelKey` resolves under the `verdict` namespace. */

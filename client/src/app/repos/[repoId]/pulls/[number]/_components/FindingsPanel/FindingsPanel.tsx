@@ -6,7 +6,7 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { Toggle, EmptyState, SeverityBadge, type Severity } from "@devdigest/ui";
+import { Toggle, EmptyState, SeverityBadge, type Severity } from "@/components/ui-client";
 import type { FindingRecord } from "@devdigest/shared";
 import {
   FINDING_SEVERITIES,

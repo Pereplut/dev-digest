@@ -2,7 +2,7 @@
 "use client";
 
 import React from "react";
-import { Icon } from "@devdigest/ui";
+import { Icon } from "@/components/ui-client";
 import { s } from "../../styles";
 
 export function TraceSection({

@@ -5,7 +5,7 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { TextInput } from "@devdigest/ui";
+import { TextInput } from "@/components/ui-client";
 
 /** Highlight every case-insensitive occurrence of `q` within a single line. */
 function highlightLine(line: string, q: string): React.ReactNode {

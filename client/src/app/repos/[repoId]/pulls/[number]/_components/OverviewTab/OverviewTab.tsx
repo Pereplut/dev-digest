@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { SectionLabel } from "@devdigest/ui";
+import { SectionLabel } from "@/components/ui-client";
 import { s } from "./styles";
 
 interface OverviewTabProps {

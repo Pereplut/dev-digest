@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback } from "react";
-import { Icon, Avatar, Badge, Button, Tabs } from "@devdigest/ui";
+import { Icon, Avatar, Badge, Button, Tabs } from "@/components/ui-client";
 import { RunReviewDropdown } from "../RunReviewDropdown";
 import { s } from "./styles";
 import type { PrDetail } from "@/lib/types";

@@ -4,7 +4,7 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { Icon, Badge, CircularScore } from "@devdigest/ui";
+import { Icon, Badge, CircularScore } from "@/components/ui-client";
 import type { Verdict } from "@devdigest/shared";
 import { VERDICT_META } from "./constants";
 import { s } from "./styles";

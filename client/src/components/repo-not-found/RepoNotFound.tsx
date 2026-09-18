@@ -5,7 +5,7 @@
 
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { EmptyState } from "@devdigest/ui";
+import { EmptyState } from "@/components/ui-client";
 
 /** Renders the "no repo selected" empty state. Wrap in the page's <AppShell>. */
 export function RepoNotFound() {

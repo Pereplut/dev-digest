@@ -6,7 +6,7 @@
 
 import React from "react";
 import { useRouter } from "next/navigation";
-import { Button, Icon, IconBtn, Kbd, TextInput, FormField } from "@devdigest/ui";
+import { Button, Icon, IconBtn, Kbd, TextInput, FormField } from "@/components/ui-client";
 import { useAddRepo } from "@/lib/hooks";
 import { ApiError } from "@/lib/api";
 

@@ -3,7 +3,7 @@
 import React from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { NAV, SETTINGS_ITEM, resolveHref, type Command } from "@devdigest/ui";
+import { NAV, SETTINGS_ITEM, resolveHref, type Command } from "@/components/ui-client";
 import { useActiveRepo } from "../../../lib/repo-context";
 import { useTheme } from "../../../lib/theme";
 

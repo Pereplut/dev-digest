@@ -4,7 +4,7 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { Button, Icon, Modal } from "@devdigest/ui";
+import { Button, Icon, Modal } from "@/components/ui-client";
 import { s } from "../../styles";
 import { PromptModalBody } from "../PromptModalBody";
 

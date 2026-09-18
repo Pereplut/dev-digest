@@ -5,7 +5,7 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { Tabs } from "@devdigest/ui";
+import { Tabs } from "@/components/ui-client";
 import type { Agent } from "@devdigest/shared";
 import { ConfigTab } from "./_components/ConfigTab";
 import { TABS } from "./constants";

@@ -5,8 +5,8 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { EmptyState, type IconName } from "@devdigest/ui";
-import type { Crumb } from "@devdigest/ui";
+import { EmptyState, type IconName } from "@/components/ui-client";
+import type { Crumb } from "@/components/ui-client";
 import { AppShell } from "../app-shell";
 import { s } from "./styles";
 

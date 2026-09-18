@@ -3,7 +3,7 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { Icon } from "@devdigest/ui";
+import { Icon } from "@/components/ui-client";
 import type { ToolCall } from "@devdigest/shared";
 import { s } from "../../styles";
 

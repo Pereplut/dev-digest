@@ -10,7 +10,7 @@
 import React from "react";
 import { createPortal } from "react-dom";
 import { useTranslations } from "next-intl";
-import { Icon, SeverityBadge, CategoryTag, ConfidenceNum } from "@devdigest/ui";
+import { Icon, SeverityBadge, CategoryTag, ConfidenceNum } from "@/components/ui-client";
 import type { FindingRecord } from "@devdigest/shared";
 import { lineRange } from "./helpers";
 import { s } from "./styles";

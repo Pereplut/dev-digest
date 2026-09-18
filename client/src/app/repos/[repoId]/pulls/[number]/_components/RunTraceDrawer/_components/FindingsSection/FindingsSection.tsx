@@ -4,7 +4,7 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { Badge } from "@devdigest/ui";
+import { Badge } from "@/components/ui-client";
 import type { FindingRecord } from "@devdigest/shared";
 import { s } from "../../styles";
 import { TraceSection } from "../TraceSection";

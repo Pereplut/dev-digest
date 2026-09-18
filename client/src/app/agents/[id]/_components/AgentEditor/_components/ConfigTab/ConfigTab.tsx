@@ -2,7 +2,7 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { FormField, TextInput, SelectInput, SearchableSelect, Textarea, Toggle, Button } from "@devdigest/ui";
+import { FormField, TextInput, SelectInput, SearchableSelect, Textarea, Toggle, Button } from "@/components/ui-client";
 import type { Agent, CiFailOn, Provider, ReviewStrategy } from "@devdigest/shared";
 import { useUpdateAgent, useProviderModels } from "../../../../../../../lib/hooks/agents";
 import { useToast } from "../../../../../../../lib/toast";

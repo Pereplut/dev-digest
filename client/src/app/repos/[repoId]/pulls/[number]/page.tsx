@@ -7,7 +7,7 @@
 
 import React from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { Skeleton, ErrorState } from "@devdigest/ui";
+import { Skeleton, ErrorState } from "@/components/ui-client";
 import { AppShell } from "../../../../../components/app-shell";
 import { RepoNotFound } from "@/components/repo-not-found";
 import { PrDetailHeader } from "./_components/PrDetailHeader";

@@ -34,7 +34,30 @@ const config = [
       "@next/next/no-img-element": "warn",
       "@next/next/no-html-link-for-pages": "warn",
       "prefer-const": "warn",
+      // The vendored kit (src/vendor/ui) uses hooks in 10 modules but declares
+      // no "use client", and we do not edit vendored code. src/components/
+      // ui-client.ts is the single first-party client boundary over it, so the
+      // kit must be imported through that and nowhere else — otherwise the
+      // directive stops travelling with the components and a Server Component
+      // importing the kit fails at build time.
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@devdigest/ui",
+              message:
+                "Import the design system from '@/components/ui-client' instead — it is the one module that declares the client boundary for the vendored kit.",
+            },
+          ],
+        },
+      ],
     },
+  },
+  {
+    // The wrapper itself is the one legitimate importer of the kit.
+    files: ["src/components/ui-client.ts"],
+    rules: { "no-restricted-imports": "off" },
   },
 ];
 

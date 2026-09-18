@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { SectionLabel, Button } from "@devdigest/ui";
+import { SectionLabel, Button } from "@/components/ui-client";
 import { DiffViewer, type DiffCommentApi } from "@/components/diff-viewer";
 import { usePrComments, useCreatePrComment } from "@/lib/hooks/reviews";
 import { notify } from "@/lib/toast";

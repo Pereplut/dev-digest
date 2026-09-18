@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useRepos } from "../lib/hooks";
 import { AppShell } from "../components/app-shell";
 import { PageContainer } from "../components/page-shell";
-import { EmptyState, Button, Skeleton } from "@devdigest/ui";
+import { EmptyState, Button, Skeleton } from "@/components/ui-client";
 
 export default function HomePage() {
   const router = useRouter();
