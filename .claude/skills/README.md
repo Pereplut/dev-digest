@@ -1,6 +1,8 @@
 # Skills
 
-Reusable AI skills that provide specialized knowledge and workflows. Canonical location is `.claude/skills/` with a symlink at `.cursor/skills/ → ../.claude/skills` for Cursor compatibility. Shared with the team via version control.
+Reusable AI skills that provide specialized knowledge and workflows. They live in `.claude/skills/` and are shared with the team via version control.
+
+> This file used to claim a `.cursor/skills/ → ../.claude/skills` symlink for Cursor compatibility. There is no `.cursor` directory in this repo and no file under it is tracked, so the claim was removed rather than the symlink created — nothing here references Cursor.
 
 ## Catalog
 
@@ -19,6 +21,21 @@ Reusable AI skills that provide specialized knowledge and workflows. Canonical l
 | [security](security/SKILL.md) | Full-stack | OWASP Top 10:2025, auth, injection, uploads, secrets |
 | [mermaid-diagram](mermaid-diagram/SKILL.md) | Shared | Mermaid diagrams in markdown (flowcharts, sequence, ERD, …) |
 | [engineering-insights](engineering-insights/SKILL.md) | Workflow | After each code task, record dependencies, fixes, measured facts, odd findings (dated, `file:line`) in the module's `INSIGHTS.md` |
+
+### Lockfile drift (known, 2026-09-18)
+
+`skills-lock.json` and the directories above have diverged in both directions:
+
+- **Locked but absent** — `architecture-patterns` and `github-workflow-automation` have entries in
+  `skills-lock.json` with no directory here. Nothing loads them.
+- **Present but unlocked** — `engineering-insights`, `mermaid-diagram`, `onion-architecture`,
+  `react-best-practices`, `react-code-organization`, `react-testing-library` and `security` exist
+  here but are not tracked by the lockfile, so its hashes say nothing about them.
+
+The catalog table above matches the directories exactly; the drift is lockfile ↔ directories only.
+Resolving it means running the skills manager (install the two missing, or drop their entries) —
+root `AGENTS.md` lists `skills-lock.json` among the lockfiles that are never hand-edited, so this is
+recorded here rather than patched.
 
 ## What Are Skills?
 
