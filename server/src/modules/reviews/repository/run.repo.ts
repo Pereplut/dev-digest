@@ -200,6 +200,25 @@ export async function completeAgentRun(
     .where(eq(t.agentRuns.id, runId));
 }
 
+/** Which skills (and versions) went into one run's prompt, in prompt order. */
+export interface RunSkillValues {
+  order: number;
+  skillId: string | null;
+  skillName: string;
+  version: number;
+  tokens: number;
+}
+
+/** Record a run's skills (spec 0006) — the relational source for skill stats. */
+export async function insertRunSkills(
+  db: DbOrTx,
+  runId: string,
+  skills: RunSkillValues[],
+): Promise<void> {
+  if (skills.length === 0) return;
+  await db.insert(t.runSkills).values(skills.map((s) => ({ runId, ...s })));
+}
+
 /** Persist the WHOLE run log as ONE document. PK = runId → agent_runs. */
 export async function saveRunTrace(
   db: DbOrTx,

@@ -53,6 +53,62 @@ describe('routes (no DB)', () => {
     await app.close();
   });
 
+  // ---- skills (spec 0006): edge rejections that happen before any DB call ----
+
+  function multipart(filename: string, content: Buffer, field = 'file') {
+    const boundary = '----devdigest-smoke';
+    const payload = Buffer.concat([
+      Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="${field}"; filename="${filename}"\r\n` +
+          'Content-Type: application/octet-stream\r\n\r\n',
+      ),
+      content,
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]);
+    return { payload, headers: { 'content-type': `multipart/form-data; boundary=${boundary}` } };
+  }
+
+  it('POST /skills with an invalid draft → 422', async () => {
+    const app = await buildApp({ config });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/skills',
+      payload: { name: '', description: 'd', type: 'nope', body: 'b' },
+    });
+    expect(res.statusCode).toBe(422);
+    expect(res.json().error.code).toBe('validation_error');
+    await app.close();
+  });
+
+  it('PUT /agents/:id/skills rejects duplicate skill ids → 422', async () => {
+    const app = await buildApp({ config });
+    const id = '00000000-0000-4000-8000-000000000001';
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/agents/${id}/skills`,
+      payload: { skills: [{ skill_id: id, enabled: true }, { skill_id: id, enabled: false }] },
+    });
+    expect(res.statusCode).toBe(422);
+    await app.close();
+  });
+
+  it('POST /skills/import/preview: non-multipart → 415, oversize → 413', async () => {
+    const app = await buildApp({ config });
+    const json = await app.inject({ method: 'POST', url: '/skills/import/preview', payload: { a: 1 } });
+    expect(json.statusCode).toBe(415);
+    expect(json.json().error.code).toBe('unsupported_media_type');
+
+    const big = multipart('big.md', Buffer.alloc(1_048_576 + 10, 'a'));
+    const res = await app.inject({ method: 'POST', url: '/skills/import/preview', ...big });
+    expect(res.statusCode).toBe(413);
+    expect(res.json().error.code).toBe('file_too_large');
+
+    const wrongField = multipart('a.md', Buffer.from('x'), 'upload');
+    const wf = await app.inject({ method: 'POST', url: '/skills/import/preview', ...wrongField });
+    expect(wf.statusCode).toBe(422);
+    await app.close();
+  });
+
   it('returns 422 structured error on invalid body', async () => {
     const app = await buildApp({ config });
     const res = await app.inject({

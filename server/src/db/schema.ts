@@ -13,7 +13,7 @@
  * re-exports them so every consumer keeps importing from `db/schema` unchanged.
  *
  * ---------------------------------------------------------------------------
- * ROADMAP SCAFFOLDING — 16 of these 40 tables have no read or write anywhere in
+ * ROADMAP SCAFFOLDING — 15 of these 41 tables have no read or write anywhere in
  * `src/` outside this schema and `db/seed.ts` (measured 2026-09-18). They are
  * kept DELIBERATELY: they cost nothing at runtime and are expensive to re-add,
  * but nothing is wired to them yet, so do not assume a feature exists because
@@ -28,7 +28,6 @@
  *   ops.ts       installedPlugins, digests
  *   runs.ts      multiAgentRuns
  *   reviews.ts   prBrief
- *   skills.ts    skillVersions
  *   core.ts      workspaceMembers
  *
  * Both pgvector tables are in that list, which is why the missing ANN
@@ -64,7 +63,7 @@ import { memory, conventions } from './schema/knowledge';
 import { codeChunks, symbols, references, onboarding } from './schema/context';
 import { evalCases, evalRuns, conformanceChecks, composedReviews } from './schema/eval';
 import { ciInstallations, ciRuns } from './schema/ci';
-import { agentRuns, runTraces, multiAgentRuns } from './schema/runs';
+import { agentRuns, runTraces, runSkills, multiAgentRuns } from './schema/runs';
 import { jobs, installedPlugins, digests } from './schema/ops';
 import {
   repoIndexState,
@@ -107,6 +106,7 @@ export const schema = {
   ciRuns,
   agentRuns,
   runTraces,
+  runSkills,
   multiAgentRuns,
   jobs,
   installedPlugins,

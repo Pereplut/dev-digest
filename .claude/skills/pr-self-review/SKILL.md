@@ -1,5 +1,7 @@
 ---
 name: pr-self-review
+# Manual only (spec 0006): the model cannot auto-invoke it; a person runs /pr-self-review.
+disable-model-invocation: true
 description: >-
   Reviews ALL local changes (branch commits since main + staged + unstaged + untracked) before a
   pull request exists, by routing every changed file to the repo skills that apply to it — UI skills

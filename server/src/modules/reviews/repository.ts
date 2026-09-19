@@ -193,6 +193,11 @@ export class ReviewRepository {
     return pullRepo.markReviewed(this.db, prId, sha);
   }
 
+  /** Record which skills (at which version) went into a run's prompt. */
+  insertRunSkills(runId: string, skills: runRepo.RunSkillValues[]): Promise<void> {
+    return runRepo.insertRunSkills(this.db, runId, skills);
+  }
+
   /** Persist the WHOLE run log as ONE document. PK = runId → agent_runs. */
   saveRunTrace(runId: string, trace: RunTrace): Promise<void> {
     return runRepo.saveRunTrace(this.db, runId, trace);

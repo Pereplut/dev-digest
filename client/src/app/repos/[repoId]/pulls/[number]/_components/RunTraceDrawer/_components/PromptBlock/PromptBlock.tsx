@@ -1,5 +1,6 @@
-/* PromptBlock — one labelled, collapsible prompt segment with copy + fullscreen
-   actions; fullscreen opens PromptModalBody in a Modal. */
+/* PromptBlock — one labelled, collapsible prompt segment with its token count
+   (when the trace has one) and copy + fullscreen actions; fullscreen opens
+   PromptModalBody in a Modal. */
 "use client";
 
 import React from "react";
@@ -20,7 +21,18 @@ const miniBtnStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 
-export function PromptBlock({ label, text, color }: { label: string; text: string; color: string }) {
+export function PromptBlock({
+  label,
+  text,
+  color,
+  tokens = null,
+}: {
+  label: string;
+  text: string;
+  color: string;
+  /** Token estimate for this block; null = unknown (traces before spec 0006). */
+  tokens?: number | null;
+}) {
   const t = useTranslations("runs");
   const [open, setOpen] = React.useState(false);
   const [full, setFull] = React.useState(false);
@@ -53,6 +65,11 @@ export function PromptBlock({ label, text, color }: { label: string; text: strin
       >
         <span style={s.promptDot(color)} />
         <span style={s.promptLabel}>{label}</span>
+        {tokens != null && (
+          <span className="mono" style={s.promptTokens}>
+            {t("trace.prompt.tokens", { count: tokens })}
+          </span>
+        )}
         <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
           <button
             type="button"

@@ -4,8 +4,8 @@
 Bash: denies `gh pr create|merge|ready`, `git push`, and the `gh api` equivalents (REST
 POST .../pulls, .../merges, PUT .../pulls/N/merge, GraphQL PR mutations) unless
 `review_scope.py check` passes — i.e. a verdict exists, its fingerprint matches the current
-local changes, and it found no CRITICAL. The deny reason tells the agent to run
-/pr-self-review, which is how the review runs before every PR without being asked.
+local changes, and it found no CRITICAL. The deny reason tells the agent to ask the user to
+run /pr-self-review: the skill has `disable-model-invocation: true`, so only a person starts it.
 
 Write/Edit: denies hand-writing the verdict file; only `review_scope.py write-verdict` may.
 
@@ -70,8 +70,9 @@ def main():
     if code == 0:
         return
     deny(f"Blocked `{action}`. {message}\n"
-         "Run the pr-self-review skill now (/pr-self-review), fix every CRITICAL it reports, "
-         "then retry. Do not bypass this gate (no --no-verify, no editing the verdict).")
+         "Ask the user to run /pr-self-review (it is manual-only: disable-model-invocation), "
+         "fix every CRITICAL it reports, then retry. Do not bypass this gate "
+         "(no --no-verify, no editing the verdict).")
 
 
 if __name__ == "__main__":

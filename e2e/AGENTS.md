@@ -20,7 +20,7 @@ Flow format, env knobs, coverage table: [README.md](README.md)
   any filter a flow toggles. **One exception**: a flow may declare `"mutates": true`, which the
   runner skips unless `E2E_ALLOW_MUTATING=1` (CI sets it; `npm test` against a dev DB does not, and
   a rejection cannot be undone from the UI). Such a flow must sort LAST — all flows share one seeded
-  stack — and must still never trigger a model call. `08-pr-finding-actions` is the only one.
+  stack — and must still never trigger a model call. `09-pr-finding-actions` is the only one.
 - A non-zero command exit is the assertion; add `"assert": { "stdoutIncludes": … }` only when needed.
 - Every step gets a human `label`. When adding a flow, add a row to the README coverage table.
 

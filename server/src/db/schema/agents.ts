@@ -58,6 +58,8 @@ export const agentSkills = pgTable(
       .notNull()
       .references(() => skills.id, { onDelete: 'cascade' }),
     order: integer('order').notNull().default(0),
+    /** Per-agent switch; a skill reaches the prompt only if this AND skills.enabled. */
+    enabled: boolean('enabled').notNull().default(true),
   },
   (t) => ({ pk: primaryKey({ columns: [t.agentId, t.skillId] }) }),
 );

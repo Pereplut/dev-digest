@@ -35,6 +35,9 @@ SEVERITIES = ("CRITICAL", "WARNING", "SUGGESTION")
 
 MIGRATIONS_DIR = "server/src/db/migrations/"
 VENDOR_UI_DIR = "client/src/vendor/ui/"
+# The one vendored file the app is allowed to change: the sidebar nav registry
+# (AGENTS.md "Do not touch", spec 0006). Everything else in the kit stays frozen.
+VENDOR_UI_ALLOWED = ("client/src/vendor/ui/nav.ts",)
 LOCKFILES = ("pnpm-lock.yaml", "package-lock.json", "yarn.lock", "bun.lock", "bun.lockb")
 
 
@@ -246,7 +249,7 @@ def repo_rule_findings(files, exists):
                     + (" with no new migration generated" if journal else ""),
                     "Revert it. Change server/src/db/schema/ and run `pnpm db:generate` for a NEW migration."))
 
-        if path.startswith(VENDOR_UI_DIR):
+        if path.startswith(VENDOR_UI_DIR) and path not in VENDOR_UI_ALLOWED:
             out.append(_rule(path, "vendored-ui-edited", "client/src/vendor/ui is a ported UI kit",
                              "Revert; wrap or extend the component outside src/vendor/ui."))
 

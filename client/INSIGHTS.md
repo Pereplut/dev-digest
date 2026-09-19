@@ -72,3 +72,28 @@ Extends: "`next dev` rewrites tsconfig.json and next-env.d.ts for a custom distD
 **Insight:** Vitest infers the mock's signature from the function handed to `vi.fn`, not from how the code under test calls it. A zero-parameter impl therefore types `mock.mock.calls` as `[][]`, and reading the URL or the `RequestInit` back fails to compile — `TS2493: Tuple type '[]' of length '0' has no element at index '1'` — while the tests themselves pass at runtime. Declaring the impl with `fetch`'s real signature restores the tuple. Note the split: **14/14 tests green and `pnpm typecheck` reporting 4 errors at the same time**, so a green suite says nothing about test-code types.
 **Apply:** type a stub by the signature it replaces, not by the arguments it happens to ignore. Assert on call arguments through a small typed helper rather than indexing `mock.mock.calls` inline. This is only visible because client tests are type-checked (plan item E6 did the same for `server/`) — without that the broken typing ships silently.
 **Evidence:** `client/src/lib/api.test.ts:36-37` (the typed `stubFetch`), `:43,52` (the `initOf` / `urlOf` accessors).
+
+### 2026-09-19 — [tool] Next 15 rejects `export *` in a `"use client"` module — but only once a Server Component imports it
+Supersedes: "A vendored module that uses hooks without `"use client"` forces the directive onto all 52 consumers" (its `export *` recipe).
+**Context:** pr-self-review flagged `ui-client.ts` (`"use client"; export * from "@devdigest/ui"`), which existed so Server Components could import the kit.
+**Insight:** Next's flight loader errors with "It's currently unsupported to use "export *" in a client boundary" when a Server Component imports such a module; it built only because every importer was itself a client module. The wrapper now lists the kit's names explicitly.
+**Apply:** a new kit component must be added by name to `ui-client.ts`; never reintroduce `export *` there.
+**Evidence:** `client/src/components/ui-client.ts:20`; `client/node_modules/next/dist/build/webpack/loaders/next-flight-loader/index.js:105`.
+
+### 2026-09-19 — [dep] A VALUE import from `@devdigest/shared` passes typecheck and vitest but breaks `next dev`/`next build`
+**Context:** the new Skills page imported `SkillType`/`SkillDraft` (Zod schemas) at runtime; typecheck and 145 tests were green, the page was a Build Error.
+**Insight:** the vendored contracts barrel re-exports with `.js` specifiers (`export * from './contracts/findings.js'`) that webpack cannot resolve; tsc and vitest can, so only a real Next compile catches it. Every existing client import from it was `import type`.
+**Apply:** client code takes only types from `@devdigest/shared`; mirror constants/limits locally. Now enforced: `@typescript-eslint/no-restricted-imports` with `allowTypeImports` — and open a new page in the dev app, tests alone don't prove it builds.
+**Evidence:** `client/src/vendor/shared/index.ts:17`; `client/eslint.config.mjs` (`@devdigest/shared` path rule); `client/src/app/skills/_components/SkillForm/constants.ts:1`.
+
+### 2026-09-19 — [odd] The kit `Donut` always formats values as money; `Toggle` has no accessible-name prop
+**Context:** building the skill Stats tab and SkillCard (spec 0006) on the vendored kit.
+**Insight:** `Donut` renders every value as `valuePrefix + value.toFixed(2)` with `valuePrefix = "$"`, so it can't show counts; `Toggle` takes no `aria-label`, so its `role="switch"` has no name. Neither can be fixed in `src/vendor/ui`.
+**Apply:** counts → draw a recharts `PieChart` + own legend (as StatsTab does); a named switch → wrap the Toggle in a `<label>` with visually hidden text (as SkillCard does).
+**Evidence:** `client/src/vendor/ui/charts/Donut.tsx:15,49`; `client/src/vendor/ui/primitives/Toggle.tsx:3`; `client/src/app/skills/_components/SkillCard/SkillCard.tsx:53`.
+
+### 2026-09-19 — [tool] dnd-kit keyboard sorting finds no drop target in jsdom
+**Context:** testing Space → ArrowDown → Space reordering in the agent SkillsTab.
+**Insight:** `sortableKeyboardCoordinates` picks the next item by geometry, and jsdom returns 0×0 rects for everything, so a keyboard move does nothing. Stubbing `HTMLElement.prototype.getBoundingClientRect` to stack rows by index makes it work; keys must be sent as `user.keyboard("[Space]")` / `"[ArrowDown]"` (KeyboardSensor reads `event.code`).
+**Apply:** reuse `stubRowGeometry` for any dnd-kit keyboard test and restore it in `afterEach`.
+**Evidence:** `client/src/app/agents/[id]/_components/AgentEditor/_components/SkillsTab/SkillsTab.test.tsx:92`.

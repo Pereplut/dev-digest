@@ -190,3 +190,15 @@ Extends: "`pnpm arch`'s no-orphans rule is module-level, so dead *methods* stay 
 **Insight:** `new Date(s).toISOString() === s` accepts extended years like `+275760-09-13T00:00:00.000Z`: JS emits the `±YYYYYY` form itself for years outside 0000–9999, so it round-trips. The unit test for that case failed until the decoder also required the plain `YYYY-MM-DDTHH:mm:ss.sssZ` shape, the only one `encodePullCursor` can produce for real rows.
 **Apply:** when a decoded value is later bound into a SQL cast, validate against the exact format your encoder writes (regex), not just "parses and round-trips".
 **Evidence:** `server/src/modules/pulls/helpers.ts:29` (`ISO_RE`); `server/test/pulls-cursor.test.ts` ("out-of-range year").
+
+### 2026-09-19 — [tool] fflate `unzipSync` silently truncates an entry to its DECLARED size
+**Context:** building the skill-import zip-bomb guard (spec 0006).
+**Insight:** fflate inflates each entry into a buffer of exactly the header's `originalSize` and never grows it, so an entry that under-declares comes back cut short with no error (5000-byte entry declared as 100 → 100 bytes). Output can therefore never exceed the declared size, so checking declared sizes BEFORE inflating is a sound bomb guard; but truncation is undetectable (fflate exports no crc32).
+**Apply:** enforce limits on `originalSize` in the unzip `filter`; don't rely on fflate to report corrupt/lying entries.
+**Evidence:** `server/src/adapters/archive/index.ts:54-61`; test "never yields more than the declared size" in `server/test/skills-import.test.ts`.
+
+### 2026-09-19 — [fix] Adding an optional parameter to a mapper silently breaks point-free `rows.map(fn)`
+**Context:** `toAgentDto(row, skillCount?)` gained a second parameter for `skill_count`.
+**Insight:** `rows.map(toAgentDto)` then passes the array INDEX as `skillCount`; both are numbers, so typecheck is green and every agent shows the wrong count.
+**Apply:** when a mapper grows an optional parameter, grep its point-free `.map(fn)` call sites and switch them to explicit arrows.
+**Evidence:** `server/src/modules/agents/service.ts:73`.

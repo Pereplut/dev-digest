@@ -81,12 +81,22 @@ export interface AssembledPrompt {
  * Assemble the messages array + the PromptAssembly record for the run trace.
  * Untrusted blocks (specs, diff) are delimiter-wrapped; the injection guard is
  * appended to the system message.
+ *
+ * Skills are agent CONFIGURATION (spec 0006), so they live in the system
+ * message: agent prompt → `## Skills` (one block per skill, in link order) →
+ * guard. The guard stays last so no skill text can follow (and try to undo) it.
+ * `assembly.system` excludes the skills block, which has its own trace slot, so
+ * per-slot token counts never double count.
  */
 export function assemblePrompt(parts: PromptParts): AssembledPrompt {
-  const system = `${parts.system}\n\n${INJECTION_GUARD}`;
-
   const skillsBlock =
-    parts.skills && parts.skills.length > 0 ? parts.skills.join('\n\n') : undefined;
+    parts.skills && parts.skills.length > 0
+      ? `## Skills\n${parts.skills.join('\n\n')}`
+      : undefined;
+  const system = `${parts.system}\n\n${INJECTION_GUARD}`;
+  const systemMessage = skillsBlock
+    ? `${parts.system}\n\n${skillsBlock}\n\n${INJECTION_GUARD}`
+    : system;
   const memoryBlock =
     parts.memory && parts.memory.length > 0
       ? parts.memory.map((m) => `- ${m}`).join('\n')
@@ -106,7 +116,6 @@ export function assemblePrompt(parts: PromptParts): AssembledPrompt {
   if (prDescription) {
     userSections.push(`## PR description\n${wrapUntrusted('pr-description', prDescription)}`);
   }
-  if (skillsBlock) userSections.push(`## Skills / rules\n${skillsBlock}`);
   if (memoryBlock) userSections.push(`## Relevant memory\n${memoryBlock}`);
   if (parts.repoMap && parts.repoMap.trim().length > 0) {
     userSections.push(`## Repo skeleton\n${wrapUntrusted('repo-map', parts.repoMap)}`);
@@ -122,7 +131,7 @@ export function assemblePrompt(parts: PromptParts): AssembledPrompt {
   const user = userSections.join('\n\n');
 
   const messages: ChatMessage[] = [
-    { role: 'system', content: system },
+    { role: 'system', content: systemMessage },
     { role: 'user', content: user },
   ];
 

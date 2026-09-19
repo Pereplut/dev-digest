@@ -37,3 +37,4 @@ packages: [server, client]
 | [0003-hw-validation-alignment](0003-hw-validation-alignment.md) | done | all |
 | [0004-agents-md](0004-agents-md.md) | done | all |
 | [0005-pr-self-review](0005-pr-self-review.md) | done | .claude, scripts |
+| [0006-agent-skills](0006-agent-skills.md) | in-progress | server, client, reviewer-core, e2e, .claude |

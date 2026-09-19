@@ -41,7 +41,9 @@ const config = [
       // kit must be imported through that and nowhere else — otherwise the
       // directive stops travelling with the components and a Server Component
       // importing the kit fails at build time.
-      "no-restricted-imports": [
+      // The typescript-eslint variant, so `allowTypeImports` can be per path.
+      "no-restricted-imports": "off",
+      "@typescript-eslint/no-restricted-imports": [
         "error",
         {
           paths: [
@@ -49,6 +51,16 @@ const config = [
               name: "@devdigest/ui",
               message:
                 "Import the design system from '@/components/ui-client' instead — it is the one module that declares the client boundary for the vendored kit.",
+            },
+            {
+              // The vendored contracts barrel uses `.js` specifiers that
+              // webpack cannot resolve, so a VALUE import (a Zod schema)
+              // compiles and passes vitest but breaks `next dev`/`next build`
+              // with "Module not found: ./contracts/findings.js".
+              name: "@devdigest/shared",
+              allowTypeImports: true,
+              message:
+                "Only `import type` from '@devdigest/shared' in the client: a runtime import breaks the Next build (see client INSIGHTS). Mirror the constant locally.",
             },
           ],
         },
@@ -58,7 +70,7 @@ const config = [
   {
     // The wrapper itself is the one legitimate importer of the kit.
     files: ["src/components/ui-client.ts"],
-    rules: { "no-restricted-imports": "off" },
+    rules: { "@typescript-eslint/no-restricted-imports": "off" },
   },
   {
     // ---- Architectural boundaries (mirrors what server/ got in Phase 2) ----

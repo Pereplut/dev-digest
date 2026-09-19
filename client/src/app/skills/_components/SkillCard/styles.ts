@@ -1,0 +1,63 @@
+import type { CSSProperties } from "react";
+
+/** Co-located styles for SkillCard. */
+export const s = {
+  card: (active: boolean, enabled: boolean): CSSProperties => ({
+    padding: 14,
+    borderRadius: 8,
+    cursor: "pointer",
+    border: "1px solid " + (active ? "var(--border-strong)" : "var(--border)"),
+    background: active ? "var(--bg-hover)" : "var(--bg-elevated)",
+    opacity: enabled ? 1 : 0.55,
+    marginBottom: 10,
+  }),
+  headerRow: { display: "flex", alignItems: "center", gap: 10 } satisfies CSSProperties,
+  name: {
+    fontSize: 14,
+    fontWeight: 600,
+    flex: 1,
+    minWidth: 0,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  } satisfies CSSProperties,
+  toggle: { display: "inline-flex", alignItems: "center", cursor: "pointer" } satisfies CSSProperties,
+  srOnly: {
+    position: "absolute",
+    width: 1,
+    height: 1,
+    padding: 0,
+    margin: -1,
+    overflow: "hidden",
+    clip: "rect(0 0 0 0)",
+    whiteSpace: "nowrap",
+    border: 0,
+  } satisfies CSSProperties,
+  description: {
+    fontSize: 13,
+    color: "var(--text-muted)",
+    margin: "8px 0",
+    lineHeight: 1.4,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  } satisfies CSSProperties,
+  metaRow: { display: "flex", alignItems: "center", gap: 10 } satisfies CSSProperties,
+  source: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    fontSize: 12,
+    color: "var(--text-muted)",
+  } satisfies CSSProperties,
+  footer: {
+    display: "flex",
+    gap: 10,
+    fontSize: 12,
+    color: "var(--text-muted)",
+    borderTop: "1px solid var(--border)",
+    marginTop: 12,
+    paddingTop: 10,
+  } satisfies CSSProperties,
+  accept: (color: string): CSSProperties => ({ color }),
+} as const;

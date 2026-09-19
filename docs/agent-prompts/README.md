@@ -19,13 +19,21 @@ in the DB). The canonical, reviewable copies live next to this file:
 Assembly happens in `reviewer-core/src/prompt.ts` (`assemblePrompt`). The model
 receives exactly two messages:
 
-**System message** = your agent prompt **+** a fixed injection guard:
+**System message** = your agent prompt **+** the agent's enabled skills **+** a fixed
+injection guard:
 
 ```
 <your system_prompt>
 
-<INJECTION_GUARD>   // appended verbatim to EVERY agent, every run
+## Skills             (only when the agent has enabled skills — spec 0006)
+### Skill: <name>     (one block per skill, in the agent's link order)
+<skill body>
+
+<INJECTION_GUARD>   // appended verbatim to EVERY agent, every run — always last
 ```
+
+A skill counts toward the prompt only if it is enabled globally (Skills page toggle)
+**and** on the agent's Skills tab.
 
 `INJECTION_GUARD` (`prompt.ts:16`) tells the model that everything inside
 `<untrusted>…</untrusted>` is data, never instructions, and that claims like "test
@@ -38,7 +46,6 @@ delimiter-wrapped (`prompt.ts:104-122`):
 ```
 <task line, e.g. "Review PR #7 '…'">
 ## PR description        (untrusted, author-controlled, truncated to 4000 chars)
-## Skills / rules        (linked skill bodies)
 ## Relevant memory       (curated memory items)
 ## Repo skeleton         (untrusted, repo-derived)
 ## Project context       (untrusted spec chunks)

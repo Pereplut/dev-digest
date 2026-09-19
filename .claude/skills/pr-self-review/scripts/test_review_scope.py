@@ -125,6 +125,9 @@ class RepoRulesTest(unittest.TestCase):
 
     def test_vendored_ui_and_skills_lock(self):
         self.assertEqual(self.rules([("client/src/vendor/ui/button.tsx", "M")]), ["vendored-ui-edited"])
+        # nav.ts is the single allowed exception (spec 0006); a sibling is not.
+        self.assertEqual(self.rules([("client/src/vendor/ui/nav.ts", "M")]), [])
+        self.assertEqual(self.rules([("client/src/vendor/ui/shell/Sidebar.tsx", "M")]), ["vendored-ui-edited"])
         self.assertEqual(self.rules([("skills-lock.json", "M")]), ["skills-lock-without-skills"])
         self.assertEqual(self.rules([("skills-lock.json", "M"), (".claude/skills/zod/SKILL.md", "M")]), [])
 

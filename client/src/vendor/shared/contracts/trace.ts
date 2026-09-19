@@ -37,7 +37,9 @@ export const ToolCall = z.object({
 export type ToolCall = z.infer<typeof ToolCall>;
 
 export const PromptAssembly = z.object({
+  /** Agent system prompt + injection guard, WITHOUT the skills block (it has its own slot). */
   system: z.string(),
+  /** `## Skills` block the engine places inside the system message, before the guard. */
   skills: z.string().nullish(),
   memory: z.string().nullish(),
   specs: z.string().nullish(),
@@ -69,6 +71,14 @@ export const RunStats = z.object({
 });
 export type RunStats = z.infer<typeof RunStats>;
 
+export const SkillUsed = z.object({
+  id: z.string().nullable(),
+  name: z.string(),
+  version: z.number().int(),
+  tokens: z.number().int(),
+});
+export type SkillUsed = z.infer<typeof SkillUsed>;
+
 /** The single-document trace stored in `run_traces.trace`. */
 export const RunTrace = z.object({
   config: z.object({
@@ -86,6 +96,10 @@ export const RunTrace = z.object({
   memory_pulled: z.array(MemoryPulled),
   specs_read: z.array(z.string()),
   log: z.array(RunLogLine),
+  /** Skills appended to the system message, in prompt order. Absent in traces before spec 0006. */
+  skills_used: z.array(SkillUsed).nullish(),
+  /** Token estimate per prompt_assembly slot (cl100k). Absent in traces before spec 0006. */
+  prompt_tokens: z.record(z.string(), z.number().int()).nullish(),
 });
 export type RunTrace = z.infer<typeof RunTrace>;
 

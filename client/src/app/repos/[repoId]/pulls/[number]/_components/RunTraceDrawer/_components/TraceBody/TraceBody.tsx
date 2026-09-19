@@ -8,11 +8,12 @@ import { Badge } from "@/components/ui-client";
 import type { RunTrace, FindingRecord, RunSummary } from "@devdigest/shared";
 import { formatUsd } from "@/components/run-cost-badge";
 import { PROMPT_COLORS } from "../../constants";
-import { formatSeconds, formatTokens } from "../../helpers";
+import { formatSeconds, formatTokens, slotTokens } from "../../helpers";
 import { s } from "../../styles";
 import { TraceSection } from "../TraceSection";
 import { ToolCallRow } from "../ToolCallRow";
 import { PromptBlock } from "../PromptBlock";
+import { SkillsPromptBlocks } from "../SkillsPromptBlocks";
 import { FindingsSection } from "../FindingsSection";
 import { Row, Stat } from "../atoms";
 
@@ -27,6 +28,7 @@ export function TraceBody({
 }) {
   const t = useTranslations("runs");
   const stats = trace.stats;
+  const pa = trace.prompt_assembly;
   // Cost: the run row is the source of truth (old traces lack stats.cost_usd);
   // an unfinished run never shows a price.
   const costUsd = run && run.status !== "done" ? null : (run?.cost_usd ?? stats.cost_usd ?? null);
@@ -83,23 +85,55 @@ export function TraceBody({
       <FindingsSection findings={findings} />
 
       <TraceSection icon="FileText" title={t("trace.promptAssembly")} defaultOpen={false}>
-        <PromptBlock label={t("trace.prompt.system")} text={trace.prompt_assembly.system} color={PROMPT_COLORS.system} />
-        {trace.prompt_assembly.skills != null && (
-          <PromptBlock label={t("trace.prompt.skills")} text={trace.prompt_assembly.skills} color={PROMPT_COLORS.skills} />
+        {/* prompt_tokens / skills_used are absent on traces before spec 0006 —
+            slotTokens returns null and the skills block renders whole. */}
+        <PromptBlock
+          label={t("trace.prompt.system")}
+          text={pa.system}
+          color={PROMPT_COLORS.system}
+          tokens={slotTokens(trace, "system")}
+        />
+        {pa.skills != null && (
+          <SkillsPromptBlocks text={pa.skills} used={trace.skills_used} tokens={slotTokens(trace, "skills")} />
         )}
-        {trace.prompt_assembly.memory != null && (
-          <PromptBlock label={t("trace.prompt.memory")} text={trace.prompt_assembly.memory} color={PROMPT_COLORS.memory} />
+        {pa.memory != null && (
+          <PromptBlock
+            label={t("trace.prompt.memory")}
+            text={pa.memory}
+            color={PROMPT_COLORS.memory}
+            tokens={slotTokens(trace, "memory")}
+          />
         )}
-        {trace.prompt_assembly.repo_map != null && (
-          <PromptBlock label={t("trace.prompt.repoMap")} text={trace.prompt_assembly.repo_map} color={PROMPT_COLORS.repoMap} />
+        {pa.repo_map != null && (
+          <PromptBlock
+            label={t("trace.prompt.repoMap")}
+            text={pa.repo_map}
+            color={PROMPT_COLORS.repoMap}
+            tokens={slotTokens(trace, "repo_map")}
+          />
         )}
-        {trace.prompt_assembly.specs != null && (
-          <PromptBlock label={t("trace.prompt.specs")} text={trace.prompt_assembly.specs} color={PROMPT_COLORS.specs} />
+        {pa.specs != null && (
+          <PromptBlock
+            label={t("trace.prompt.specs")}
+            text={pa.specs}
+            color={PROMPT_COLORS.specs}
+            tokens={slotTokens(trace, "specs")}
+          />
         )}
-        {trace.prompt_assembly.callers != null && (
-          <PromptBlock label={t("trace.prompt.callers")} text={trace.prompt_assembly.callers} color={PROMPT_COLORS.callers} />
+        {pa.callers != null && (
+          <PromptBlock
+            label={t("trace.prompt.callers")}
+            text={pa.callers}
+            color={PROMPT_COLORS.callers}
+            tokens={slotTokens(trace, "callers")}
+          />
         )}
-        <PromptBlock label={t("trace.prompt.user")} text={trace.prompt_assembly.user} color={PROMPT_COLORS.user} />
+        <PromptBlock
+          label={t("trace.prompt.user")}
+          text={pa.user}
+          color={PROMPT_COLORS.user}
+          tokens={slotTokens(trace, "user")}
+        />
       </TraceSection>
 
       <TraceSection

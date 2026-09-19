@@ -1,8 +1,9 @@
 import { sql } from 'drizzle-orm';
-import { pgTable, uuid, text, integer, jsonb, timestamp, numeric, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, integer, jsonb, timestamp, numeric, index, primaryKey } from 'drizzle-orm/pg-core';
 import { workspaces } from './core';
 import { agents } from './agents';
 import { pullRequests } from './pulls';
+import { skills } from './skills';
 
 // ============================================================ Observability
 
@@ -57,6 +58,30 @@ export const agentRuns = pgTable(
     prDoneIdx: index('agent_runs_pr_done_idx')
       .on(t.prId)
       .where(sql`status = 'done'`),
+  }),
+);
+
+/**
+ * Which skills (at which version) went into one run's prompt, in prompt order.
+ * Relational rather than only inside the trace jsonb so skill stats (pull rate,
+ * accept rate, findings by category) are plain joins. `skill_id` is nulled when
+ * the skill is deleted; `skill_name` keeps the history readable.
+ */
+export const runSkills = pgTable(
+  'run_skills',
+  {
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => agentRuns.id, { onDelete: 'cascade' }),
+    order: integer('order').notNull(),
+    skillId: uuid('skill_id').references(() => skills.id, { onDelete: 'set null' }),
+    skillName: text('skill_name').notNull(),
+    version: integer('version').notNull(),
+    tokens: integer('tokens').notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.runId, t.order] }),
+    skillIdx: index('run_skills_skill_id_idx').on(t.skillId),
   }),
 );
 

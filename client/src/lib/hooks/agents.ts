@@ -3,7 +3,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
-import type { Agent, ModelInfo, Provider, ReviewStrategy } from "@devdigest/shared";
+import type { Agent, AgentSkill, ModelInfo, Provider, ReviewStrategy } from "@devdigest/shared";
 
 export function useAgents() {
   return useQuery({
@@ -87,5 +87,35 @@ export function useProviderModels(provider: Provider | null | undefined) {
     queryFn: () => api.get<ModelInfo[]>(`/providers/${provider}/models`),
     enabled: !!provider,
     staleTime: 5 * 60_000,
+  });
+}
+
+/** Every skill link of an agent (enabled or not), in prompt order, with the skill. */
+export function useAgentSkills(agentId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["agent-skills", agentId],
+    queryFn: () => api.get<AgentSkill[]>(`/agents/${agentId}/skills`),
+    enabled: !!agentId,
+  });
+}
+
+export interface SetAgentSkillsInput {
+  agentId: string;
+  /** Full ordered replacement; array order = prompt order. */
+  skills: { skill_id: string; enabled: boolean }[];
+}
+
+export function useSetAgentSkills() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ agentId, skills }: SetAgentSkillsInput) =>
+      api.put<AgentSkill[]>(`/agents/${agentId}/skills`, { skills }),
+    onSuccess: (data, { agentId }) => {
+      qc.setQueryData(["agent-skills", agentId], data);
+      // skill_count on agent cards + agent_count on skill cards/stats change.
+      qc.invalidateQueries({ queryKey: ["agents"] });
+      qc.invalidateQueries({ queryKey: ["skills"] });
+      qc.invalidateQueries({ queryKey: ["skill-stats"] });
+    },
   });
 }

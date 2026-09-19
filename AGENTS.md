@@ -80,6 +80,7 @@ A change to `reviewer-core/` or `server/src/vendor/shared/` also requires server
   - They change only as a side effect of that package's own manager (`pnpm add` / `npm i`) when dependencies change.
   - Never add a second lockfile (for example `package-lock.json` in a pnpm package).
 - **Vendored code:** `client/src/vendor/ui` (ported UI kit). Contracts only change together with the shared AGENTS.md rules.
+  - Single exception: `client/src/vendor/ui/nav.ts` (the sidebar nav and shortcut registry) may change when a new top-level page ships (spec 0006). `review_scope.py` allows exactly this file.
 - **Dev DB volume:** never run `docker compose down -v`; it wipes the dev DB volume.
 
 ## Repo-wide rules
@@ -119,7 +120,8 @@ Every task goes through these phases in order. For spec'd features, log each pha
 5. **Completion:**
    - Set the spec to `status: done` and move durable explanations into `docs/`.
    - Run the `engineering-insights` wrap-up (automatic; don't wait to be asked).
-   - Before opening, pushing or merging a PR, run the [`pr-self-review`](.claude/skills/pr-self-review/SKILL.md) skill.
+   - Before opening, pushing or merging a PR, the user runs `/pr-self-review` ([skill](.claude/skills/pr-self-review/SKILL.md)).
+     It is manual-only (`disable-model-invocation: true`), so an agent asks the user to run it rather than invoking it.
      It reviews every local change with the skills that match each file. Any `CRITICAL` blocks the PR:
      `.claude/hooks/pr-self-review-gate.py` denies `gh pr create|merge|ready` and `git push` until a passing review covers the exact diff.
      Never bypass it (`--no-verify`, hand-editing `.claude/.pr-self-review/`).
