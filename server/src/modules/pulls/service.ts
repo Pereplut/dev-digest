@@ -8,8 +8,8 @@ import type {
 import type { Container } from '../../platform/container.js';
 import type { PinoLike } from '../../platform/run-logger.js';
 import { AppError, NotFoundError } from '../../platform/errors.js';
-import type { PullRow } from '../../db/rows.js';
-import { PullsRepository, type RepoRow } from './repository/pull.repo.js';
+import type { PullRow, RepoRow } from '../../db/rows.js';
+import { PullsRepository } from './repository/pull.repo.js';
 import {
   decodePullCursor,
   encodePullCursor,
@@ -184,17 +184,20 @@ export class PullsService {
       const gh = await this.container.github();
       const detail = await gh.getPullRequest({ owner: repo.owner, name: repo.name }, pr.number);
 
-      await this.repo.replaceFiles(
+      await this.repo.saveDetail(
         pr.id,
+        {
+          body: detail.body ?? null,
+          additions: detail.additions,
+          deletions: detail.deletions,
+          filesCount: detail.files_count,
+        },
         detail.files.map((f) => ({
           path: f.path,
           additions: f.additions,
           deletions: f.deletions,
           patch: f.patch ?? null,
         })),
-      );
-      await this.repo.replaceCommits(
-        pr.id,
         detail.commits.map((c) => ({
           sha: c.sha,
           message: c.message,
@@ -202,12 +205,6 @@ export class PullsService {
           committedAt: c.committed_at ? new Date(c.committed_at) : null,
         })),
       );
-      await this.repo.updateDetailFields(pr.id, {
-        body: detail.body ?? null,
-        additions: detail.additions,
-        deletions: detail.deletions,
-        filesCount: detail.files_count,
-      });
 
       return { ...detail, id: pr.id };
     } catch (err) {

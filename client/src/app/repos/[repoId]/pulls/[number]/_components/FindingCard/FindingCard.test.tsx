@@ -73,6 +73,17 @@ describe("FindingCard — Accept / Reject", () => {
     expect(screen.queryByText("Move the key to an environment variable.")).not.toBeInTheDocument();
   });
 
+  it("Enter on a focused Accept button accepts instead of toggling the card", async () => {
+    const user = userEvent.setup();
+    const onAction = vi.fn();
+    renderWithIntl(<FindingCard f={FINDING} onAction={onAction} />);
+
+    screen.getByRole("button", { name: "Accept" }).focus();
+    await user.keyboard("{Enter}");
+    expect(onAction).toHaveBeenCalledWith("accept");
+    expect(screen.queryByText("Move the key to an environment variable.")).not.toBeInTheDocument();
+  });
+
   it("a rejected finding is labelled rejected", () => {
     renderWithIntl(<FindingCard f={{ ...FINDING, dismissed_at: "2026-09-15T10:00:00Z" }} onAction={() => {}} />);
     expect(screen.getByText("rejected")).toBeInTheDocument();

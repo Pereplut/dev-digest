@@ -1,6 +1,7 @@
 import { and, desc, eq } from 'drizzle-orm';
 import type { DbOrTx } from '../../../db/client.js';
 import * as t from '../../../db/schema.js';
+import { AppError } from '../../../platform/errors.js';
 import type { RunSummary } from '@devdigest/shared';
 import { RunTrace as RunTraceSchema, type RunTrace } from '@devdigest/shared';
 
@@ -211,13 +212,28 @@ export async function saveRunTrace(
     .onConflictDoUpdate({ target: t.runTraces.runId, set: { trace } });
 }
 
+/**
+ * Read-side schema for stored traces. Traces written before a list field
+ * existed are historical data we cannot retro-fix, and the drawer should still
+ * open, so those fields default to empty here. Everything else must match, so
+ * the output genuinely IS a RunTrace — no cast. The strict shape is enforced
+ * at WRITE time via buildRunTrace.
+ */
+const StoredRunTrace = RunTraceSchema.extend({
+  tool_calls: RunTraceSchema.shape.tool_calls.default([]),
+  raw_output: RunTraceSchema.shape.raw_output.default(''),
+  memory_pulled: RunTraceSchema.shape.memory_pulled.default([]),
+  specs_read: RunTraceSchema.shape.specs_read.default([]),
+  log: RunTraceSchema.shape.log.default([]),
+});
+
 export async function getRunTrace(db: DbOrTx, runId: string): Promise<RunTrace | undefined> {
   const [row] = await db.select().from(t.runTraces).where(eq(t.runTraces.runId, runId));
   if (!row) return undefined;
-  // jsonb comes back as `unknown`; validate rather than cast blindly. Traces
-  // written before a schema field existed are tolerated on READ (they are
-  // historical data we cannot retro-fix, and the drawer should still open) —
-  // the guarantee is enforced at WRITE time via buildRunTrace instead.
-  const parsed = RunTraceSchema.safeParse(row.trace);
-  return parsed.success ? parsed.data : (row.trace as RunTrace);
+  const parsed = StoredRunTrace.safeParse(row.trace);
+  if (!parsed.success) {
+    // Say so rather than hand the client a shape the parse just rejected.
+    throw new AppError('trace_corrupt', 'Stored run trace does not match the trace schema', 500);
+  }
+  return parsed.data;
 }

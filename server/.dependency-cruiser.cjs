@@ -54,6 +54,15 @@ module.exports = {
       to: { path: '^src/modules/' },
     },
     {
+      name: 'job-runner-no-drizzle',
+      comment:
+        'platform/jobs.ts is an application service (ring 3): the queue orchestration only. ' +
+        'Every `jobs` table read/write goes through JobsRepository in platform/jobs.repo.ts.',
+      severity: 'error',
+      from: { path: '^src/platform/jobs\\.ts$' },
+      to: { path: '^node_modules/drizzle-orm' },
+    },
+    {
       name: 'astgrep-only-through-its-port',
       comment:
         'Feature modules depend on the CodeParser PORT (adapters/astgrep/port.ts), never on the ' +

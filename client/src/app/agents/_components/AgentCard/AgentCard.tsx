@@ -38,6 +38,9 @@ export function AgentCard({
             role: "button",
             tabIndex: 0,
             onKeyDown: (ev: React.KeyboardEvent) => {
+              // Keys pressed on a nested control (a button or link inside this header)
+              // bubble here too; leave them to that control.
+              if (ev.target !== ev.currentTarget) return;
               if (ev.key === "Enter" || ev.key === " ") {
                 ev.preventDefault(); // Space would otherwise scroll the page
                 onClick();

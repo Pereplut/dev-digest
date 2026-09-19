@@ -1,14 +1,7 @@
 import type { PrDetail, PrMeta } from '@devdigest/shared';
-import type { PullRow } from '../../db/rows.js';
+import type { PrCommitRow, PrFileRow, PullRow } from '../../db/rows.js';
 import { deriveReviewStatus, rollupSeverities } from './status.js';
-import type {
-  PrCommitRow,
-  PrCost,
-  PrFileRow,
-  PullCursor,
-  SeverityCount,
-  UpsertPullValues,
-} from './repository/pull.repo.js';
+import type { PrCost, PullCursor, SeverityCount, UpsertPullValues } from './types.js';
 
 /**
  * Pure row → contract mapping for the pulls module. No DB, no `this`, so it
@@ -30,19 +23,30 @@ export function encodePullCursor(row: PullRow): string {
   return Buffer.from(`${key}|${row.id}`, 'utf8').toString('base64url');
 }
 
-/** Decode a cursor; `null` for anything malformed, so a bad one is a 400 not a 500. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// What `toISOString()` emits for years 0000-9999; the extended `±YYYYYY` form
+// round-trips in JS but Postgres refuses to parse it.
+const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+/**
+ * Decode a cursor; `null` for anything malformed, so a bad one is a 400 not a
+ * 500. Both halves are checked strictly because the repository binds them into
+ * SQL casts (`::timestamptz`, `::uuid`): a value Postgres rejects would surface
+ * as a 500 carrying the driver's error text. The timestamp must round-trip
+ * exactly as `encodePullCursor` wrote it, in the plain 4-digit-year form.
+ */
 export function decodePullCursor(raw: string): PullCursor | null {
-  let decoded: string;
-  try {
-    decoded = Buffer.from(raw, 'base64url').toString('utf8');
-  } catch {
-    return null;
-  }
+  // base64url decoding never throws; junk input just decodes to junk.
+  const decoded = Buffer.from(raw, 'base64url').toString('utf8');
   const sep = decoded.lastIndexOf('|');
   if (sep <= 0) return null;
-  const updatedAt = new Date(decoded.slice(0, sep));
+  const iso = decoded.slice(0, sep);
   const id = decoded.slice(sep + 1);
-  if (!id || Number.isNaN(updatedAt.getTime())) return null;
+  const updatedAt = new Date(iso);
+  if (!ISO_RE.test(iso) || Number.isNaN(updatedAt.getTime()) || updatedAt.toISOString() !== iso) {
+    return null;
+  }
+  if (!UUID_RE.test(id)) return null;
   return { updatedAt, id };
 }
 

@@ -157,6 +157,16 @@ d('GET /repos/:id/pulls — keyset pagination (Testcontainers pg)', () => {
     expect(res.status).toBe(400);
   });
 
+  it('rejects a well-formed cursor whose id is not a uuid with 400, not a Postgres 500', async () => {
+    const repo = await setupRepoWithPrs(3);
+    // Decodes cleanly, but the id half would reach `::uuid` in SQL.
+    const crafted = Buffer.from('2020-01-01T00:00:00.000Z|x', 'utf8').toString('base64url');
+
+    const res = await get(`/repos/${repo.id}/pulls?cursor=${crafted}`);
+
+    expect(res.status).toBe(400);
+  });
+
   it('bounds limit at the edge', async () => {
     const repo = await setupRepoWithPrs(3);
 

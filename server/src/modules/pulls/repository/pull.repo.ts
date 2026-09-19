@@ -1,7 +1,8 @@
 import { and, count, desc, eq, inArray, isNull, sql, sum } from 'drizzle-orm';
 import type { Db } from '../../../db/client.js';
 import * as t from '../../../db/schema.js';
-import type { PullRow } from '../../../db/rows.js';
+import type { PrCommitRow, PrFileRow, PullRow, RepoRow } from '../../../db/rows.js';
+import type { PrCost, PullCursor, SeverityCount, UpsertPullValues } from '../types.js';
 
 /**
  * pulls data-access layer — the ONLY place in this module that touches
@@ -19,51 +20,7 @@ import type { PullRow } from '../../../db/rows.js';
  * issuing `IN ()`.
  */
 
-export type RepoRow = typeof t.repos.$inferSelect;
-export type PrFileRow = typeof t.prFiles.$inferSelect;
-export type PrCommitRow = typeof t.prCommits.$inferSelect;
-
-/**
- * Decoded page boundary: the last row of the previous page. Declared HERE
- * rather than in helpers.ts because helpers.ts already imports types from this
- * file — defining it there and importing it back would close a
- * helpers <-> repository cycle, which `no-circular` forbids and which
- * `tsPreCompilationDeps` sees even for type-only imports.
- */
-export interface PullCursor {
-  updatedAt: Date;
-  id: string;
-}
-
-/** Insert/update values for one PR synced from GitHub (built in helpers.ts). */
-export interface UpsertPullValues {
-  workspaceId: string;
-  repoId: string;
-  number: number;
-  title: string;
-  author: string;
-  branch: string;
-  base: string;
-  headSha: string;
-  additions: number;
-  deletions: number;
-  filesCount: number;
-  status: string;
-  openedAt: Date | null;
-  updatedAt: Date | null;
-}
-
-/** Total cost of a PR's done runs; `complete` is false when one had no price. */
-export interface PrCost {
-  total: number | null;
-  complete: boolean;
-}
-
-/** Pre-grouped open-finding counts, as `status.ts#rollupSeverities` wants them. */
-export interface SeverityCount {
-  severity: string;
-  n: number;
-}
+export type { RepoRow, PrFileRow, PrCommitRow };
 
 export interface PrDiffStats {
   additions: number;
@@ -219,34 +176,44 @@ export class PullsRepository {
       .where(eq(t.pullRequests.id, prId));
   }
 
-  async updateDetailFields(prId: string, fields: PrDetailFields): Promise<void> {
-    await this.db
-      .update(t.pullRequests)
-      .set({
-        body: fields.body,
-        // Diff stats aren't on GitHub's PR-list payload — backfill them from
-        // the detail fetch so the Pull Requests list shows real size/files.
-        additions: fields.additions,
-        deletions: fields.deletions,
-        filesCount: fields.filesCount,
-      })
-      .where(eq(t.pullRequests.id, prId));
-  }
-
-  /** Delete-then-insert. Not transactional, matching the pre-extraction code. */
-  async replaceFiles(prId: string, files: InsertPrFile[]): Promise<void> {
-    await this.db.delete(t.prFiles).where(eq(t.prFiles.prId, prId));
-    if (files.length > 0) {
-      await this.db.insert(t.prFiles).values(files.map((f) => ({ prId, ...f })));
-    }
-  }
-
-  /** Delete-then-insert. Not transactional, matching the pre-extraction code. */
-  async replaceCommits(prId: string, commits: InsertPrCommit[]): Promise<void> {
-    await this.db.delete(t.prCommits).where(eq(t.prCommits.prId, prId));
-    if (commits.length > 0) {
-      await this.db.insert(t.prCommits).values(commits.map((c) => ({ prId, ...c })));
-    }
+  /**
+   * Persist one GitHub detail refresh: the PR's detail fields plus a full
+   * replacement of its files and commits, atomically, so a failed insert can
+   * never leave a PR with zero files.
+   *
+   * The pull_requests UPDATE runs FIRST on purpose: it takes that row's lock,
+   * so two concurrent refreshes of the same PR queue up instead of
+   * interleaving. Under READ COMMITTED a transaction alone is not enough — the
+   * second DELETE's snapshot would not see the first one's inserts, and both
+   * sets of rows would survive.
+   */
+  async saveDetail(
+    prId: string,
+    fields: PrDetailFields,
+    files: InsertPrFile[],
+    commits: InsertPrCommit[],
+  ): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(t.pullRequests)
+        .set({
+          body: fields.body,
+          // Diff stats aren't on GitHub's PR-list payload — backfill them from
+          // the detail fetch so the Pull Requests list shows real size/files.
+          additions: fields.additions,
+          deletions: fields.deletions,
+          filesCount: fields.filesCount,
+        })
+        .where(eq(t.pullRequests.id, prId));
+      await tx.delete(t.prFiles).where(eq(t.prFiles.prId, prId));
+      if (files.length > 0) {
+        await tx.insert(t.prFiles).values(files.map((f) => ({ prId, ...f })));
+      }
+      await tx.delete(t.prCommits).where(eq(t.prCommits.prId, prId));
+      if (commits.length > 0) {
+        await tx.insert(t.prCommits).values(commits.map((c) => ({ prId, ...c })));
+      }
+    });
   }
 
   async getFiles(prId: string): Promise<PrFileRow[]> {

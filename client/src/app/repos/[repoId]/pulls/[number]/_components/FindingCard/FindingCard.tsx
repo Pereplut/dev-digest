@@ -64,6 +64,9 @@ export function FindingCard({
         aria-expanded={expanded}
         onClick={() => setExpanded((x) => !x)}
         onKeyDown={(ev) => {
+          // Keys pressed on a nested control (a button or link inside this header)
+          // bubble here too; leave them to that control.
+          if (ev.target !== ev.currentTarget) return;
           if (ev.key === "Enter" || ev.key === " ") {
             ev.preventDefault(); // Space would otherwise scroll the page
             setExpanded((x) => !x);

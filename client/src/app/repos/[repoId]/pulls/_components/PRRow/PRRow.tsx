@@ -50,8 +50,11 @@ export function PRRow({ pr, repoId }: { pr: PrMeta; repoId: string }) {
           {/* The row keeps its onClick for click-anywhere, but the title is a
               real link: that makes the row reachable by keyboard, openable in a
               new tab and middle-clickable — none of which a div onClick gives.
-              `all: unset` so the anchor inherits the existing row-title style. */}
-          <Link href={detailHref} style={{ all: "unset", cursor: "pointer" }}>
+              stopPropagation keeps the row's router.push from firing too: that
+              would navigate twice on a click and pull the current tab away on
+              a Ctrl/Cmd-click. The style resets only color/decoration, so the
+              browser's focus ring stays visible. */}
+          <Link href={detailHref} onClick={(e) => e.stopPropagation()} style={s.rowTitleLink}>
             <div style={s.rowTitle(h)}>{pr.title}</div>
           </Link>
           <span className="mono" style={s.rowNumber}>

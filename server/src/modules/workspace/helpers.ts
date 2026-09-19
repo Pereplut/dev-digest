@@ -1,4 +1,4 @@
-import type { RepoRow } from './repository/workspace.repo.js';
+import type { RepoRow } from '../../db/rows.js';
 
 /** One row of the workspace overview's cloned-repos summary. */
 export interface WorkspaceRepoSummary {

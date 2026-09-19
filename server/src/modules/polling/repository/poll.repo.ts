@@ -1,6 +1,8 @@
 import { and, eq } from 'drizzle-orm';
 import type { Db } from '../../../db/client.js';
 import * as t from '../../../db/schema.js';
+import type { RepoRow } from '../../../db/rows.js';
+import type { PollUpsertValues } from '../types.js';
 
 /**
  * polling data-access layer — the ONLY place in this module that touches
@@ -13,24 +15,7 @@ import * as t from '../../../db/schema.js';
  * note in service.ts.
  */
 
-export type RepoRow = typeof t.repos.$inferSelect;
-
-/** Columns written for one PR synced by a manual poll (built in helpers.ts). */
-export interface PollUpsertValues {
-  workspaceId: string;
-  repoId: string;
-  number: number;
-  title: string;
-  author: string;
-  branch: string;
-  base: string;
-  headSha: string;
-  additions: number;
-  deletions: number;
-  filesCount: number;
-  status: string;
-  updatedAt: Date | null;
-}
+export type { RepoRow };
 
 export class PollingRepository {
   constructor(private db: Db) {}

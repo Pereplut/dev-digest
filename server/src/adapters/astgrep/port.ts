@@ -19,7 +19,23 @@
  * consumer — defeating the point of having a port. The richer `langForFile`
  * stays exported from the adapter for its own tests.
  */
-import type { ExtractedReference, ExtractedSymbol } from '../codeindex/extract.js';
+
+/**
+ * The base row shapes both extractors produce: this port's AST implementation
+ * and the regex fallback in `adapters/codeindex/extract.ts`. Declared in the
+ * port so the dependency runs inward — extract.ts imports them from here, and
+ * the port imports no implementation.
+ */
+export interface ExtractedSymbol {
+  name: string;
+  kind: string;
+  line: number;
+}
+
+export interface ExtractedReference {
+  toSymbol: string;
+  line: number;
+}
 
 /** A declaration. Superset of the regex extractor's row shape. */
 export interface ParsedSymbol extends ExtractedSymbol {

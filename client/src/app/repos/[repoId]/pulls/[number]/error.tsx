@@ -4,14 +4,18 @@
    renders a diff viewer, findings, a run timeline and a trace drawer, several
    of which mount third-party libraries (mermaid, recharts, react-markdown).
    Scoped here so one bad PR does not take down the whole app — the shell and
-   the PR list navigation survive.
+   the PR list navigation survive. The page renders its own <AppShell> and this
+   boundary replaces the page, so the fallback renders the shell itself. If the
+   shell is what threw, the error bubbles to app/error.tsx.
 
    `reset()` is the Next 15 API (v16 renamed it `retry()`). */
 "use client";
 
 import React from "react";
+import { useParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { ErrorState } from "@/components/ui-client";
+import { AppShell } from "@/components/app-shell";
 
 export default function PrDetailError({
   error,
@@ -21,16 +25,25 @@ export default function PrDetailError({
   reset: () => void;
 }) {
   const t = useTranslations("errors");
+  const tPr = useTranslations("prReview");
+  const { repoId, number } = useParams<{ repoId: string; number: string }>();
 
   React.useEffect(() => {
     console.error("Error in the PR detail segment:", error);
   }, [error]);
 
   return (
-    <ErrorState
-      title={t("boundary.prDetailTitle")}
-      body={t("boundary.prDetailBody")}
-      onRetry={reset}
-    />
+    <AppShell
+      crumb={[
+        { label: tPr("detail.crumbPulls"), href: `/repos/${repoId}/pulls` },
+        { label: `#${number}`, mono: true },
+      ]}
+    >
+      <ErrorState
+        title={t("boundary.prDetailTitle")}
+        body={t("boundary.prDetailBody")}
+        onRetry={reset}
+      />
+    </AppShell>
   );
 }

@@ -41,6 +41,9 @@ export function PromptBlock({ label, text, color }: { label: string; text: strin
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
         onKeyDown={(ev) => {
+          // Keys pressed on a nested control (a button or link inside this header)
+          // bubble here too; leave them to that control.
+          if (ev.target !== ev.currentTarget) return;
           if (ev.key === "Enter" || ev.key === " ") {
             ev.preventDefault(); // Space would otherwise scroll the page
             setOpen((o) => !o);

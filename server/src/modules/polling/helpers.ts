@@ -1,5 +1,5 @@
 import type { PrMeta } from '@devdigest/shared';
-import type { PollUpsertValues } from './repository/poll.repo.js';
+import type { PollUpsertValues } from './types.js';
 
 /**
  * Pure mapping for the polling module — no DB, no `this`.

@@ -1,7 +1,5 @@
 import PQueue from 'p-queue';
-import { eq, inArray } from 'drizzle-orm';
-import type { Db } from '../db/client.js';
-import * as t from '../db/schema.js';
+import type { JobsRepository } from './jobs.repo.js';
 import { withTimeout, withRetry } from './resilience.js';
 import { redactCredentials } from './redact.js';
 
@@ -11,7 +9,8 @@ import { redactCredentials } from './redact.js';
  * timeouts + retry/backoff.
  *
  * Handlers are registered by kind. enqueue() inserts a `jobs` row, schedules
- * the handler on the queue, and updates status/attempts/error as it runs.
+ * the handler on the queue, and updates status/attempts/error as it runs. All
+ * table access goes through JobsRepository (jobs.repo.ts).
  */
 
 export type JobHandler = (payload: unknown, ctx: { jobId: string }) => Promise<void>;
@@ -35,7 +34,7 @@ export class JobRunner {
   private retries: number;
 
   constructor(
-    private db: Db,
+    private repo: JobsRepository,
     opts: JobRunnerOptions = {},
   ) {
     this.queue = new PQueue({ concurrency: opts.concurrency ?? 3 });
@@ -51,52 +50,35 @@ export class JobRunner {
     const handler = this.handlers.get(kind);
     if (!handler) throw new Error(`No job handler registered for kind '${kind}'`);
 
-    const [row] = await this.db
-      .insert(t.jobs)
-      .values({ workspaceId, kind, payload: payload as object, status: 'queued' })
-      .returning({ id: t.jobs.id });
-    const jobId = row!.id;
+    const jobId = await this.repo.insertQueued(workspaceId, kind, payload);
 
     const done = this.queue.add(async () => {
-      await this.db
-        .update(t.jobs)
-        .set({ status: 'running', startedAt: new Date() })
-        .where(eq(t.jobs.id, jobId));
+      await this.repo.markRunning(jobId);
       try {
         await withRetry(
           () =>
-            withTimeout(handler(payload, { jobId }), this.timeoutMs).then(async () => {
-              await this.db
-                .update(t.jobs)
-                .set({ attempts: 1 })
-                .where(eq(t.jobs.id, jobId));
-            }),
+            withTimeout(handler(payload, { jobId }), this.timeoutMs).then(() =>
+              this.repo.setAttempts(jobId, 1),
+            ),
           {
             retries: this.retries,
-            onRetry: async (attempt) => {
-              await this.db
-                .update(t.jobs)
-                .set({ attempts: attempt })
-                .where(eq(t.jobs.id, jobId));
+            // withRetry does not await onRetry, so a failed bookkeeping write
+            // would be an unhandled rejection; it is not worth failing the job.
+            onRetry: (attempt) => {
+              void this.repo.setAttempts(jobId, attempt).catch(() => undefined);
             },
           },
         );
-        await this.db
-          .update(t.jobs)
-          .set({ status: 'done', finishedAt: new Date() })
-          .where(eq(t.jobs.id, jobId));
+        await this.repo.markDone(jobId);
       } catch (err) {
-        await this.db
-          .update(t.jobs)
-          .set({
-            status: 'failed',
-            finishedAt: new Date(),
-            // A clone URL can carry a PAT; git echoes it in its failure stderr
-            // and simple-git copies that into the Error message. Never persist
-            // it in cleartext — see platform/redact.ts.
-            error: redactCredentials((err as Error).message),
-          })
-          .where(eq(t.jobs.id, jobId));
+        // A handler can throw a non-Error (a string, a rejected plain value);
+        // `(err as Error).message` would then be undefined and redactCredentials
+        // would throw, leaving the row stuck at 'running'.
+        const message = err instanceof Error ? err.message : String(err);
+        // A clone URL can carry a PAT; git echoes it in its failure stderr and
+        // simple-git copies that into the Error message. Never persist it in
+        // cleartext — see platform/redact.ts.
+        await this.repo.markFailed(jobId, redactCredentials(message));
         throw err;
       }
     }) as Promise<void>;
@@ -127,16 +109,9 @@ export class JobRunner {
    * 'abandoned' value would be a migration for a column with no readers.
    */
   async reapOrphanedJobs(): Promise<number> {
-    const rows = await this.db
-      .update(t.jobs)
-      .set({
-        status: 'failed',
-        finishedAt: new Date(),
-        error: 'Abandoned: the process running this job exited before it finished.',
-      })
-      .where(inArray(t.jobs.status, ['queued', 'running']))
-      .returning({ id: t.jobs.id });
-    return rows.length;
+    return this.repo.failUnfinished(
+      'Abandoned: the process running this job exited before it finished.',
+    );
   }
 
   /** Wait for the queue to drain (useful in tests). */

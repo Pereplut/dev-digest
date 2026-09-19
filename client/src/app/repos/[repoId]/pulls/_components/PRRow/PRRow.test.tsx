@@ -17,6 +17,7 @@
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, cleanup, fireEvent, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import type { PrMeta, ReviewRecord } from "@devdigest/shared";
 import messages from "../../../../../../../messages/en/prReview.json";
@@ -176,5 +177,22 @@ describe("PRRow — FINDINGS column", () => {
     expect(within(card).queryAllByRole("button")).toHaveLength(0);
     fireEvent.click(screen.getByText("Hardcoded Stripe secret key in commit"));
     expect(push).not.toHaveBeenCalled();
+  });
+});
+
+describe("PRRow — navigation", () => {
+  it("clicking the title link does not also run the row's router.push", async () => {
+    const user = userEvent.setup();
+    renderRow(pr({}));
+    const link = screen.getByRole("link", { name: "Add rate limiting to public API endpoints" });
+    expect(link).toHaveAttribute("href", "/repos/repo-1/pulls/482");
+    // jsdom does not navigate on an anchor click; stop it logging "not implemented".
+    link.addEventListener("click", (e) => e.preventDefault());
+
+    await user.click(link);
+    expect(push).not.toHaveBeenCalled();
+
+    await user.click(screen.getByText("marisa.koch"));
+    expect(push).toHaveBeenCalledWith("/repos/repo-1/pulls/482");
   });
 });

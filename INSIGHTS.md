@@ -102,3 +102,15 @@ Supersedes: "Claude Code Stop hooks fire after every reply, not at session end"
 **Insight:** the security reviewer graded it CRITICAL. The refute-agent downgraded it because nothing calls the function, so no request/LLM input reaches it and it misses the "exploitable" bar. The onion reviewer's CRITICAL on the same line (a service importing drizzle) was confirmed, so the diff still blocked. The verifier is strict about reachability, and layering rules are what catch latent bugs in dead code.
 **Apply:** don't expect the security lens alone to block unreached code; keep the architecture CRITICALs (dependency direction) in the rubric, because they are unconditional.
 **Evidence:** `.claude/skills/pr-self-review/SKILL.md:65` (verify step), `:139` (skill labels vs verdicts); scratch-run report: `security … sql-injection-raw-interpolation _(was CRITICAL: no caller exists yet)_`.
+
+### 2026-09-19 — [fix] A command-matching gate must skip heredoc bodies, or it blocks its own commit
+**Context:** committing the pr-self-review gate with `git commit -F - <<'EOF'`; one commit-message line began "git push and …".
+**Insight:** the tokenizer read that heredoc line as a real `git push` and denied the commit. Stripping heredoc bodies before matching fixed it, and commands after the terminator are still checked.
+**Apply:** any PreToolUse Bash matcher should treat heredoc bodies (commit messages, PR bodies) as data; add a test with the trigger word inside a heredoc.
+**Evidence:** `.claude/skills/pr-self-review/scripts/review_scope.py:580` (`_strip_heredocs`); `test_review_scope.py:164,169`.
+
+### 2026-09-19 — [tool] A `!`-prefixed prompt command bypasses Claude Code PreToolUse hooks
+**Context:** the pr-self-review gate blocked `git push` from Claude; the user ran `! git push` instead.
+**Insight:** `!` commands run outside Claude's tools, so the Bash PreToolUse gate never sees them, and the opt-in git `pre-push` hook only fires when `core.hooksPath` is set. The push went through with no verdict.
+**Apply:** the Claude gate is not a hard guarantee; to cover manual pushes enable `git config core.hooksPath scripts/git-hooks`.
+**Evidence:** `.claude/settings.json:16` (Bash matcher); `scripts/git-hooks/pre-push:1`; push `5502ba1..0f3eec0` succeeded via `!`.
