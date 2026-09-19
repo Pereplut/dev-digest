@@ -154,6 +154,16 @@ Server tests split by filename: `*.it.test.ts` are DB-backed (testcontainers
 Postgres); everything else is hermetic. The browser e2e flows live in
 [`e2e/`](e2e/README.md) and run deterministically (no LLM).
 
+### Self-review before a PR
+The [`pr-self-review`](.claude/skills/pr-self-review/SKILL.md) skill (`/pr-self-review`) reviews all local changes
+with the repo's skills: UI skills on `client/` files, backend and architecture skills on `server/` and `reviewer-core/` files.
+Any `CRITICAL` finding blocks `gh pr create`, `gh pr merge` and `git push` from Claude Code until it is fixed and re-reviewed.
+To gate pushes made outside Claude too, enable the git hook once per clone:
+
+```bash
+git config core.hooksPath scripts/git-hooks
+```
+
 ## Troubleshooting
 
 - **`relation ... does not exist` / API errors on first run** — migrations weren't

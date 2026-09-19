@@ -13,12 +13,14 @@ on:
       - ".claude/**"
       - "skills-lock.json"
       - "scripts/check-claude-skills.sh"
+      - "scripts/git-hooks/**"
       - ".github/workflows/claude-assets.yml"
   pull_request:
     paths:
       - ".claude/**"
       - "skills-lock.json"
       - "scripts/check-claude-skills.sh"
+      - "scripts/git-hooks/**"
       - ".github/workflows/claude-assets.yml"
 
 permissions:

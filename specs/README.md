@@ -36,3 +36,4 @@ packages: [server, client]
 | [0002-findings-list-timeline](0002-findings-list-timeline.md) | done | server, client, e2e |
 | [0003-hw-validation-alignment](0003-hw-validation-alignment.md) | done | all |
 | [0004-agents-md](0004-agents-md.md) | done | all |
+| [0005-pr-self-review](0005-pr-self-review.md) | done | .claude, scripts |

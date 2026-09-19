@@ -84,3 +84,21 @@ Supersedes: "Claude Code Stop hooks fire after every reply, not at session end"
 **Insight:** the lockfile is not a manifest of `.claude/skills/`. Locked *and* present: `drizzle-orm-patterns`, `fastify-best-practices`, `next-best-practices`, `postgresql-table-design`, `typescript-expert`, `zod`. Purely local (safe to edit): `react-best-practices`, `react-testing-library`, `security`, `mermaid-diagram`, `engineering-insights`. Locked with **no directory at all**: `architecture-patterns`, `github-workflow-automation`. Separately, `.claude/skills/README.md:3` claims a `.cursor/skills/ → ../.claude/skills` symlink "for Cursor compatibility" — there is no `.cursor` directory and nothing under it is tracked, so Cursor currently gets none of these skills.
 **Apply:** before editing a skill, check it against `skills-lock.json` (not the catalog table) — a locked skill's local edits are lost on sync. Don't trust the catalog README's claims about Cursor wiring; that symlink still needs creating if cross-tool support is wanted.
 **Evidence:** `skills-lock.json` (6 sourced entries matching directories), `.claude/skills/README.md:3` (the symlink claim), `.claude/skills/README.md:9-19` (catalog listing skills the lockfile doesn't own); `git ls-files .cursor` → empty.
+
+### 2026-09-19 — [fix] A review fingerprint built from `git diff` output goes stale on `git commit`
+**Context:** building the pr-self-review verdict, which must survive committing reviewed work but not any edit.
+**Insight:** hashing `git diff --binary <base>` plus the untracked files separately gives different bytes for the same content once a new file moves from untracked to committed. The verdict went stale on commit. Hashing each changed path's *current content* (plus the exec bit), with no reference to git state, fixes it.
+**Apply:** any "was this exact tree reviewed/tested" fingerprint should hash the content of the changed paths, not the output of a git command whose format depends on staging state.
+**Evidence:** `.claude/skills/pr-self-review/scripts/review_scope.py:113` (content-based fingerprint); `test_review_scope.py:254` failed with `1 != 0` before the fix.
+
+### 2026-09-19 — [tool] A Python hook that imports a sibling module writes an untracked `__pycache__/`
+**Context:** the pr-self-review gate imports `review_scope.py`, whose fingerprint covers untracked files.
+**Insight:** the import alone creates `scripts/__pycache__/*.pyc`. That is an untracked file, so the reviewed tree changed just because the gate ran; `.gitignore` did not cover `__pycache__/`.
+**Apply:** set `sys.dont_write_bytecode = True` before importing in hooks and tests (or `PYTHONDONTWRITEBYTECODE=1` in CI). `__pycache__/` is now ignored repo-wide as a backstop.
+**Evidence:** `.claude/hooks/pr-self-review-gate.py:54`; `git status` showed `?? .claude/skills/pr-self-review/scripts/__pycache__/review_scope.cpython-312.pyc`.
+
+### 2026-09-19 — [llm] An adversarial verifier downgrades an injection that has no caller yet
+**Context:** end-to-end pr-self-review run on a planted diff with `sql.raw` interpolating `repoId` in a new service function.
+**Insight:** the security reviewer graded it CRITICAL. The refute-agent downgraded it because nothing calls the function, so no request/LLM input reaches it and it misses the "exploitable" bar. The onion reviewer's CRITICAL on the same line (a service importing drizzle) was confirmed, so the diff still blocked. The verifier is strict about reachability, and layering rules are what catch latent bugs in dead code.
+**Apply:** don't expect the security lens alone to block unreached code; keep the architecture CRITICALs (dependency direction) in the rubric, because they are unconditional.
+**Evidence:** `.claude/skills/pr-self-review/SKILL.md:65` (verify step), `:139` (skill labels vs verdicts); scratch-run report: `security … sql-injection-raw-interpolation _(was CRITICAL: no caller exists yet)_`.

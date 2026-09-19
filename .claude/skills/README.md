@@ -20,6 +20,7 @@ Reusable AI skills that provide specialized knowledge and workflows. They live i
 | [typescript-expert](typescript-expert/SKILL.md) | Full-stack | Type-level programming, performance, tooling, migrations |
 | [security](security/SKILL.md) | Full-stack | OWASP Top 10:2025, auth, injection, uploads, secrets |
 | [mermaid-diagram](mermaid-diagram/SKILL.md) | Shared | Mermaid diagrams in markdown (flowcharts, sequence, ERD, …) |
+| [pr-self-review](pr-self-review/SKILL.md) | Workflow | Before a PR: routes every locally changed file to the skills above (UI skills on `client/`, backend/architecture skills on `server/` + `reviewer-core/`) and records a verdict; any CRITICAL blocks `gh pr create` / `git push` / `gh pr merge` via a PreToolUse gate |
 | [engineering-insights](engineering-insights/SKILL.md) | Workflow | After each code task, record dependencies, fixes, measured facts, odd findings (dated, `file:line`) in the module's `INSIGHTS.md` |
 
 ### Lockfile drift (known, 2026-09-18)

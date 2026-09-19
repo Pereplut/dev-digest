@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Opt-in git pre-push gate: refuses a push unless /pr-self-review passed for exactly the
+# current local changes (no CRITICAL findings). Same check as the Claude Code gate in
+# .claude/hooks/pr-self-review-gate.py, so pushes made outside Claude are covered too.
+#
+# Enable once per clone:   git config core.hooksPath scripts/git-hooks
+# Disable:                 git config --unset core.hooksPath
+set -euo pipefail
+
+root="$(git rev-parse --show-toplevel)"
+exec python3 "$root/.claude/skills/pr-self-review/scripts/review_scope.py" check

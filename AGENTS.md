@@ -25,9 +25,9 @@ All packages are TypeScript on Node ≥ 22.
 | `server/src/vendor/shared/` | `@devdigest/shared`: canonical Zod contracts (client keeps a vendored copy) | — | — | [shared AGENTS.md](server/src/vendor/shared/AGENTS.md) | [index.ts header](server/src/vendor/shared/index.ts) |
 
 Also at the root:
-- `scripts/`: `dev.sh`, `e2e.sh`, `check-agent-docs.sh`
+- `scripts/`: `dev.sh`, `e2e.sh`, `check-agent-docs.sh`, `check-claude-skills.sh`, `git-hooks/pre-push` (opt-in PR gate)
 - `.github/workflows/`: one CI workflow per suite
-- `.claude/`: skills and the insights hook
+- `.claude/`: skills, the insights hook and the pr-self-review gate
 - `docs/`, `specs/`: cross-package docs and specs
 
 ## Run
@@ -119,6 +119,10 @@ Every task goes through these phases in order. For spec'd features, log each pha
 5. **Completion:**
    - Set the spec to `status: done` and move durable explanations into `docs/`.
    - Run the `engineering-insights` wrap-up (automatic; don't wait to be asked).
+   - Before opening, pushing or merging a PR, run the [`pr-self-review`](.claude/skills/pr-self-review/SKILL.md) skill.
+     It reviews every local change with the skills that match each file. Any `CRITICAL` blocks the PR:
+     `.claude/hooks/pr-self-review-gate.py` denies `gh pr create|merge|ready` and `git push` until a passing review covers the exact diff.
+     Never bypass it (`--no-verify`, hand-editing `.claude/.pr-self-review/`).
    - Commit and open a PR when asked.
 
 The insights loop is automatic. A `UserPromptSubmit` hook (`.claude/hooks/insights-session-start.py`) runs on each

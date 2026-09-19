@@ -33,6 +33,7 @@ KNOWN_DIR_WITHOUT_LOCK='
 engineering-insights
 mermaid-diagram
 onion-architecture
+pr-self-review
 react-best-practices
 react-code-organization
 react-testing-library
@@ -132,13 +133,41 @@ else
   done
 fi
 
+# ---------------------------------------------------------------- pr-self-review
+# Its routing map names skills by directory; a renamed or removed skill would
+# silently drop out of every review. The unit tests cover routing, the tree
+# fingerprint, the repo rules and the gate's command matcher.
+PR_REVIEW="$SKILLS_DIR/pr-self-review"
+if [ -f "$PR_REVIEW/skill-map.json" ]; then
+  for name in $(python3 -c "
+import json
+m = json.load(open('$PR_REVIEW/skill-map.json'))
+print('\n'.join(sorted({s for r in m['routes'] + m.get('content_routes', []) for s in r['skills']} | set(m.get('unmapped_skills', [])))))
+"); do
+    if [ ! -f "$SKILLS_DIR/$name/SKILL.md" ]; then
+      echo "DEAD ROUTE: $PR_REVIEW/skill-map.json routes files to '$name', which has no $SKILLS_DIR/$name/SKILL.md"
+      fail=1
+    fi
+  done
+  log=$(mktemp)
+  if PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s "$PR_REVIEW/scripts" -p 'test_*.py' >"$log" 2>&1; then
+    echo "ok: pr-self-review unit tests pass"
+  else
+    cat "$log"
+    echo "FAILING TESTS: pr-self-review (python3 -m unittest discover -s $PR_REVIEW/scripts -p 'test_*.py')"
+    fail=1
+  fi
+  rm -f "$log"
+fi
+
 # ---------------------------------------------------------------- hooks + settings
 # A hook that will not parse breaks the insights loop silently: the failure
 # surfaces as "the wrap-up never ran", not as an error.
 # `ast.parse`, deliberately NOT `python3 -m py_compile`: py_compile writes a
 # __pycache__ directory next to the hook, so the check would litter the repo it
-# is checking on every local run (.gitignore does not cover it). Caught by
-# running this script and then looking at `git status`.
+# is checking on every local run (.gitignore did not cover it then; it now ignores
+# __pycache__/, but writing none is still the point). Caught by running this
+# script and then looking at `git status`.
 for hook in $(git ls-files '.claude/hooks/*.py'); do
   if python3 -c "import ast,sys; ast.parse(open(sys.argv[1]).read())" "$hook" 2>/dev/null; then
     echo "ok: $hook parses"
