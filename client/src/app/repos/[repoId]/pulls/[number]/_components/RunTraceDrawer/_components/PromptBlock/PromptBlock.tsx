@@ -4,7 +4,7 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { Button, Icon, Modal } from "@devdigest/ui";
+import { Button, Icon, Modal } from "@/components/ui-client";
 import { s } from "../../styles";
 import { PromptModalBody } from "../PromptModalBody";
 
@@ -32,7 +32,25 @@ export function PromptBlock({ label, text, color }: { label: string; text: strin
   };
   return (
     <div style={s.promptRow}>
-      <div onClick={() => setOpen((o) => !o)} style={s.promptHead}>
+      {/* role="button" rather than a real <button>: this header contains the
+          copy and fullscreen <button>s below, and nesting buttons is invalid
+          HTML. tabIndex + onKeyDown supply the missing keyboard path. */}
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        onKeyDown={(ev) => {
+          // Keys pressed on a nested control (a button or link inside this header)
+          // bubble here too; leave them to that control.
+          if (ev.target !== ev.currentTarget) return;
+          if (ev.key === "Enter" || ev.key === " ") {
+            ev.preventDefault(); // Space would otherwise scroll the page
+            setOpen((o) => !o);
+          }
+        }}
+        style={s.promptHead}
+      >
         <span style={s.promptDot(color)} />
         <span style={s.promptLabel}>{label}</span>
         <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>

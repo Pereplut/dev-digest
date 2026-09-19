@@ -47,8 +47,8 @@ function makeService(opts: { basics: Basics | null; state?: IndexState | null; g
     tokenizer: { count: (text: string) => Math.ceil(text.length / 4) },
   } as unknown as Container;
 
-  const service = new RepoIntelService(container);
-  (service as unknown as { repo: RepoIntelRepository }).repo = repo;
+  // Injected through the constructor (B4), not patched onto a private field.
+  const service = new RepoIntelService(container, repo);
   return { service, touched };
 }
 

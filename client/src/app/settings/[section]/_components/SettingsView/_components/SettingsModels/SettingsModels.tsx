@@ -2,7 +2,7 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { FormField, SearchableSelect, Icon } from "@devdigest/ui";
+import { FormField, SearchableSelect, Icon } from "@/components/ui-client";
 import { useSettings, useUpdateSettings } from "../../../../../../../lib/hooks";
 import { useProviderModels } from "../../../../../../../lib/hooks/agents";
 import { toModelOptions } from "../../../../../../../lib/model-label";

@@ -1,0 +1,40 @@
+name: claude-assets
+
+# `.claude/` is 125 tracked files — skills, the session-start hook and
+# settings.json — and until now NO workflow matched it. A skill whose
+# frontmatter does not parse, a catalog row pointing at a directory that was
+# renamed, or a hook with a syntax error would all reach main unnoticed, because
+# nothing in the repo imports any of them: typecheck, lint and the test suites
+# are all blind here by construction.
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".claude/**"
+      - "skills-lock.json"
+      - "scripts/check-claude-skills.sh"
+      - "scripts/git-hooks/**"
+      - ".github/workflows/claude-assets.yml"
+  pull_request:
+    paths:
+      - ".claude/**"
+      - "skills-lock.json"
+      - "scripts/check-claude-skills.sh"
+      - "scripts/git-hooks/**"
+      - ".github/workflows/claude-assets.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: claude-assets-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: skills, lockfile and hooks are consistent
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate .claude assets
+        run: bash scripts/check-claude-skills.sh

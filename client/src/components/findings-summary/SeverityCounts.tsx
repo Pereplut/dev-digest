@@ -4,7 +4,7 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { SeverityBadge } from "@devdigest/ui";
+import { SeverityBadge } from "@/components/ui-client";
 import type { FindingsCounts } from "@devdigest/shared";
 import { FINDING_SEVERITIES, totalFindings } from "./helpers";
 import { s } from "./styles";

@@ -1,0 +1,90 @@
+# Shared-contract drift gate.
+#
+# `@devdigest/shared` is canonical in server/src/vendor/shared; the client keeps
+# its OWN vendored copy at client/src/vendor/shared, and nothing has ever
+# checked the two against each other. They have already drifted in 5 files —
+# including shapes, not just missing exports (LLMProvider.id is 3-valued on the
+# server and 2-valued on the client), which is silent today only because the
+# client imports these as TYPES and never runs a Zod parse.
+#
+# This job does NOT try to fix that backlog: the copies cannot simply be synced,
+# because the client cannot import runtime values from its copy at all (see
+# client/src/lib/feature-models.ts — a value import pulls vendor/shared/index.ts
+# into webpack, whose ./contracts/*.js re-exports Next cannot resolve).
+#
+# So the 5 known-drifted files are allowlisted and every OTHER difference fails.
+# New drift is blocked from day one; the backlog is tracked separately. When a
+# file is reconciled, delete it from KNOWN_DRIFT below.
+name: contracts
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'server/src/vendor/shared/**'
+      - 'client/src/vendor/shared/**'
+      - '.github/workflows/contracts.yml'
+  pull_request:
+    paths:
+      - 'server/src/vendor/shared/**'
+      - 'client/src/vendor/shared/**'
+      - '.github/workflows/contracts.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: contracts-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  drift:
+    name: vendored copies agree
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare the two vendored copies
+        run: |
+          set -euo pipefail
+
+          # Files known to differ already. Reconcile one -> remove it here.
+          KNOWN_DRIFT='
+          adapters.ts
+          contracts/eval-ci.ts
+          contracts/knowledge.ts
+          contracts/productionize.ts
+          contracts/trace.ts
+          '
+
+          # Agent docs live only on the canonical side by design.
+          diff -rq \
+            --exclude=AGENTS.md --exclude=CLAUDE.md \
+            server/src/vendor/shared client/src/vendor/shared > /tmp/drift.txt || true
+
+          echo "--- raw diff ---"
+          cat /tmp/drift.txt || true
+          echo "----------------"
+
+          unexpected=0
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            # "Files a/X and b/X differ"  ->  X ; "Only in a/dir: f" -> dir/f
+            rel=$(echo "$line" \
+              | sed -E 's|^Files server/src/vendor/shared/(.*) and .*|\1|' \
+              | sed -E 's|^Only in server/src/vendor/shared/?([^:]*): (.*)|\1/\2|' \
+              | sed -E 's|^Only in client/src/vendor/shared/?([^:]*): (.*)|\1/\2|' \
+              | sed -E 's|^/||')
+            if echo "$KNOWN_DRIFT" | tr -d ' ' | grep -qx "$rel"; then
+              echo "::notice::known drift (allowlisted): $rel"
+            else
+              echo "::error::NEW contract drift: $rel — server/src/vendor/shared is canonical; mirror the change into client/src/vendor/shared (see server/src/vendor/shared/AGENTS.md)"
+              unexpected=1
+            fi
+          done < /tmp/drift.txt
+
+          if [ "$unexpected" -ne 0 ]; then
+            echo "New drift between the canonical contracts and the client's vendored copy."
+            exit 1
+          fi
+          echo "No new drift. (${KNOWN_DRIFT//$'\n'/ } remain known-drifted.)"

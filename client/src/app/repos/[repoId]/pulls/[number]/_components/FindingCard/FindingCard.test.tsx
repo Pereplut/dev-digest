@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, cleanup } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import type { FindingRecord } from "@devdigest/shared";
 import messages from "../../../../../../../../messages/en/prReview.json";
@@ -59,13 +60,27 @@ describe("FindingCard — Accept / Reject", () => {
     expect(screen.queryByText("Move the key to an environment variable.")).not.toBeInTheDocument();
   });
 
-  it("fires accept / reject (dismiss) without toggling the card", () => {
+  it("fires accept / reject (dismiss) without toggling the card", async () => {
+    const user = userEvent.setup();
     const onAction = vi.fn();
     renderWithIntl(<FindingCard f={FINDING} onAction={onAction} />);
-    fireEvent.click(screen.getByText("Accept"));
+    // user.click runs the full pointer sequence, so a handler that stops
+    // propagation to avoid toggling the card is actually exercised here.
+    await user.click(screen.getByText("Accept"));
     expect(onAction).toHaveBeenCalledWith("accept");
-    fireEvent.click(screen.getByText("Reject"));
+    await user.click(screen.getByText("Reject"));
     expect(onAction).toHaveBeenCalledWith("dismiss");
+    expect(screen.queryByText("Move the key to an environment variable.")).not.toBeInTheDocument();
+  });
+
+  it("Enter on a focused Accept button accepts instead of toggling the card", async () => {
+    const user = userEvent.setup();
+    const onAction = vi.fn();
+    renderWithIntl(<FindingCard f={FINDING} onAction={onAction} />);
+
+    screen.getByRole("button", { name: "Accept" }).focus();
+    await user.keyboard("{Enter}");
+    expect(onAction).toHaveBeenCalledWith("accept");
     expect(screen.queryByText("Move the key to an environment variable.")).not.toBeInTheDocument();
   });
 

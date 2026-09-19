@@ -1,0 +1,11 @@
+{
+  "boundary": {
+    "appTitle": "Something went wrong",
+    "appBodyWithRef": "An unexpected error occurred. Reference: {digest}",
+    "appBody": "An unexpected error occurred while rendering this page.",
+    "pullsTitle": "Couldn't load pull requests",
+    "pullsBody": "The pull request list failed to render. The DevDigest engine may be unreachable.",
+    "prDetailTitle": "Couldn't load this pull request",
+    "prDetailBody": "Something went wrong rendering the pull request. Retrying may help; if not, check that the DevDigest engine is running."
+  }
+}

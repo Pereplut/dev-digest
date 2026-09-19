@@ -25,5 +25,8 @@
       "zod/*": ["./node_modules/zod/*"]
     }
   },
-  "include": ["src/**/*.ts"]
+  // test/** is included because this config is `noEmit` (the package never
+  // emits JS — typecheck IS the build), so type-checking the tests costs
+  // nothing and stops a test casting its way past a contract unnoticed.
+  "include": ["src/**/*.ts", "test/**/*.ts"]
 }

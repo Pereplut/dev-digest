@@ -1,17 +1,16 @@
 {
-  "title": "Onboarding Tour",
-  "sections": "Sections",
-  "sectionCount": "{count} sections",
-  "regenerate": "Regenerate",
-  "regenerating": "Regenerating…",
-  "unknownError": "Unknown error",
-  "generate": {
-    "title": "Generate onboarding tour",
-    "body": "DevDigest indexes the repo and specs, then writes a 5-section guided tour: overview, architecture, key modules, getting started, and conventions & gotchas.",
-    "cta": "Generate onboarding tour",
-    "generating": "Generating…"
-  },
-  "loadError": {
-    "title": "Couldn’t load the onboarding tour"
+  "addRepo": {
+    "title": "Add a repository",
+    "body": "Paste a GitHub repository URL — DevDigest clones it locally and imports open PRs. API keys aren’t needed here; set them once in <link>Settings → API Keys</link>.",
+    "close": "Close",
+    "urlLabel": "Repository URL",
+    "urlHint": "e.g. https://github.com/acme/payments-api",
+    "urlPlaceholder": "https://github.com/owner/repo",
+    "cancel": "Cancel",
+    "submit": "Add repository",
+    "submitting": "Cloning…",
+    "errorFallback": "Could not add repository",
+    "footer": "API keys live in Settings",
+    "footerEsc": "to close"
   }
 }

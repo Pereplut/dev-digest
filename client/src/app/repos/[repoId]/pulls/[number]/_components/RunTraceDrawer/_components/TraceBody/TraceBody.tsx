@@ -4,7 +4,7 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { Badge } from "@devdigest/ui";
+import { Badge } from "@/components/ui-client";
 import type { RunTrace, FindingRecord, RunSummary } from "@devdigest/shared";
 import { formatUsd } from "@/components/run-cost-badge";
 import { PROMPT_COLORS } from "../../constants";

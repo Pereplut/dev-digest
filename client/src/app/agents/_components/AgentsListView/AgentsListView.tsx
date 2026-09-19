@@ -5,7 +5,7 @@
 import React from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { Button, Dropdown, EmptyState, ErrorState, Skeleton, Icon } from "@devdigest/ui";
+import { Button, Dropdown, EmptyState, ErrorState, Skeleton, Icon } from "@/components/ui-client";
 import { AppShell } from "../../../../components/app-shell";
 import { useAgents, useUpdateAgent } from "../../../../lib/hooks/agents";
 import { AgentCard } from "../AgentCard";

@@ -4,7 +4,7 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { Icon } from "@devdigest/ui";
+import { Icon } from "@/components/ui-client";
 import type { PrFile } from "@/lib/types";
 import { AUTO_EXPAND_MAX_LINES } from "../constants";
 import { parsePatch, type Line } from "../helpers";
@@ -54,7 +54,14 @@ export function FileCard({ file, commenting }: { file: PrFile; commenting?: Diff
 
   return (
     <div style={s.fileCard}>
-      <div onClick={() => setOpen((o) => !o)} style={s.fileHeader}>
+      {/* A real <button>: this header holds only icons and text, so it can be
+          one — giving focus, Enter/Space and the right role for free. */}
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        style={{ ...s.fileHeader, width: "100%", background: "none", border: "none", font: "inherit", color: "inherit", textAlign: "left", cursor: "pointer" }}
+      >
         <Icon.ChevronRight size={13} style={chevronFor(open)} />
         <Icon.FileText size={14} style={s.fileIcon} />
         <span className="mono" style={s.filePath}>
@@ -72,7 +79,7 @@ export function FileCard({ file, commenting }: { file: PrFile; commenting?: Diff
             {commentCount}
           </span>
         )}
-      </div>
+      </button>
       {open && (
         <div style={s.fileBody}>
           {lines.length === 0 ? (

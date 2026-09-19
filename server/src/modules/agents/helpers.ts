@@ -1,6 +1,10 @@
 import type { Agent, AgentVersion, CiFailOn, Provider, ReviewStrategy } from '@devdigest/shared';
 import { AgentVersionConfig } from '@devdigest/shared';
-import type { AgentRow, AgentVersionRow } from './repository.js';
+// Row shapes come from db/rows.ts, not from ./repository.js — that import created a
+// helpers ⇄ repository cycle (repository.ts imports isConfigChange back from here).
+// db/rows.ts exists precisely so consumers can name a row shape without depending on
+// a data layer. See .claude/skills/onion-architecture/SKILL.md §4.
+import type { AgentRow, AgentVersionRow } from '../../db/rows.js';
 
 /**
  * Pure helpers for the agents module — DB row ⇄ DTO mapping and the

@@ -1,0 +1,18 @@
+{
+  // Type-check configuration: src + test.
+  //
+  // `tsconfig.json` deliberately includes only `src/**` because it is also the
+  // BUILD config (`declaration: true`, `outDir: dist`) — adding tests there
+  // would emit the whole test suite into dist/. So `pnpm typecheck` points here
+  // instead, and `pnpm build` keeps using the base config.
+  //
+  // Why this exists at all: with test/** unchecked, a test could cast its way
+  // past any contract and CI stayed green. It was hiding 12 real type errors,
+  // including a mock whose method took fewer parameters than the port it
+  // claimed to implement, and an unchecked `| undefined` index access.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

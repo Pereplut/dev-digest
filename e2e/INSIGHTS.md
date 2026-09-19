@@ -47,3 +47,16 @@ Written via the [`engineering-insights`](../.claude/skills/engineering-insights/
 **Insight:** with a decoy `role="button"` named "1 critical, 1 warning" injected before the pill, `--name "1 warning" --exact` clicked the pill (decoy 0 clicks) while the same command without `--exact` clicked the decoy. `wait --fn "!document.body.innerText.includes('…')"` resolves as soon as the text is gone.
 **Apply:** use `--exact` whenever one control's accessible name is a substring of another's; `wait --fn` is the deterministic way to assert disappearance.
 **Evidence:** `e2e/flows/04-pr-findings.flow.json:21-22` (exact click + `wait --fn`).
+
+### 2026-09-18 — [tool] Inner-container scroll state persists across steps, so a scroll fix can regress a later step
+Extends: "`find … click` silently misses controls below the fold (inner scroll container)"
+**Context:** after adding a `scrollintoview` so flow 04's severity pill could be clicked, the flow's *previously passing* Timeline hover step started failing.
+**Insight:** the scroll position of the nested container carries over from step to step. Scrolling down to reach one target leaves a later target above the fold, where `hover` won't find it — so the fix for one step broke another, costing a second full hermetic run.
+**Apply:** treat scroll position as flow state: give every below-the-fold interaction its own `scrollintoview`, including the ones that used to pass, and re-run the whole flow after any scroll change — not just the step you fixed.
+**Evidence:** `e2e/flows/04-pr-findings.flow.json:20` (scroll down to the pill), `:26` (scroll back up to the Timeline chips); `e2e/docs/locators.md:22`.
+
+### 2026-09-18 — [tool] A temporary `NNz-` flow is the debugger for bugs that only reproduce on the hermetic stack
+**Context:** flow 04's pill bug reproduced only under `./scripts/e2e.sh` (different viewport/layout than the dev app), where there is no interactive browser to inspect.
+**Insight:** `run.ts` runs `*.flow.json` in lexical order, so a throwaway `04z-debug-pill.flow.json` runs right after `04-`, reusing the booted stack and the same session state. Having it `eval` the suspect state into a fixed on-page banner and then screenshot gives a readable diagnosis; `test-results/` is gitignored, so the artifact never reaches git.
+**Apply:** to debug a hermetic-only failure, add an `NNz-`-suffixed flow next to the failing one, render state into a banner, read the screenshot, then delete the flow.
+**Evidence:** `e2e/run.ts:54-56` (`readdirSync(...).filter(...).sort()`); `.gitignore:23` (`test-results/`).

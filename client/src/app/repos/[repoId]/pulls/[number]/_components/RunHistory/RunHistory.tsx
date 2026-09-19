@@ -2,7 +2,7 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { Badge, Icon, CircularScore, type IconName } from "@devdigest/ui";
+import { Badge, Icon, CircularScore, type IconName } from "@/components/ui-client";
 import type { RunSummary, PrCommit, ReviewRecord, FindingRecord } from "@devdigest/shared";
 import { RunCostBadge } from "@/components/run-cost-badge";
 import {
@@ -260,16 +260,21 @@ export function RunHistory({
             >
               <Icon.FileText size={13} />
             </button>
+            {/* A real <button>, not a role="button" span: it sits as a SIBLING
+                of the trace button above (not nested inside it), so it can be
+                one — which is what makes it keyboard-reachable. The span had
+                role and aria-label but no tabIndex/onKeyDown, so deleting a run
+                was mouse-only. */}
             {onDelete && r.status !== "running" && (
-              <span
-                role="button"
+              <button
+                type="button"
                 aria-label={t("timeline.deleteRun")}
                 title={t("timeline.deleteRun")}
                 onClick={() => onDelete(r.run_id)}
-                style={{ display: "inline-flex", padding: 3, borderRadius: 5, color: "var(--text-muted)", flexShrink: 0, cursor: "pointer" }}
+                style={{ display: "inline-flex", padding: 3, borderRadius: 5, border: "none", background: "none", color: "var(--text-muted)", flexShrink: 0, cursor: "pointer" }}
               >
                 <Icon.Trash size={13} />
-              </span>
+              </button>
             )}
           </div>
         );

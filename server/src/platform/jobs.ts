@@ -1,8 +1,7 @@
 import PQueue from 'p-queue';
-import { eq } from 'drizzle-orm';
-import type { Db } from '../db/client.js';
-import * as t from '../db/schema.js';
+import type { JobsRepository } from './jobs.repo.js';
 import { withTimeout, withRetry } from './resilience.js';
+import { redactCredentials } from './redact.js';
 
 /**
  * JobRunner — async work (clone, PR import, indexing, polling) on a
@@ -10,7 +9,8 @@ import { withTimeout, withRetry } from './resilience.js';
  * timeouts + retry/backoff.
  *
  * Handlers are registered by kind. enqueue() inserts a `jobs` row, schedules
- * the handler on the queue, and updates status/attempts/error as it runs.
+ * the handler on the queue, and updates status/attempts/error as it runs. All
+ * table access goes through JobsRepository (jobs.repo.ts).
  */
 
 export type JobHandler = (payload: unknown, ctx: { jobId: string }) => Promise<void>;
@@ -34,7 +34,7 @@ export class JobRunner {
   private retries: number;
 
   constructor(
-    private db: Db,
+    private repo: JobsRepository,
     opts: JobRunnerOptions = {},
   ) {
     this.queue = new PQueue({ concurrency: opts.concurrency ?? 3 });
@@ -50,54 +50,68 @@ export class JobRunner {
     const handler = this.handlers.get(kind);
     if (!handler) throw new Error(`No job handler registered for kind '${kind}'`);
 
-    const [row] = await this.db
-      .insert(t.jobs)
-      .values({ workspaceId, kind, payload: payload as object, status: 'queued' })
-      .returning({ id: t.jobs.id });
-    const jobId = row!.id;
+    const jobId = await this.repo.insertQueued(workspaceId, kind, payload);
 
     const done = this.queue.add(async () => {
-      await this.db
-        .update(t.jobs)
-        .set({ status: 'running', startedAt: new Date() })
-        .where(eq(t.jobs.id, jobId));
+      await this.repo.markRunning(jobId);
       try {
         await withRetry(
           () =>
-            withTimeout(handler(payload, { jobId }), this.timeoutMs).then(async () => {
-              await this.db
-                .update(t.jobs)
-                .set({ attempts: 1 })
-                .where(eq(t.jobs.id, jobId));
-            }),
+            withTimeout(handler(payload, { jobId }), this.timeoutMs).then(() =>
+              this.repo.setAttempts(jobId, 1),
+            ),
           {
             retries: this.retries,
-            onRetry: async (attempt) => {
-              await this.db
-                .update(t.jobs)
-                .set({ attempts: attempt })
-                .where(eq(t.jobs.id, jobId));
+            // withRetry does not await onRetry, so a failed bookkeeping write
+            // would be an unhandled rejection; it is not worth failing the job.
+            onRetry: (attempt) => {
+              void this.repo.setAttempts(jobId, attempt).catch(() => undefined);
             },
           },
         );
-        await this.db
-          .update(t.jobs)
-          .set({ status: 'done', finishedAt: new Date() })
-          .where(eq(t.jobs.id, jobId));
+        await this.repo.markDone(jobId);
       } catch (err) {
-        await this.db
-          .update(t.jobs)
-          .set({
-            status: 'failed',
-            finishedAt: new Date(),
-            error: (err as Error).message,
-          })
-          .where(eq(t.jobs.id, jobId));
+        // A handler can throw a non-Error (a string, a rejected plain value);
+        // `(err as Error).message` would then be undefined and redactCredentials
+        // would throw, leaving the row stuck at 'running'.
+        const message = err instanceof Error ? err.message : String(err);
+        // A clone URL can carry a PAT; git echoes it in its failure stderr and
+        // simple-git copies that into the Error message. Never persist it in
+        // cleartext — see platform/redact.ts.
+        await this.repo.markFailed(jobId, redactCredentials(message));
         throw err;
       }
     }) as Promise<void>;
 
+    // No caller consumes `done` today, and p-queue rejects it when a handler
+    // ultimately fails — which under Node's default unhandled-rejection policy
+    // terminates the API on a routine failure like an unreachable repo URL.
+    // Attach a sink so the rejection is handled; the failure is already
+    // recorded on the `jobs` row above. Callers that DO await `done` still get
+    // the rejection, since a promise may carry more than one handler.
+    void done.catch(() => undefined);
+
     return { id: jobId, done };
+  }
+
+  /**
+   * On boot: mark jobs left `queued` or `running` by a previous process as
+   * failed. The queue is IN-MEMORY, so nothing will ever pick those rows up
+   * again — they are abandoned, not pending.
+   *
+   * This deliberately does NOT recover the work. Doing that needs a durable
+   * claim (`SELECT … FOR UPDATE SKIP LOCKED`) plus handler registration at
+   * boot, which is a feature rather than a fix. What it does is stop the table
+   * lying: nothing in the codebase ever SELECTs `jobs`, so an abandoned row sat
+   * at 'queued' forever and `jobs_status_idx` indexed a status no one read.
+   *
+   * `failed` is the only terminal state the status enum offers; adding an
+   * 'abandoned' value would be a migration for a column with no readers.
+   */
+  async reapOrphanedJobs(): Promise<number> {
+    return this.repo.failUnfinished(
+      'Abandoned: the process running this job exited before it finished.',
+    );
   }
 
   /** Wait for the queue to drain (useful in tests). */

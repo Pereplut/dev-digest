@@ -211,10 +211,16 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
 
     // run cost: persisted on the row (mock LLM reports a cost per call) and
     // surfaced identically in the trace stats and the PR run list
-    expect(run!.costUsd).toBeGreaterThan(0);
-    expect(trace.stats.cost_usd).toBeCloseTo(run!.costUsd!, 10);
+    // `agent_runs.cost_usd` is `numeric`, which Drizzle surfaces as a string
+    // (0.38 has no `mode: 'number'`), so the raw row needs converting before a
+    // numeric matcher. The API and the trace both still expose a real number —
+    // repository/run.repo.ts converts at the row↔DTO boundary.
+    const runCost = Number(run!.costUsd);
+    expect(runCost).toBeGreaterThan(0);
+    expect(trace.stats.cost_usd).toBeCloseTo(runCost, 10);
     const prRuns = (await app.inject({ method: 'GET', url: `/pulls/${pr.id}/runs` })).json();
-    expect(prRuns[0].cost_usd).toBeCloseTo(run!.costUsd!, 10);
+    expect(prRuns[0].cost_usd).toBeCloseTo(runCost, 10);
+    expect(typeof prRuns[0].cost_usd).toBe('number');
 
     await app.close();
   });
@@ -266,6 +272,67 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     ).json();
     expect(dismissed.finding.dismissed_at).not.toBeNull();
     expect(dismissed.finding.accepted_at).toBeNull();
+
+    await app.close();
+  });
+
+  it('DELETE /runs/:id removes the run AND its review + findings', async () => {
+    const app = await appWith(REVIEW_FIXTURE);
+    const { pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+    const agent = (
+      await app.inject({
+        method: 'POST',
+        url: '/agents',
+        payload: { name: 'DelAgent', provider: 'openai', model: 'gpt-4.1', system_prompt: 's' },
+      })
+    ).json();
+    await app.inject({ method: 'POST', url: `/pulls/${pr.id}/review`, payload: { agentId: agent.id } });
+    await waitForPrRuns(pg.handle.db, pr.id, { expected: 1 });
+
+    const reviewsBefore = (
+      await app.inject({ method: 'GET', url: `/pulls/${pr.id}/reviews` })
+    ).json();
+    expect(reviewsBefore).toHaveLength(1);
+    const runId = reviewsBefore[0].run_id as string;
+    const reviewId = reviewsBefore[0].id as string;
+    expect(runId).toBeTruthy();
+
+    const findingsBefore = await pg.handle.db
+      .select()
+      .from(t.findings)
+      .where(eq(t.findings.reviewId, reviewId));
+    expect(findingsBefore.length).toBeGreaterThan(0);
+
+    const del = await app.inject({ method: 'DELETE', url: `/runs/${runId}` });
+    expect(del.statusCode).toBe(200);
+    expect(del.json()).toEqual({ ok: true });
+
+    // The run itself is gone.
+    const runsAfter = await pg.handle.db
+      .select()
+      .from(t.agentRuns)
+      .where(eq(t.agentRuns.id, runId));
+    expect(runsAfter).toHaveLength(0);
+
+    // …and so is the review it produced. This is the invariant that matters:
+    // `reviews.run_id` gained an ON DELETE CASCADE in migration 0013, which now
+    // enforces what run.repo.ts had been doing with an explicit second DELETE.
+    // Leaving the review behind would show a run whose findings vanished.
+    const reviewsAfter = (
+      await app.inject({ method: 'GET', url: `/pulls/${pr.id}/reviews` })
+    ).json();
+    expect(reviewsAfter).toHaveLength(0);
+
+    // Findings cascade from `reviews`, so they must be gone too — not orphaned.
+    const findingsAfter = await pg.handle.db
+      .select()
+      .from(t.findings)
+      .where(eq(t.findings.reviewId, reviewId));
+    expect(findingsAfter).toHaveLength(0);
+
+    // Deleting a non-existent run is a no-op, not an error.
+    const again = await app.inject({ method: 'DELETE', url: `/runs/${runId}` });
+    expect(again.json()).toEqual({ ok: false });
 
     await app.close();
   });

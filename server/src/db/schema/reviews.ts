@@ -3,6 +3,8 @@ import { pgTable, uuid, text, integer, jsonb, timestamp, doublePrecision, index 
 import { now } from './_shared';
 import { workspaces } from './core';
 import { pullRequests } from './pulls';
+import { agents } from './agents';
+import { agentRuns } from './runs';
 
 // ============================================================ Review & findings
 
@@ -16,9 +18,22 @@ export const reviews = pgTable(
     prId: uuid('pr_id')
       .notNull()
       .references(() => pullRequests.id, { onDelete: 'cascade' }),
-    agentId: uuid('agent_id'),
-    /** The agent_run that produced this review (links the timeline run ↔ review). */
-    runId: uuid('run_id'),
+    /**
+     * FK added in migration 0013. Mirrors `agent_runs.agent_id`: deleting an
+     * agent keeps its reviews but forgets which agent produced them, rather
+     * than leaving a dangling uuid that `reviews/service.ts` then looks up and
+     * silently gets no name for.
+     */
+    agentId: uuid('agent_id').references(() => agents.id, { onDelete: 'set null' }),
+    /**
+     * The agent_run that produced this review (links the timeline run ↔ review).
+     *
+     * FK added in migration 0013. `cascade` encodes in the schema what
+     * `run.repo.ts deleteAgentRun` had to do by hand: without it, deleting a run
+     * left its review — and the review's findings, which DO cascade from
+     * `reviews` — orphaned in the Review Runs list.
+     */
+    runId: uuid('run_id').references(() => agentRuns.id, { onDelete: 'cascade' }),
     kind: text('kind', { enum: ['summary', 'review'] }).notNull(),
     verdict: text('verdict'),
     summary: text('summary'),
@@ -26,8 +41,18 @@ export const reviews = pgTable(
     model: text('model'),
     createdAt: now(),
   },
-  // PR list: the latest review round's findings are joined via run_id.
-  (t) => ({ runIdx: index('reviews_run_id_idx').on(t.runId) }),
+  (t) => ({
+    // PR list: the latest review round's findings are joined via run_id.
+    runIdx: index('reviews_run_id_idx').on(t.runId),
+    // PR detail — `WHERE pr_id = ? ORDER BY created_at DESC`
+    // (repository/review.repo.ts reviewsForPull), run on every page load and
+    // previously a seq scan. No `.desc()`: Postgres scans a btree backwards,
+    // so a plain (pr_id, created_at) index already serves the DESC order.
+    prCreatedIdx: index('reviews_pr_created_idx').on(t.prId, t.createdAt),
+    // PR list — `WHERE workspace_id = ? AND pr_id IN (…) AND kind = 'review'`
+    // (modules/pulls/routes.ts), also previously a seq scan.
+    wsPrKindIdx: index('reviews_ws_pr_kind_idx').on(t.workspaceId, t.prId, t.kind),
+  }),
 );
 
 export const findings = pgTable(

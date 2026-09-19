@@ -4,16 +4,11 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { Badge } from "@devdigest/ui";
+import { Badge } from "@/components/ui-client";
 import type { FindingRecord } from "@devdigest/shared";
+import { SEV_COLOR, SEV_COLOR_FALLBACK } from "@/components/findings-summary";
 import { s } from "../../styles";
 import { TraceSection } from "../TraceSection";
-
-const SEV_COLOR: Record<string, string> = {
-  CRITICAL: "var(--crit)",
-  WARNING: "var(--warn)",
-  SUGGESTION: "var(--accent)",
-};
 
 export function FindingsSection({ findings }: { findings: FindingRecord[] }) {
   const t = useTranslations("runs");
@@ -38,7 +33,7 @@ export function FindingsSection({ findings }: { findings: FindingRecord[] }) {
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                <Badge color={SEV_COLOR[f.severity] ?? "var(--text-muted)"} bg="transparent">
+                <Badge color={SEV_COLOR[f.severity] ?? SEV_COLOR_FALLBACK} bg="transparent">
                   {f.severity}
                 </Badge>
                 <span style={{ fontSize: 13, fontWeight: 600 }}>{f.title}</span>

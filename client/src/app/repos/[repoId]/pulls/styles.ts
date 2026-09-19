@@ -22,6 +22,7 @@ export const s = {
   } satisfies CSSProperties,
   rowIcon: (color: string): CSSProperties => ({ color, flexShrink: 0 }),
   rowTitleWrap: { minWidth: 0 } satisfies CSSProperties,
+  rowTitleLink: { display: "block", color: "inherit", textDecoration: "none" } satisfies CSSProperties,
   rowTitle: (hover: boolean): CSSProperties => ({
     fontSize: 14,
     fontWeight: 550,

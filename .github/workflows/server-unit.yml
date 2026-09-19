@@ -6,7 +6,7 @@
 #    macOS is covered by daily local dev, Windows is not a ship target, and
 #    `@ast-grep/napi` is exact-pinned so its native binary only changes on a
 #    deliberate version bump.
-#  - unit: the ~19 DB-free test files (everything that is NOT `*.it.test.ts`).
+#  - unit: the 16 DB-free test files (everything that is NOT `*.it.test.ts`).
 #    LLM/git/embeddings are mocked via src/adapters/mocks.ts — no Docker.
 #
 # DB-backed tests run in server-integration.yml. reviewer-core/** is in the
@@ -65,9 +65,27 @@ jobs:
 
       - run: pnpm typecheck
 
-      # eslint directly (not `pnpm lint`), for the same skip-worktree reason as
-      # the unit job below.
+      # eslint and depcruise are invoked directly rather than via `pnpm lint`
+      # (which runs both), for the same reason the unit job inlines vitest: the
+      # committed package.json is not guaranteed to carry the scripts in every
+      # clone. Keep these two steps in step with the `lint` script.
       - run: pnpm exec eslint .
+
+      # Architecture boundaries (the onion rings). `pnpm lint` runs this locally
+      # via the `arch` script, but CI calls eslint directly, so without this step
+      # the boundary rules never gate a PR. Exit code = number of violations.
+      - name: Architecture boundaries (dependency-cruiser)
+        run: pnpm exec depcruise src --output-type err-long
+
+      # Dependency advisories. NON-BLOCKING on purpose: `pnpm audit
+      # --audit-level=high` currently exits 1 in this package (20 high + 1
+      # critical, almost all transitive — e.g. fastify > @fastify/ajv-compiler >
+      # fast-uri), so making it a gate would turn every PR red on day one.
+      # It reports here so the list is visible and shrinking; promote it to a
+      # blocking step once the transitive advisories are cleared.
+      - name: Dependency audit (report only)
+        continue-on-error: true
+        run: pnpm audit --audit-level=high
 
   unit:
     name: tests
@@ -97,7 +115,9 @@ jobs:
         working-directory: reviewer-core
         run: npm ci
 
-      # Inlined rather than `pnpm test:unit`: server/package.json is
-      # skip-worktree (a local variant), so the committed package.json may
-      # not carry the split scripts. Run vitest directly.
+      # Inlined rather than `pnpm test:unit`: server/package.json MAY be
+      # skip-worktree in some clones, so the committed file is not guaranteed to
+      # carry the split scripts. (It is NOT skip-worktree in the canonical clone
+      # — `git ls-files -v server/package.json` returns `H`, not `S` — so this
+      # is a precaution, not a fact about the repo. See server/INSIGHTS.md.)
       - run: pnpm exec vitest run --exclude '**/*.it.test.ts'

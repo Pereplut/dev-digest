@@ -10,6 +10,7 @@ import type {
 import type { AppConfig } from './config.js';
 import type { Db } from '../db/client.js';
 import { JobRunner } from './jobs.js';
+import { JobsRepository } from './jobs.repo.js';
 import { runBus, type RunBus } from './sse.js';
 import { LocalSecretsProvider } from '../adapters/secrets/local.js';
 import { LocalNoAuthProvider } from '../adapters/auth/local.js';
@@ -29,6 +30,8 @@ import type { RepoIntel } from '../modules/repo-intel/types.js';
 import { RepoIntelService } from '../modules/repo-intel/service.js';
 import { type DepGraph, DepCruiseGraph } from '../adapters/depgraph/index.js';
 import { type Tokenizer, TiktokenTokenizer } from '../adapters/tokenizer/index.js';
+import type { CodeParser } from '../adapters/astgrep/port.js';
+import { AstGrepParser } from '../adapters/astgrep/index.js';
 
 /**
  * DI container. One per app instance. Holds config, db, the JobRunner,
@@ -51,6 +54,8 @@ export interface ContainerOverrides {
   /** repo-intel T3 adapters — only the indexer pipeline reads these. */
   depgraph?: DepGraph;
   tokenizer?: Tokenizer;
+  /** AST extraction (@ast-grep/napi) — inject MockCodeParser to avoid natives. */
+  codeParser?: CodeParser;
 }
 
 export class Container {
@@ -75,6 +80,7 @@ export class Container {
   private _repoIntel?: RepoIntel;
   private _depgraph?: DepGraph;
   private _tokenizer?: Tokenizer;
+  private _codeParser?: CodeParser;
   private _priceBook?: PriceBook;
 
   constructor(config: AppConfig, db: Db, private overrides: ContainerOverrides = {}) {
@@ -83,7 +89,7 @@ export class Container {
     this.secrets = overrides.secrets ?? new LocalSecretsProvider(config.secretsPath);
     this.auth = overrides.auth ?? new LocalNoAuthProvider(db);
     this.runBus = runBus;
-    this.jobs = new JobRunner(db);
+    this.jobs = new JobRunner(new JobsRepository(db));
   }
 
   get git(): GitClient {
@@ -129,6 +135,17 @@ export class Container {
     if (this.overrides.tokenizer) return this.overrides.tokenizer;
     this._tokenizer ??= new TiktokenTokenizer();
     return this._tokenizer;
+  }
+
+  /**
+   * AST-accurate TS/JS extraction (@ast-grep/napi). repo-intel's service and
+   * indexer pipelines resolve the parser HERE rather than importing the
+   * adapter, which is what `astgrep-only-through-its-port` enforces.
+   */
+  get codeParser(): CodeParser {
+    if (this.overrides.codeParser) return this.overrides.codeParser;
+    this._codeParser ??= new AstGrepParser();
+    return this._codeParser;
   }
 
   /**

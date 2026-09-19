@@ -21,16 +21,9 @@
  * import/export-from lines) so the blast graph stays trustworthy.
  */
 
-export interface ExtractedSymbol {
-  name: string;
-  kind: string;
-  line: number;
-}
-
-export interface ExtractedReference {
-  toSymbol: string;
-  line: number;
-}
+// Row shapes live in the CodeParser port (the AST extractor's rows extend them).
+import type { ExtractedReference, ExtractedSymbol } from '../astgrep/port.js';
+export type { ExtractedReference, ExtractedSymbol };
 
 const LINE_COMMENT = /^\s*(\/\/|\*|\/\*)/;
 const IMPORT_LINE = /^\s*import\s|^\s*export\s+\{[^}]*\}\s+from\b|^\s*export\s+\*\s+from\b/;

@@ -1,4 +1,4 @@
-import type { IconName } from "@devdigest/ui";
+import type { IconName } from "@/components/ui-client";
 
 /** Editor tab descriptor. `labelKey` resolves under the `agents` namespace. */
 export interface EditorTab {

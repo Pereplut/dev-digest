@@ -1,4 +1,5 @@
-import { pgTable, uuid, text, integer, jsonb, timestamp, doublePrecision, index } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { pgTable, uuid, text, integer, jsonb, timestamp, numeric, index } from 'drizzle-orm/pg-core';
 import { workspaces } from './core';
 import { agents } from './agents';
 import { pullRequests } from './pulls';
@@ -20,9 +21,17 @@ export const agentRuns = pgTable(
     durationMs: integer('duration_ms'),
     tokensIn: integer('tokens_in'),
     tokensOut: integer('tokens_out'),
-    /** USD spent on this run (provider-reported, or usage × pricing); null when
-        the price is unknown or the run failed/was cancelled — the UI shows "—". */
-    costUsd: doublePrecision('cost_usd'),
+    /**
+     * USD spent on this run (provider-reported, or usage × pricing); null when
+     * the price is unknown or the run failed/was cancelled — the UI shows "—".
+     *
+     * `numeric`, not `doublePrecision`: this column is SUM()-ed in SQL for the
+     * PR-list total, and binary-float accumulation makes that total
+     * non-reproducible. Drizzle 0.38 has no `mode: 'number'` for numeric, so it
+     * infers as a STRING — the conversion to/from `number` lives in
+     * `repository/run.repo.ts`, which is already the row↔DTO mapping layer.
+     */
+    costUsd: numeric('cost_usd', { precision: 12, scale: 6 }),
     status: text('status'),
     /** Failure reason when status='failed' (LLM/API error, timeout, quota, …). */
     error: text('error'),
@@ -34,8 +43,21 @@ export const agentRuns = pgTable(
     /** Findings that tripped the agent's gate (severity ≥ ciFailOn). */
     blockers: integer('blockers'),
   },
-  // PR list: newest run per (PR, agent) for the latest review round cost.
-  (t) => ({ prAgentRanIdx: index('agent_runs_pr_agent_ran_idx').on(t.prId, t.agentId, t.ranAt) }),
+  (t) => ({
+    // PR list: newest run per (PR, agent) for the latest review round cost.
+    prAgentRanIdx: index('agent_runs_pr_agent_ran_idx').on(t.prId, t.agentId, t.ranAt),
+    // PR detail — `WHERE workspace_id = ? AND pr_id = ? ORDER BY ran_at DESC`
+    // (repository/run.repo.ts listRunsForPull). The index above cannot serve
+    // this: `agent_id` sits between `pr_id` and `ran_at`, so the ordering is
+    // not a usable prefix and every PR-detail load forced a sort.
+    prRanIdx: index('agent_runs_pr_ran_idx').on(t.prId, t.ranAt),
+    // PR list cost rollup — `WHERE … AND status = 'done' GROUP BY pr_id`
+    // (modules/pulls/routes.ts). Partial so it stays small: only `done` runs
+    // are ever summed, and failed/cancelled/running rows are never counted.
+    prDoneIdx: index('agent_runs_pr_done_idx')
+      .on(t.prId)
+      .where(sql`status = 'done'`),
+  }),
 );
 
 /** Whole trace of one run as a SINGLE jsonb document. */

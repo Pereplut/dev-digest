@@ -2,7 +2,7 @@
 "use client";
 
 import React from "react";
-import { Icon } from "@devdigest/ui";
+import { Icon } from "@/components/ui-client";
 import { s } from "../../styles";
 
 export function TraceSection({
@@ -22,12 +22,20 @@ export function TraceSection({
   const I = Icon[icon];
   return (
     <div style={s.section}>
-      <div onClick={() => setOpen((o) => !o)} style={s.sectionHead}>
+      {/* A real <button>: this header contains no interactive children, so it
+          can be one — which gives keyboard focus, Enter/Space and the correct
+          role for free, instead of a div nobody can reach without a mouse. */}
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        style={{ ...s.sectionHead, width: "100%", background: "none", border: "none", font: "inherit", color: "inherit", textAlign: "left", cursor: "pointer" }}
+      >
         <I size={15} style={s.sectionIcon} />
         <span style={s.sectionTitle}>{title}</span>
         {right}
         <Icon.ChevronDown size={15} style={s.chevron(open)} />
-      </div>
+      </button>
       {open && <div style={s.sectionBody}>{children}</div>}
     </div>
   );

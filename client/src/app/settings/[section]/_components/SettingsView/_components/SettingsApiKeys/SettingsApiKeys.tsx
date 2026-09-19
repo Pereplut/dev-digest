@@ -2,7 +2,7 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { Button, Icon, FormField, TextInput } from "@devdigest/ui";
+import { Button, Icon, FormField, TextInput } from "@/components/ui-client";
 import { useTestConnection, useSecretsStatus } from "../../../../../../../lib/hooks";
 import { ApiError } from "../../../../../../../lib/api";
 import type { ConnTestProvider } from "../../../../../../../lib/types";

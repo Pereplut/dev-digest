@@ -45,6 +45,42 @@ GROUP BY pr_id
 This replaced the earlier "latest review round" rule (each agent's newest done run) to satisfy
 the homework criterion "the sum of all successful runs per PR".
 
+## Known data gap: migrations `0009` / `0010`
+
+`0009_complex_runaways.sql` **drops** `agent_runs.cost_usd`; `0010_lethal_karen_page.sql`
+re-adds it as `double precision`. Migrations here are append-only and never hand-edited, so the
+pair stays in the history: **replaying `0000`→`0011` from scratch destroys every cost recorded
+before `0009`**, and nothing can recover those values.
+
+Measured on the dev database (2026-09-18, read-only):
+
+| total runs | done | cost present | cost NULL | earliest | latest |
+|---:|---:|---:|---:|---|---|
+| 25 | 25 | 19 | 6 | 2026-09-15 | 2026-09-17 |
+
+Every row post-dates the pair, and the 6 NULLs are explained by the INSIGHTS entry "Runs made
+while a pre-cost branch was checked out have NULL cost forever" — not by the migration. So no
+valuable cost history is at risk here. Two caveats: this covers one clone's database only, and
+by definition it cannot see rows `0009` had already removed.
+
+### Pre-flight before converting `cost_usd` to `numeric`
+
+`double precision` is the wrong type for money: the PR-list total is produced by `sum(cost_usd)`
+in SQL, so binary-float accumulation makes it non-reproducible. When the column is converted to
+`numeric(12,6)`, run this audit **first, against every environment being migrated** — not just a
+dev box — so the call is made on data rather than assumption:
+
+```sql
+select count(*)                    as total_runs,
+       count(cost_usd)             as with_cost,
+       count(*) - count(cost_usd)  as null_cost,
+       min(ran_at)::date           as earliest,
+       max(ran_at)::date           as latest
+from agent_runs;
+```
+
+If `with_cost` is non-trivial anywhere, back the column up before the conversion.
+
 ## Keeping prices right
 - `pricing.ts` records when its OpenAI and Anthropic prices were last verified. Re-check them against the providers' pricing pages when adding models.
 - A model missing from the table makes its runs show `—` and PR totals `≥`.
