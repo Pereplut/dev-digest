@@ -97,3 +97,15 @@ Supersedes: "A vendored module that uses hooks without `"use client"` forces the
 **Insight:** `sortableKeyboardCoordinates` picks the next item by geometry, and jsdom returns 0×0 rects for everything, so a keyboard move does nothing. Stubbing `HTMLElement.prototype.getBoundingClientRect` to stack rows by index makes it work; keys must be sent as `user.keyboard("[Space]")` / `"[ArrowDown]"` (KeyboardSensor reads `event.code`).
 **Apply:** reuse `stubRowGeometry` for any dnd-kit keyboard test and restore it in `afterEach`.
 **Evidence:** `client/src/app/agents/[id]/_components/AgentEditor/_components/SkillsTab/SkillsTab.test.tsx:92`.
+
+### 2026-09-20 — [fix] N parallel optimistic mutations from one click roll each other back
+**Context:** "Deselect all" on the Conventions page fired one `usePatchConvention` PATCH per accepted card; flagged by pr-self-review (react-best-practices).
+**Insight:** each call runs its own `onMutate`, snapshotting the cache and returning it as context. The snapshots are taken *concurrently*, so they all predate the siblings' writes — one failing request's `onError` restores a snapshot from before the others and silently reverts their successful updates too. Nothing corrects it afterwards, because that hook's `onSettled` invalidates only the skill-defaults key, never the list.
+**Apply:** a bulk action gets ONE mutation over an id list (one snapshot, one rollback) and invalidates the list in `onSettled`. Never `forEach` over an optimistic mutation.
+**Evidence:** `client/src/lib/hooks/conventions.ts:96` (`useBulkPatchConventions`); regression test `client/src/app/conventions/_components/ConventionsView/ConventionsView.test.tsx` ("deselects every accepted candidate in ONE bulk mutation").
+
+### 2026-09-20 — [fix] Gating render on `data` for a query the same flag enables makes a dead button
+**Context:** `{modalOpen && defaults.data ? <CreateSkillModal …/> : null}`, where `useConventionSkillDefaults(repoId, modalOpen)` is `enabled: modalOpen`.
+**Insight:** on a failed fetch there is no `data`, so nothing renders while `modalOpen` stays `true` — and clicking again re-sets the same value, so React does not re-render and TanStack does not refetch. The button is permanently dead with no error shown, because `lib/providers.tsx` toasts only status 0 and 5xx, so a 4xx is silent.
+**Apply:** when one state flag both enables a query and gates its render, handle `isError` explicitly (close and toast, or render the error with a retry). Don't leave the open state on with a falsy `data` as the only signal.
+**Evidence:** `client/src/app/conventions/_components/ConventionsView/ConventionsView.tsx:52` (the `defaultsFailed` effect); `client/src/lib/providers.tsx:38` (the 4xx-silent toast rule).

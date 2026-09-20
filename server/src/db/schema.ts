@@ -23,7 +23,8 @@
  *   ci.ts        ciInstallations, ciRuns          (entire file unused)
  *   eval.ts      evalCases, evalRuns,
  *                conformanceChecks, composedReviews (entire file unused)
- *   knowledge.ts memory, conventions              ← `memory` is a pgvector table
+ *   knowledge.ts memory                           ← a pgvector table
+ *                (conventions + conventionScans are LIVE as of spec 0007)
  *   context.ts   codeChunks, onboarding           ← `codeChunks` is pgvector
  *   ops.ts       installedPlugins, digests
  *   runs.ts      multiAgentRuns
@@ -59,7 +60,7 @@ import { pullRequests, prFiles, prCommits } from './schema/pulls';
 import { reviews, findings, prIntent, prBrief } from './schema/reviews';
 import { skills, skillVersions } from './schema/skills';
 import { agents, agentVersions, agentSkills } from './schema/agents';
-import { memory, conventions } from './schema/knowledge';
+import { memory, conventions, conventionScans } from './schema/knowledge';
 import { codeChunks, symbols, references, onboarding } from './schema/context';
 import { evalCases, evalRuns, conformanceChecks, composedReviews } from './schema/eval';
 import { ciInstallations, ciRuns } from './schema/ci';
@@ -93,6 +94,7 @@ export const schema = {
   agentVersions,
   agentSkills,
   conventions,
+  conventionScans,
   memory,
   codeChunks,
   symbols,

@@ -19,6 +19,10 @@ export interface InsertSkill extends SkillContent {
   workspaceId: string;
   source: SkillSource;
   message?: string | null;
+  /** Repo paths this skill was derived from — set by the conventions extractor (spec 0007). */
+  evidenceFiles?: string[] | null;
+  /** Defaults to the column default (true); the conventions modal can clear it. */
+  enabled?: boolean;
 }
 
 export interface UpdateSkill extends Partial<SkillContent> {
@@ -111,6 +115,10 @@ export class SkillsRepository {
             source: values.source,
             body: values.body,
             version: INITIAL_SKILL_VERSION,
+            ...(values.evidenceFiles !== undefined
+              ? { evidenceFiles: values.evidenceFiles }
+              : {}),
+            ...(values.enabled !== undefined ? { enabled: values.enabled } : {}),
           })
           .returning();
         await snapshot(tx, row!, values.message ?? null);

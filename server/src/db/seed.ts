@@ -9,6 +9,8 @@ import {
   TEST_QUALITY_REVIEWER_PROMPT,
 } from './seed-prompts.js';
 import { SEED_SKILLS, SEED_AGENT_SKILLS } from './seed-skills.js';
+import { SEED_CONVENTIONS } from './seed-conventions.js';
+import { conventionFingerprint } from '../modules/conventions/helpers.js';
 
 /** Default provider/model for the built-in reviewer agents. */
 const DEFAULT_PROVIDER = 'openrouter' as const;
@@ -341,6 +343,54 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
             .where(and(eq(t.reviews.prId, seededPr.id), eq(t.reviews.model, 'seed')));
         }
       }
+    }
+  }
+
+  // ---- extracted convention candidates (spec 0007) ----
+  // Idempotent by (repo_id, fingerprint), which is also the extractor's merge
+  // key — so a later real scan updates these rows rather than duplicating them.
+  // See seed-conventions.ts for why they are seeded as already-proved.
+  const [existingScan] = await db
+    .select({ id: t.conventionScans.id })
+    .from(t.conventionScans)
+    .where(eq(t.conventionScans.repoId, repoId))
+    .limit(1);
+  if (!existingScan) {
+    const [scan] = await db
+      .insert(t.conventionScans)
+      .values({
+        workspaceId,
+        repoId,
+        status: 'done',
+        sampler: 'repo-intel',
+        sampleFileCount: 84,
+        candidateCount: SEED_CONVENTIONS.length,
+        rejectedCount: 0,
+        model: 'seed',
+        finishedAt: new Date(),
+      })
+      .returning({ id: t.conventionScans.id });
+    if (scan) {
+      await db
+        .insert(t.conventions)
+        .values(
+          SEED_CONVENTIONS.map((c) => ({
+            workspaceId,
+            repoId,
+            scanId: scan.id,
+            category: c.category,
+            rule: c.rule,
+            evidencePath: c.evidencePath,
+            evidenceStartLine: c.evidenceStartLine,
+            evidenceEndLine: c.evidenceEndLine,
+            evidenceSnippet: c.evidenceSnippet,
+            confidence: c.confidence,
+            status: 'pending' as const,
+            evidenceValid: true,
+            fingerprint: conventionFingerprint(c.evidencePath, c.rule),
+          })),
+        )
+        .onConflictDoNothing();
     }
   }
 

@@ -80,7 +80,7 @@ A change to `reviewer-core/` or `server/src/vendor/shared/` also requires server
   - They change only as a side effect of that package's own manager (`pnpm add` / `npm i`) when dependencies change.
   - Never add a second lockfile (for example `package-lock.json` in a pnpm package).
 - **Vendored code:** `client/src/vendor/ui` (ported UI kit). Contracts only change together with the shared AGENTS.md rules.
-  - Single exception: `client/src/vendor/ui/nav.ts` (the sidebar nav and shortcut registry) may change when a new top-level page ships (spec 0006). `review_scope.py` allows exactly this file.
+  - Single exception: `client/src/vendor/ui/nav.ts` (the sidebar nav and shortcut registry) may change when a new top-level page ships (specs 0006, 0007). `review_scope.py` allows exactly this file.
 - **Dev DB volume:** never run `docker compose down -v`; it wipes the dev DB volume.
 
 ## Repo-wide rules

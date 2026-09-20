@@ -42,7 +42,7 @@ A flow lives in `flows/NN-name.flow.json`:
 
 Flows target the **seeded data** (the demo repo `acme/payments-api`, PR #482,
 the seeded agents), so nothing triggers a model call. All are read-only except
-`09-pr-finding-actions`, which rejects a finding to prove the action persists —
+`10-pr-finding-actions`, which rejects a finding to prove the action persists —
 it is gated on `E2E_ALLOW_MUTATING=1` and runs last.
 
 > **Precondition: a freshly-seeded DB.** Flow `02` follows the home redirect to
@@ -113,4 +113,5 @@ a CI artifact by `.github/workflows/e2e-web.yml`).
 | `06-onboarding` | `/onboarding` → add-repository form renders (no submit) |
 | `07-settings` | `/settings/api-keys` + `/settings/models` → section titles render |
 | `08-skills` | `/skills` → seeded skill cards + Preview tab → Security Reviewer's Skills tab shows "2 of 12 enabled" and the globally-off skill |
-| `09-pr-finding-actions` | PR #482 → Agent runs → **reject a finding** → still rejected after a full reload (**mutating**: needs `E2E_ALLOW_MUTATING=1`, runs last) |
+| `09-conventions` | `/conventions` → seeded convention candidates, their `file:line` evidence, snippets and confidence meters, and the accept counter |
+| `10-pr-finding-actions` | PR #482 → Agent runs → **reject a finding** → still rejected after a full reload (**mutating**: needs `E2E_ALLOW_MUTATING=1`, runs last) |
