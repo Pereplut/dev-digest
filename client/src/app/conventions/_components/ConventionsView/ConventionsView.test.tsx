@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { screen, cleanup, waitFor } from "@testing-library/react";
+import { screen, cleanup, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ConventionPatch, ConventionsPage } from "@devdigest/shared";
 import { makeCandidate, makeScan, makeSkillDefaults, renderWithProviders } from "../../_lib/test-utils";
@@ -27,7 +27,9 @@ vi.mock("@/lib/hooks/conventions", () => ({
   usePatchConvention: () => ({ mutate: patchMutate, isPending: false }),
   useBulkPatchConventions: () => ({ mutate: bulkMutate, isPending: false }),
   useConventionSkillDefaults: () => ({
-    data: defaultsIsError ? undefined : makeSkillDefaults(),
+    // TanStack keeps the PREVIOUS data while a re-enabled query refetches, so
+    // `isError` alone never means "nothing to render".
+    data: defaultsIsError && !defaultsIsFetching ? undefined : makeSkillDefaults(),
     isError: defaultsIsError,
     isLoading: defaultsIsLoading,
     isFetching: defaultsIsFetching,
@@ -130,7 +132,7 @@ describe("ConventionsView", () => {
     );
     // Still clickable, not stuck in a half-open state.
     expect(button).toBeEnabled();
-    expect(screen.queryByRole("heading", { name: /Create skill from conventions/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   /**
@@ -148,12 +150,14 @@ describe("ConventionsView", () => {
 
     await user.click(screen.getByRole("button", { name: "Create skill" }));
 
-    await expect(
-      screen.findByText(
-        "Could not load the skill draft. Please try again.",
-        {},
-        { timeout: 250 },
-      ),
-    ).rejects.toThrow();
+    // The modal opens on the retained data instead of being closed by the
+    // stale failure, and no error is announced while the retry is in flight.
+    // Queried by the dialog role: the vendored Modal renders its title in a
+    // plain div, so a `heading` query would pass whether it opened or not.
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Create skill from conventions")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Could not load the skill draft. Please try again."),
+    ).not.toBeInTheDocument();
   });
 });

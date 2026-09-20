@@ -276,13 +276,8 @@ export const ConventionPatch = z
 export type ConventionPatch = z.infer<typeof ConventionPatch>;
 
 /**
- * POST /repos/:id/conventions/skill — the fully edited draft from the modal.
- * Everything here is editable in the UI before saving (homework criterion 41);
- * the server only supplies the defaults.
- */
-/**
- * One source of bound for the draft and for the defaults that prefill it.
- * The defaults ARE the body of the POST below, so a default the POST would
+ * One source of truth for the draft's bounds and for the defaults that prefill
+ * it. The defaults ARE the body of the POST below, so a default the POST would
  * reject is a 400 the user can only escape by deleting text.
  */
 export const CONVENTION_SKILL_LIMITS = {
@@ -291,6 +286,11 @@ export const CONVENTION_SKILL_LIMITS = {
   body: 20_000,
 } as const;
 
+/**
+ * POST /repos/:id/conventions/skill — the fully edited draft from the modal.
+ * Everything here is editable in the UI before saving (homework criterion 41);
+ * the server only supplies the defaults.
+ */
 export const ConventionSkillDraft = z.object({
   name: z.string().trim().min(1).max(CONVENTION_SKILL_LIMITS.name),
   description: z.string().trim().min(1).max(CONVENTION_SKILL_LIMITS.description),
