@@ -350,13 +350,18 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
   // Idempotent by (repo_id, fingerprint), which is also the extractor's merge
   // key — so a later real scan updates these rows rather than duplicating them.
   // See seed-conventions.ts for why they are seeded as already-proved.
-  const [existingScan] = await db
-    .select({ id: t.conventionScans.id })
-    .from(t.conventionScans)
-    .where(eq(t.conventionScans.repoId, repoId))
-    .limit(1);
-  if (!existingScan) {
-    const [scan] = await db
+  // One transaction, because the scan row IS the idempotency guard: committed
+  // on its own it would make a later re-seed skip this block, leaving a 'done'
+  // scan that claims SEED_CONVENTIONS.length candidates with none stored.
+  await db.transaction(async (tx) => {
+    const [existingScan] = await tx
+      .select({ id: t.conventionScans.id })
+      .from(t.conventionScans)
+      .where(eq(t.conventionScans.repoId, repoId))
+      .limit(1);
+    if (existingScan) return;
+
+    const [scan] = await tx
       .insert(t.conventionScans)
       .values({
         workspaceId,
@@ -370,29 +375,29 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
         finishedAt: new Date(),
       })
       .returning({ id: t.conventionScans.id });
-    if (scan) {
-      await db
-        .insert(t.conventions)
-        .values(
-          SEED_CONVENTIONS.map((c) => ({
-            workspaceId,
-            repoId,
-            scanId: scan.id,
-            category: c.category,
-            rule: c.rule,
-            evidencePath: c.evidencePath,
-            evidenceStartLine: c.evidenceStartLine,
-            evidenceEndLine: c.evidenceEndLine,
-            evidenceSnippet: c.evidenceSnippet,
-            confidence: c.confidence,
-            status: 'pending' as const,
-            evidenceValid: true,
-            fingerprint: conventionFingerprint(c.evidencePath, c.rule),
-          })),
-        )
-        .onConflictDoNothing();
-    }
-  }
+    if (!scan) return;
+
+    await tx
+      .insert(t.conventions)
+      .values(
+        SEED_CONVENTIONS.map((c) => ({
+          workspaceId,
+          repoId,
+          scanId: scan.id,
+          category: c.category,
+          rule: c.rule,
+          evidencePath: c.evidencePath,
+          evidenceStartLine: c.evidenceStartLine,
+          evidenceEndLine: c.evidenceEndLine,
+          evidenceSnippet: c.evidenceSnippet,
+          confidence: c.confidence,
+          status: 'pending' as const,
+          evidenceValid: true,
+          fingerprint: conventionFingerprint(c.evidencePath, c.rule),
+        })),
+      )
+      .onConflictDoNothing();
+  });
 
   return { workspaceId, userId };
 }

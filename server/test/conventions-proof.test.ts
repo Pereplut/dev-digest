@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { validateEvidence } from '../src/modules/conventions/proof.js';
+import { MAX_EVIDENCE_LINES } from '../src/modules/conventions/constants.js';
 
 /**
  * The proof step is what stops an invented convention reaching a skill, so each
@@ -151,5 +152,38 @@ describe('validateEvidence', () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.endLine).toBe(7);
+  });
+
+  /**
+   * Regression: only the START of the range was bounded. A candidate citing
+   * 1–999999 made the search window the whole file, so one real line proved it
+   * out and the stored snippet became the ENTIRE file — served to the browser
+   * and merged into skill bodies that later review prompts carry.
+   */
+  it('refuses a cited range wider than MAX_EVIDENCE_LINES', () => {
+    const big = Array.from({ length: 5_000 }, (_, i) => `const v${i} = ${i};`).join('\n');
+    const res = validateEvidence(
+      big,
+      claim({
+        evidenceStartLine: 1,
+        evidenceEndLine: 999_999,
+        // A real line, in the file, that would otherwise prove the claim.
+        evidenceSnippet: 'const v4000 = 4000;',
+      }),
+    );
+    expect(res).toEqual({ ok: false, reason: 'line_out_of_range' });
+  });
+
+  it('still proves a range at the limit', () => {
+    const big = Array.from({ length: 5_000 }, (_, i) => `const v${i} = ${i};`).join('\n');
+    const res = validateEvidence(
+      big,
+      claim({
+        evidenceStartLine: 1,
+        evidenceEndLine: MAX_EVIDENCE_LINES,
+        evidenceSnippet: 'const v10 = 10;',
+      }),
+    );
+    expect(res.ok).toBe(true);
   });
 });

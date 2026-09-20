@@ -10,7 +10,7 @@
  * clone, a DB or a model.
  */
 import type { ConventionRejectReason } from '@devdigest/shared';
-import { MIN_INFORMATIVE_CHARS, PROOF_LINE_SLACK } from './constants.js';
+import { MAX_EVIDENCE_LINES, MIN_INFORMATIVE_CHARS, PROOF_LINE_SLACK } from './constants.js';
 
 export interface EvidenceClaim {
   evidencePath: string;
@@ -47,6 +47,12 @@ export function validateEvidence(
     return { ok: false, reason: 'line_out_of_range' };
   }
   if (start < 1 || end < start || start > lines.length) {
+    return { ok: false, reason: 'line_out_of_range' };
+  }
+  // Bound the LENGTH of the claim, not just where it starts: see
+  // MAX_EVIDENCE_LINES. Checked against the raw `end`, before the clamp below,
+  // so an over-wide claim cannot be shrunk into range by a short file.
+  if (end - start + 1 > MAX_EVIDENCE_LINES) {
     return { ok: false, reason: 'line_out_of_range' };
   }
 

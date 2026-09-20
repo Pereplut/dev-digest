@@ -19,6 +19,7 @@ const bulkMutate = vi.fn<(v: { ids: string[]; patch: ConventionPatch }) => void>
 let page: ConventionsPage = { candidates: [], scan: null };
 let defaultsIsError = false;
 let defaultsIsLoading = false;
+let defaultsIsFetching = false;
 
 vi.mock("@/lib/hooks/conventions", () => ({
   useConventions: () => ({ data: page, isLoading: false, isError: false, refetch: vi.fn() }),
@@ -29,6 +30,7 @@ vi.mock("@/lib/hooks/conventions", () => ({
     data: defaultsIsError ? undefined : makeSkillDefaults(),
     isError: defaultsIsError,
     isLoading: defaultsIsLoading,
+    isFetching: defaultsIsFetching,
   }),
   useCreateConventionSkill: () => ({ mutate: vi.fn(), isPending: false, error: null }),
 }));
@@ -41,6 +43,7 @@ afterEach(() => {
   page = { candidates: [], scan: null };
   defaultsIsError = false;
   defaultsIsLoading = false;
+  defaultsIsFetching = false;
 });
 
 describe("ConventionsView", () => {
@@ -68,7 +71,9 @@ describe("ConventionsView", () => {
     await user.click(screen.getByRole("button", { name: "Show rejected" }));
     expect(screen.getByText("Never swallow errors")).toBeInTheDocument();
 
-    await user.click(screen.getAllByRole("button", { name: "Accept" })[0]);
+    const [firstAccept] = screen.getAllByRole("button", { name: "Accept" });
+    if (!firstAccept) throw new Error("expected an Accept button to be rendered");
+    await user.click(firstAccept);
     expect(patchMutate).toHaveBeenCalledWith({ id: "c1", patch: { status: "accepted" } });
   });
 
@@ -126,5 +131,29 @@ describe("ConventionsView", () => {
     // Still clickable, not stuck in a half-open state.
     expect(button).toBeEnabled();
     expect(screen.queryByRole("heading", { name: /Create skill from conventions/i })).not.toBeInTheDocument();
+  });
+
+  /**
+   * Regression: TanStack keeps status 'error' while a re-enabled query
+   * refetches, so gating only on `isError` made the NEXT click close the
+   * just-opened modal and toast again before the refetch could settle — the
+   * button stayed broken for one more click after every failure.
+   */
+  it("keeps the modal open while the previously failed draft query is refetching", async () => {
+    const user = userEvent.setup();
+    defaultsIsError = true;
+    defaultsIsFetching = true;
+    page = { candidates: [makeCandidate({ id: "c1", status: "accepted" })], scan: makeScan() };
+    renderWithProviders(<ConventionsView />);
+
+    await user.click(screen.getByRole("button", { name: "Create skill" }));
+
+    await expect(
+      screen.findByText(
+        "Could not load the skill draft. Please try again.",
+        {},
+        { timeout: 250 },
+      ),
+    ).rejects.toThrow();
   });
 });

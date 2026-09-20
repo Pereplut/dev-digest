@@ -114,3 +114,10 @@ Supersedes: "Claude Code Stop hooks fire after every reply, not at session end"
 **Insight:** `!` commands run outside Claude's tools, so the Bash PreToolUse gate never sees them, and the opt-in git `pre-push` hook only fires when `core.hooksPath` is set. The push went through with no verdict.
 **Apply:** the Claude gate is not a hard guarantee; to cover manual pushes enable `git config core.hooksPath scripts/git-hooks`.
 **Evidence:** `.claude/settings.json:16` (Bash matcher); `scripts/git-hooks/pre-push:1`; push `5502ba1..0f3eec0` succeeded via `!`.
+
+### 2026-09-20 — [tool] A pr-self-review verdict taken with `--base HEAD` dies on the next commit
+Extends: "A review fingerprint built from `git diff` output goes stale on `git commit`"
+**Context:** reviewed the uncommitted conventions work with `--base HEAD` (13 reviewers instead of 41 vs `origin/main`), got a PASS, then committed. `check` immediately reported the verdict stale.
+**Insight:** the content fingerprint survived the commit exactly as designed — what moved was the base. `check` re-resolves the verdict's own `base_ref`, and `HEAD` is a moving ref, so `verdict["base"]` (the old commit) no longer equals the freshly resolved one and the verdict is rejected before the fingerprint is ever compared. Worse, a re-plan after the commit sees an almost-empty diff, so a trivial 1-reviewer round would "pass" the gate without the branch's real content ever being certified.
+**Apply:** review against a stable ref (`origin/main`, or the branch point) whenever the work will be committed before it is pushed. `--base HEAD` is only for a check you will consume immediately, without committing in between. Never satisfy the gate with a post-commit re-plan whose diff is empty.
+**Evidence:** `.claude/skills/pr-self-review/scripts/review_scope.py:482` (`verdict.get("base") != base`), `:476` (`resolve_base(root, verdict.get("base_ref"))`); verdict `base_ref: HEAD -> 2e8a98a2d1c1` vs `HEAD` now `27f83ba89f3a`.

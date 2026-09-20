@@ -34,6 +34,19 @@ export const MAX_SAMPLE_FILE_BYTES = 400 * 1024;
 export const PROOF_LINE_SLACK = 2;
 
 /**
+ * Longest cited line range that can be proved.
+ *
+ * Proof re-reads the FULL file, while the model only ever saw MAX_SAMPLE_LINES
+ * of it and its own snippet is capped at 2 000 chars (prompt.ts). Without this
+ * bound a candidate claiming lines 1–999999 makes the search window the whole
+ * file, so any one real line proves it out — and the stored `evidence_snippet`
+ * becomes the entire file, which is then served to the browser and merged into
+ * skill bodies that later review prompts carry. A convention is a handful of
+ * lines; a range wider than this is not evidence.
+ */
+export const MAX_EVIDENCE_LINES = 60;
+
+/**
  * Shortest line that counts as real evidence. A snippet made only of `}`,
  * `const` or similar matches almost any window, so proof requires at least one
  * line this long that is not pure punctuation (see proof.ts).

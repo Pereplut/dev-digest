@@ -55,7 +55,13 @@ export function ConventionsView() {
   // silent by design (lib/providers.tsx toasts 0 and 5xx only). Without this
   // the modal would stay "open" with nothing rendered and the button would
   // look permanently dead, because re-clicking sets the same state.
-  const defaultsFailed = modalOpen && defaults.isError;
+  //
+  // `isFetching` is part of the condition, not decoration: TanStack keeps
+  // status 'error' while the re-enabled query retries, so on the NEXT click
+  // this effect would see the PREVIOUS failure on the first render and close
+  // the modal again before the refetch could settle — one extra dead click
+  // after every failure.
+  const defaultsFailed = modalOpen && defaults.isError && !defaults.isFetching;
   React.useEffect(() => {
     if (!defaultsFailed) return;
     setModalOpen(false);

@@ -280,11 +280,22 @@ export type ConventionPatch = z.infer<typeof ConventionPatch>;
  * Everything here is editable in the UI before saving (homework criterion 41);
  * the server only supplies the defaults.
  */
+/**
+ * One source of bound for the draft and for the defaults that prefill it.
+ * The defaults ARE the body of the POST below, so a default the POST would
+ * reject is a 400 the user can only escape by deleting text.
+ */
+export const CONVENTION_SKILL_LIMITS = {
+  name: 80,
+  description: 500,
+  body: 20_000,
+} as const;
+
 export const ConventionSkillDraft = z.object({
-  name: z.string().trim().min(1).max(80),
-  description: z.string().trim().min(1).max(500),
+  name: z.string().trim().min(1).max(CONVENTION_SKILL_LIMITS.name),
+  description: z.string().trim().min(1).max(CONVENTION_SKILL_LIMITS.description),
   type: SkillType,
-  body: z.string().trim().min(1).max(20_000),
+  body: z.string().trim().min(1).max(CONVENTION_SKILL_LIMITS.body),
   enabled: z.boolean().default(true),
   candidate_ids: z.array(z.string()).min(1),
 });
@@ -292,10 +303,10 @@ export type ConventionSkillDraft = z.infer<typeof ConventionSkillDraft>;
 
 /** The server-computed defaults the modal opens with. */
 export const ConventionSkillDefaults = z.object({
-  name: z.string(),
-  description: z.string(),
+  name: z.string().max(CONVENTION_SKILL_LIMITS.name),
+  description: z.string().max(CONVENTION_SKILL_LIMITS.description),
   type: SkillType,
-  body: z.string(),
+  body: z.string().max(CONVENTION_SKILL_LIMITS.body),
   accepted_count: z.number().int(),
 });
 export type ConventionSkillDefaults = z.infer<typeof ConventionSkillDefaults>;
