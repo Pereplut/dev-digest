@@ -1,4 +1,4 @@
-import type { Severity } from "@devdigest/ui";
+import type { Severity } from "@/components/ui-client";
 
 /** Constants for the Showcase Gallery (dev-only). */
 

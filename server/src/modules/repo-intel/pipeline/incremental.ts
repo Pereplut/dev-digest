@@ -19,7 +19,6 @@ import { extname, join } from 'node:path';
 import type { RepoRef } from '@devdigest/shared';
 import type { Container } from '../../../platform/container.js';
 import { withTimeout } from '../../../platform/resilience.js';
-import { parseSymbols, parseReferences, langForFile } from '../../../adapters/astgrep/index.js';
 import { extractEndpoints, extractCrons } from '../../../adapters/codeindex/extract.js';
 import {
   DEFAULT_REPO_MAP_TOKEN_BUDGET,
@@ -144,8 +143,7 @@ export async function runIncremental(
   const parseDegraded: Array<{ file: string; reason: string }> = [];
 
   for (const relPath of changed) {
-    const lang = langForFile(relPath);
-    if (!lang) {
+    if (!container.codeParser.supports(relPath)) {
       filesSkipped += 1;
       continue;
     }
@@ -163,8 +161,8 @@ export async function runIncremental(
     try {
       const parsed = await withTimeout(
         Promise.resolve().then(() => ({
-          symbols: parseSymbols(relPath, source),
-          references: parseReferences(relPath, source),
+          symbols: container.codeParser.parseSymbols(relPath, source),
+          references: container.codeParser.parseReferences(relPath, source),
         })),
         MAX_PARSE_MS_PER_FILE,
       );
@@ -202,9 +200,8 @@ export async function runIncremental(
     }
   }
 
-  await repository.deleteForFiles(repoId, changed);
-  await repository.insertSymbols(symbolsBuf);
-  await repository.insertReferences(refsBuf);
+  // One transaction over the sliced replace (same reason as the full index).
+  await repository.replaceSymbolsAndReferences(repoId, changed, symbolsBuf, refsBuf);
   await repository.patchFileFacts(repoId, changed, factsBuf);
 
   // --- T3: rebuild graph + rank, re-resolve, invalidate the repo-map -----

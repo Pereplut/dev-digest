@@ -6,7 +6,11 @@ import {
   GENERAL_REVIEWER_PROMPT,
   SECURITY_REVIEWER_PROMPT,
   PERFORMANCE_REVIEWER_PROMPT,
+  TEST_QUALITY_REVIEWER_PROMPT,
 } from './seed-prompts.js';
+import { SEED_SKILLS, SEED_AGENT_SKILLS } from './seed-skills.js';
+import { SEED_CONVENTIONS } from './seed-conventions.js';
+import { conventionFingerprint } from '../modules/conventions/helpers.js';
 
 /** Default provider/model for the built-in reviewer agents. */
 const DEFAULT_PROVIDER = 'openrouter' as const;
@@ -18,11 +22,13 @@ const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash';
  *
  * Seeds: default workspace + system user + membership, default settings,
  * demo repo (acme/payments-api), PR #482 with files/commits, a sample review
- * with a few findings, and the three built-in agents (General + Security +
- * Performance), all on the default openrouter/deepseek-v4-flash provider+model.
+ * with a few findings, the four built-in agents (General + Security +
+ * Performance + Test Quality), all on the default openrouter/deepseek-v4-flash
+ * provider+model, and the built-in skills with their v1 versions and agent links
+ * (spec 0006; bodies in ./seed-skills.ts).
  *
- * Course lessons populate the other tables (skills, conventions, memory, eval,
- * …) once their features are built — they start empty here.
+ * Course lessons populate the other tables (conventions, memory, eval, …) once
+ * their features are built — they start empty here.
  */
 
 export const DEFAULT_WORKSPACE_NAME = 'default';
@@ -175,7 +181,7 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
     ]);
   }
 
-  // ---- built-in agents (the three starter presets) ----
+  // ---- built-in agents (the starter presets) ----
   // Prompt bodies live in ./seed-prompts.ts (mirrored in docs/agent-prompts/*.md).
   const seedAgents: Array<typeof t.agents.$inferInsert> = [
     {
@@ -211,6 +217,17 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       version: 1,
       createdBy: userId,
     },
+    {
+      workspaceId,
+      name: 'Test Quality Reviewer',
+      description: 'Checks test quality: uncovered branches, missed corner cases, over-mocking and flaky tests.',
+      provider: DEFAULT_PROVIDER,
+      model: DEFAULT_MODEL,
+      systemPrompt: TEST_QUALITY_REVIEWER_PROMPT,
+      enabled: true,
+      version: 1,
+      createdBy: userId,
+    },
   ];
   for (const a of seedAgents) {
     const [existing] = await db
@@ -218,6 +235,59 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       .from(t.agents)
       .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.name, a.name)));
     if (!existing) await db.insert(t.agents).values(a);
+  }
+
+  // ---- built-in skills + their v1 snapshots + agent links (spec 0006) ----
+  // Idempotent by (workspace, name): an existing skill is never overwritten, so
+  // user edits survive a re-seed. The v1 row and links use onConflictDoNothing.
+  const skillIds = new Map<string, string>();
+  for (const s of SEED_SKILLS) {
+    let [skill] = await db
+      .select({ id: t.skills.id })
+      .from(t.skills)
+      .where(and(eq(t.skills.workspaceId, workspaceId), eq(t.skills.name, s.name)));
+    if (!skill) {
+      [skill] = await db
+        .insert(t.skills)
+        .values({
+          workspaceId,
+          name: s.name,
+          description: s.description,
+          type: s.type,
+          source: s.source,
+          body: s.body,
+          enabled: s.enabled,
+          version: 1,
+        })
+        .onConflictDoNothing()
+        .returning({ id: t.skills.id });
+      if (!skill) continue; // lost a concurrent insert race; next run links it
+      await db
+        .insert(t.skillVersions)
+        .values({
+          skillId: skill.id,
+          version: 1,
+          name: s.name,
+          description: s.description,
+          type: s.type,
+          body: s.body,
+          message: 'Initial version',
+        })
+        .onConflictDoNothing();
+    }
+    skillIds.set(s.name, skill.id);
+  }
+  for (const [agentName, links] of Object.entries(SEED_AGENT_SKILLS)) {
+    const [agent] = await db
+      .select({ id: t.agents.id })
+      .from(t.agents)
+      .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.name, agentName)));
+    if (!agent) continue; // renamed/deleted by the user: skip its links
+    const rows = links.flatMap((l, order) => {
+      const skillId = skillIds.get(l.skill);
+      return skillId ? [{ agentId: agent.id, skillId, order, enabled: l.enabled }] : [];
+    });
+    if (rows.length > 0) await db.insert(t.agentSkills).values(rows).onConflictDoNothing();
   }
 
   // ---- completed agent runs with cost for PR #482 (run cost badge) ----
@@ -256,7 +326,8 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
             durationMs: r.durationMs,
             tokensIn: r.tokensIn,
             tokensOut: r.tokensOut,
-            costUsd: r.costUsd,
+            // `cost_usd` is `numeric`, which Drizzle types as a string.
+            costUsd: String(r.costUsd),
             status: 'done',
             source: 'local',
             findingsCount: r.findingsCount,
@@ -274,6 +345,59 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       }
     }
   }
+
+  // ---- extracted convention candidates (spec 0007) ----
+  // Idempotent by (repo_id, fingerprint), which is also the extractor's merge
+  // key — so a later real scan updates these rows rather than duplicating them.
+  // See seed-conventions.ts for why they are seeded as already-proved.
+  // One transaction, because the scan row IS the idempotency guard: committed
+  // on its own it would make a later re-seed skip this block, leaving a 'done'
+  // scan that claims SEED_CONVENTIONS.length candidates with none stored.
+  await db.transaction(async (tx) => {
+    const [existingScan] = await tx
+      .select({ id: t.conventionScans.id })
+      .from(t.conventionScans)
+      .where(eq(t.conventionScans.repoId, repoId))
+      .limit(1);
+    if (existingScan) return;
+
+    const [scan] = await tx
+      .insert(t.conventionScans)
+      .values({
+        workspaceId,
+        repoId,
+        status: 'done',
+        sampler: 'repo-intel',
+        sampleFileCount: 84,
+        candidateCount: SEED_CONVENTIONS.length,
+        rejectedCount: 0,
+        model: 'seed',
+        finishedAt: new Date(),
+      })
+      .returning({ id: t.conventionScans.id });
+    if (!scan) return;
+
+    await tx
+      .insert(t.conventions)
+      .values(
+        SEED_CONVENTIONS.map((c) => ({
+          workspaceId,
+          repoId,
+          scanId: scan.id,
+          category: c.category,
+          rule: c.rule,
+          evidencePath: c.evidencePath,
+          evidenceStartLine: c.evidenceStartLine,
+          evidenceEndLine: c.evidenceEndLine,
+          evidenceSnippet: c.evidenceSnippet,
+          confidence: c.confidence,
+          status: 'pending' as const,
+          evidenceValid: true,
+          fingerprint: conventionFingerprint(c.evidencePath, c.rule),
+        })),
+      )
+      .onConflictDoNothing();
+  });
 
   return { workspaceId, userId };
 }

@@ -1,6 +1,6 @@
 /** Pure helpers for AppShell. */
 
-import type { RepoSummary } from "@devdigest/ui";
+import type { RepoSummary } from "@/components/ui-client";
 import type { Repo } from "../../lib/types";
 
 /** Map a lib `Repo` to the `RepoSummary` shape the AppFrame shell context expects. */

@@ -28,6 +28,13 @@ export class ValidationError extends AppError {
   }
 }
 
+/** The request collides with existing state (e.g. a unique name). */
+export class ConflictError extends AppError {
+  constructor(message = 'Conflict', details?: unknown) {
+    super('conflict', message, 409, details);
+  }
+}
+
 export class ExternalServiceError extends AppError {
   constructor(message: string, details?: unknown) {
     super('external_service_error', message, 502, details);

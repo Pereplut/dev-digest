@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { sql } from 'drizzle-orm';
 import { and, eq, inArray } from 'drizzle-orm';
-import type { PrMeta } from '@devdigest/shared';
+import type { PrPage } from '@devdigest/shared';
 import { startPg, dockerAvailable, type PgFixture } from './helpers/pg.js';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/platform/config.js';
@@ -125,10 +125,10 @@ d('Testcontainers: DB-backed routes via app.inject', () => {
 
     const first = await app.inject({ method: 'GET', url: `/repos/${repoId}/pulls` });
     expect(first.statusCode).toBe(200);
-    expect(first.json().length).toBeGreaterThan(0);
+    expect(first.json().items.length).toBeGreaterThan(0);
     // import again → still idempotent (unique repo_id+number)
     const second = await app.inject({ method: 'GET', url: `/repos/${repoId}/pulls` });
-    expect(second.json().length).toBe(first.json().length);
+    expect(second.json().items.length).toBe(first.json().items.length);
     await app.close();
   });
 
@@ -148,7 +148,7 @@ d('Testcontainers: DB-backed routes via app.inject', () => {
     const agents = await db.select().from(t.agents).where(eq(t.agents.workspaceId, repo!.workspaceId));
     const agentId = (name: string) => agents.find((a) => a.name === name)!.id;
     const list = async () =>
-      (await app.inject({ method: 'GET', url: `/repos/${repo!.id}/pulls` })).json() as PrMeta[];
+      ((await app.inject({ method: 'GET', url: `/repos/${repo!.id}/pulls` })).json() as PrPage).items;
     const pr482 = async () => (await list()).find((p) => p.number === 482)!;
 
     // Seeded done runs: General 0.0149 + Security 0.0011.
@@ -167,10 +167,13 @@ d('Testcontainers: DB-backed routes via app.inject', () => {
     const inserted = await db
       .insert(t.agentRuns)
       .values([
+        // `cost_usd` is `numeric`, which Drizzle types as a string on writes
+        // (0.38 has no `mode: 'number'`). The assertions below still read real
+        // numbers — run.repo.ts converts at the row↔DTO boundary.
         // a re-run by the same agent ADDS to the total (all done runs count)
-        { ...base, agentId: agentId('Security Reviewer'), status: 'done', costUsd: 0.002, ranAt: at(60) },
+        { ...base, agentId: agentId('Security Reviewer'), status: 'done', costUsd: String(0.002), ranAt: at(60) },
         // a FAILED run is never counted
-        { ...base, agentId: agentId('General Reviewer'), status: 'failed', costUsd: 0.5, ranAt: at(120) },
+        { ...base, agentId: agentId('General Reviewer'), status: 'failed', costUsd: String(0.5), ranAt: at(120) },
       ])
       .returning({ id: t.agentRuns.id });
     row = await pr482();
@@ -192,7 +195,7 @@ d('Testcontainers: DB-backed routes via app.inject', () => {
     inserted.push(
       ...(await db
         .insert(t.agentRuns)
-        .values({ ...base, agentId: null, status: 'done', costUsd: 0.001, ranAt: at(240) })
+        .values({ ...base, agentId: null, status: 'done', costUsd: String(0.001), ranAt: at(240) })
         .returning({ id: t.agentRuns.id })),
     );
     row = await pr482();
@@ -241,7 +244,7 @@ d('Testcontainers: DB-backed routes via app.inject', () => {
     const agents = await db.select().from(t.agents).where(eq(t.agents.workspaceId, repo!.workspaceId));
     const agentId = (name: string) => agents.find((a) => a.name === name)!.id;
     const list = async () =>
-      (await app.inject({ method: 'GET', url: `/repos/${repo!.id}/pulls` })).json() as PrMeta[];
+      ((await app.inject({ method: 'GET', url: `/repos/${repo!.id}/pulls` })).json() as PrPage).items;
     const pr482 = async () => (await list()).find((p) => p.number === 482)!;
 
     // Seeded: the General run has the review (1 CRITICAL + 1 WARNING); the newer

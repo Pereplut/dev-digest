@@ -64,3 +64,39 @@ describe('assemblePrompt — ## PR description', () => {
     expect((assembly.pr_description as string).length).toBe(4000);
   });
 });
+
+describe('assemblePrompt — skills live in the system message (spec 0006)', () => {
+  const skills = ['### Skill: a\nCheck A', '### Skill: b\nCheck B'];
+
+  it('places the ## Skills block after the agent prompt and before the guard, in order', () => {
+    const sys = systemOf({ system: 'AGENT-SYS', diff: 'DIFF', skills });
+    const iSys = sys.indexOf('AGENT-SYS');
+    const iSkills = sys.indexOf('## Skills\n### Skill: a');
+    const iB = sys.indexOf('### Skill: b');
+    const iGuard = sys.indexOf('<untrusted>');
+    expect(iSys).toBe(0);
+    expect(iSkills).toBeGreaterThan(iSys);
+    expect(iB).toBeGreaterThan(iSkills);
+    expect(iGuard).toBeGreaterThan(iB);
+  });
+
+  it('keeps skills out of the user message', () => {
+    const user = userOf({ system: 'S', diff: 'DIFF', skills });
+    expect(user).not.toContain('Check A');
+    expect(user).not.toContain('## Skills');
+  });
+
+  it('records the skills slot separately from assembly.system (no double counting)', () => {
+    const { assembly } = assemblePrompt({ system: 'S', diff: 'DIFF', skills });
+    expect(assembly.skills).toBe(`## Skills\n${skills.join('\n\n')}`);
+    expect(assembly.system).not.toContain('Check A');
+  });
+
+  it('is byte-identical to the no-skills output when skills are empty', () => {
+    const a = assemblePrompt({ system: 'S', diff: 'DIFF' });
+    const b = assemblePrompt({ system: 'S', diff: 'DIFF', skills: [] });
+    expect(b.messages).toEqual(a.messages);
+    expect(b.assembly.skills).toBeNull();
+    expect(systemOf({ system: 'S', diff: 'DIFF' })).not.toContain('## Skills');
+  });
+});

@@ -1,0 +1,20 @@
+{
+  "name": "Conventions Extractor lists seeded candidates with verified evidence",
+  "description": "Spec 0007. Loads /conventions for the seeded repo and checks the header, the three seeded candidates, their file:line evidence and confidence meters, and the accept counter. Read-only: Re-scan is never clicked (the seeded repo has no local checkout, so a scan would 409) and nothing triggers a model call.",
+  "steps": [
+    { "cmd": ["open", "{BASE}/conventions"], "label": "load the Conventions page" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "conventions fetch settles" },
+    { "cmd": ["wait", "--text", "Conventions in"], "label": "the page header names the feature" },
+    { "cmd": ["wait", "--text", "payments-api"], "label": "scoped to the active repository" },
+    { "cmd": ["wait", "--text", "Detected from 84 sample files"], "label": "the seeded scan's sample count is shown" },
+    { "cmd": ["wait", "--text", "Always use async/await instead of .then() chains"], "label": "the first seeded convention is listed" },
+    { "cmd": ["wait", "--text", "All public route handlers return typed Result"], "label": "the second seeded convention is listed" },
+    { "cmd": ["wait", "--text", "Redis access goes through the src/lib/redis.ts singleton"], "label": "the third seeded convention is listed" },
+    { "cmd": ["wait", "--text", "src/api/users.ts:23-31"], "label": "evidence cites a file AND a line range (criterion 40)" },
+    { "cmd": ["wait", "--text", "const user = await db.users.find(id);"], "label": "the verified code snippet is rendered" },
+    { "cmd": ["wait", "--text", "Confidence"], "label": "each candidate shows a confidence meter" },
+    { "cmd": ["wait", "--text", "91%"], "label": "the confidence value is rendered" },
+    { "cmd": ["wait", "--text", "of 3 accepted"], "label": "the accept counter reflects the three candidates" },
+    { "cmd": ["wait", "--text", "Create skill"], "label": "the Create skill action is present (never clicked: it is disabled until a convention is accepted, and pressing it would write a skill)" }
+  ]
+}

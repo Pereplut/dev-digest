@@ -26,8 +26,14 @@ async function main() {
   }
 
   try {
-    await app.listen({ port: config.apiPort, host: '0.0.0.0' });
+    await app.listen({ port: config.apiPort, host: config.apiHost });
     app.log.info(`DevDigest API listening on http://localhost:${config.apiPort}`);
+    if (config.apiHost !== '127.0.0.1' && config.apiHost !== 'localhost') {
+      app.log.warn(
+        `API bound to ${config.apiHost} — it has NO authentication, so anyone who can reach ` +
+          `this address can read run traces, overwrite stored API keys and trigger paid runs.`,
+      );
+    }
   } catch (err) {
     app.log.error(err);
     process.exit(1);

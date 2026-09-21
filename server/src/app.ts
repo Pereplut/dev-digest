@@ -80,6 +80,11 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   try {
     const reaped = await new ReviewService(container).reapStaleRuns();
     if (reaped > 0) app.log.info({ reaped }, 'reaped stale running agent_runs on boot');
+    // Same reasoning for the job queue, which is also in-process: a 'queued' or
+    // 'running' row from a dead process is abandoned, not pending, and nothing
+    // ever reads the table to discover otherwise.
+    const reapedJobs = await container.jobs.reapOrphanedJobs();
+    if (reapedJobs > 0) app.log.info({ reapedJobs }, 'reaped abandoned jobs on boot');
   } catch (err) {
     app.log.warn({ err: (err as Error).message }, 'stale-run reaping failed (non-fatal)');
   }

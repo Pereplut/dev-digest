@@ -1,10 +1,15 @@
-# Server integration suite — the 12 DB-backed test files (`*.it.test.ts`).
+# Server integration suite — the DB-backed test files (`*.it.test.ts`).
 #
 # Each spins up a real Postgres (pgvector) via testcontainers, builds the
 # Fastify app, migrates + seeds, and exercises the routes end-to-end against
-# the DB. Docker is present on ubuntu-latest, so testcontainers can pull the
-# image; the tests also self-skip (`dockerAvailable()`) if Docker is somehow
-# absent, so this job degrades to a no-op rather than a hard failure.
+# the DB.
+#
+# The tests self-skip when Docker is unavailable (`dockerAvailable()`), which is
+# right for a laptop but wrong for CI: a skipped suite still exits 0, so a
+# Docker regression on the runner is indistinguishable from a green run. This
+# job therefore ASSERTS Docker before running them. (Observed locally: two runs
+# minutes apart on the same commit, one reporting `2 skipped`, the next 30/30 —
+# the probe is racy, so "it passed" is not enough on its own.)
 #
 # Linux only — testcontainers needs a Linux Docker daemon (Windows runners
 # don't provide one).
@@ -57,9 +62,31 @@ jobs:
         working-directory: reviewer-core
         run: npm ci
 
-      # Inlined rather than `pnpm test:integration`: server/package.json is
-      # skip-worktree, so we don't rely on the committed file carrying the split
-      # script. The `.it.test` filter selects exactly the 12 DB-backed files.
-      # vitest's config gives these a 120s timeout for container spin-up; no API
-      # keys needed — LLM/git are mocked.
+      # Fail loudly if Docker is missing rather than letting every suite
+      # self-skip to a green no-op.
+      - name: Assert Docker is available
+        run: |
+          docker info > /dev/null 2>&1 || {
+            echo "::error::Docker is not available — the integration tests would self-skip and still exit 0."
+            exit 1
+          }
+
+      # Inlined rather than `pnpm test:integration`: server/package.json may be
+      # skip-worktree in some clones, so we don't rely on the committed file
+      # carrying the split script. The `.it.test` filter selects the DB-backed
+      # files. vitest's config gives these a 120s timeout for container spin-up;
+      # no API keys needed — LLM/git are mocked.
       - run: pnpm exec vitest run .it.test
+
+      # A suite that self-skips exits 0, so assert none were skipped. `--reporter
+      # json` is written to a file and inspected rather than trusting the exit
+      # code alone.
+      - name: Assert no suite self-skipped
+        run: |
+          pnpm exec vitest run .it.test --reporter=json --outputFile=/tmp/it.json > /dev/null 2>&1 || true
+          skipped=$(node -e "const r=require('/tmp/it.json');console.log((r.numPendingTests??0)+(r.numTodoTests??0))")
+          echo "skipped tests: $skipped"
+          if [ "$skipped" != "0" ]; then
+            echo "::error::$skipped integration test(s) were skipped — Docker or a gate is silently disabling coverage."
+            exit 1
+          fi

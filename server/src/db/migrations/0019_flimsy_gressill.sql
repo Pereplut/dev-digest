@@ -1,0 +1,1 @@
+ALTER TABLE "convention_scans" DROP COLUMN "created_at";

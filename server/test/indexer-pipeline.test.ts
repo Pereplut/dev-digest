@@ -25,6 +25,7 @@ import type { RepoIntelRepository } from '../src/modules/repo-intel/repository.j
 import { INDEXER_VERSION } from '../src/modules/repo-intel/constants.js';
 import type { IndexState } from '../src/modules/repo-intel/types.js';
 import type { Container } from '../src/platform/container.js';
+import { AstGrepParser } from '../src/adapters/astgrep/index.js';
 
 // ---------------------------------------------------------------------------
 // In-memory repository stub — matches RepoIntelRepository's surface.
@@ -68,6 +69,32 @@ function makeRepoStub(opts: {
     },
     insertReferences: async (rows: unknown[]) => {
       references.push(...rows);
+    },
+    // The pipeline now performs the delete + both inserts through this single
+    // transactional entry point instead of three separate calls, so the stub
+    // composes the same in-memory effects. `paths === null` = full reset.
+    replaceSymbolsAndReferences: async (
+      _repoId: string,
+      paths: string[] | null,
+      symbolRows: unknown[],
+      referenceRows: unknown[],
+    ) => {
+      if (paths === null) {
+        symbols.length = 0;
+        references.length = 0;
+      } else if (paths.length > 0) {
+        const set = new Set(paths);
+        for (let i = symbols.length - 1; i >= 0; i--) {
+          if (set.has((symbols[i] as { path: string }).path)) symbols.splice(i, 1);
+        }
+        for (let i = references.length - 1; i >= 0; i--) {
+          if (set.has((references[i] as { fromPath: string }).fromPath)) {
+            references.splice(i, 1);
+          }
+        }
+      }
+      symbols.push(...symbolRows);
+      references.push(...referenceRows);
     },
     upsertIndexState: async (s: {
       repoId: string;
@@ -134,6 +161,10 @@ function makeContainer(git: MiniGit): Container {
     // T3 adapters — stubbed: empty graph (rank degrades to flat) + char/4 tokens.
     depgraph: { buildEdges: async () => [] },
     tokenizer: { count: (text: string) => Math.ceil(text.length / 4) },
+    // The REAL parser, not MockCodeParser: these tests assert on genuine
+    // tree-sitter output (e.g. that a non-function `const` is not emitted as a
+    // symbol), so fixtures would hollow out what they verify.
+    codeParser: new AstGrepParser(),
   } as unknown as Container;
 }
 

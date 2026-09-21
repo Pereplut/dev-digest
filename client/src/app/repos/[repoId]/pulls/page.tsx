@@ -10,7 +10,7 @@ import {
   EmptyState,
   ErrorState,
   AutoTriggerStatus,
-} from "@devdigest/ui";
+} from "@/components/ui-client";
 import { AppShell } from "@/components/app-shell";
 import { RepoNotFound } from "@/components/repo-not-found";
 import { usePulls, useRefreshRepo } from "@/lib/hooks";

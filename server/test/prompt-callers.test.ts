@@ -20,7 +20,10 @@ const COMMON = {
   specs: ['# Security baseline\nNo secrets in code.'],
   diff: '@@ -1 +1 @@\n+stripeKey',
   task: "Review PR #482 'rate limit'",
-} as const;
+  // No `as const`: it makes skills/memory/specs readonly tuples, which are not
+  // assignable to PromptParts' mutable string[]. Nothing here needs literal
+  // types — the assertions are all substring/ordering checks.
+};
 
 describe('assemblePrompt + callers digest', () => {
   it('inserts ## Callers of changed symbols AFTER Project context and BEFORE Diff to review', () => {

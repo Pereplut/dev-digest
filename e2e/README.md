@@ -36,9 +36,14 @@ A flow lives in `flows/NN-name.flow.json`:
 - Before clicking a control that may be below the fold, run `scrollintoview '<css>'`:
   `find … click` doesn't scroll the app's inner container, and silently misses.
   See [docs/locators.md](docs/locators.md).
+- A flow that **writes** declares `"mutates": true` at the top level. The runner skips it unless
+  `E2E_ALLOW_MUTATING=1`, and reports the skip loudly rather than quietly omitting it. Mutating
+  flows must sort last, because every flow shares one seeded stack.
 
-Flows target **read-only seeded data** (the demo repo `acme/payments-api`, PR
-#482, the seeded agents), so nothing triggers a model call.
+Flows target the **seeded data** (the demo repo `acme/payments-api`, PR #482,
+the seeded agents), so nothing triggers a model call. All are read-only except
+`10-pr-finding-actions`, which rejects a finding to prove the action persists —
+it is gated on `E2E_ALLOW_MUTATING=1` and runs last.
 
 > **Precondition: a freshly-seeded DB.** Flow `02` follows the home redirect to
 > the *first* repo, so it assumes the seeded demo repo is the only one. CI
@@ -86,7 +91,9 @@ cd e2e && npm install && npm test
 Env knobs:
 
 - Runner: `E2E_BASE_URL`, `AGENT_BROWSER_BIN` (default `agent-browser`),
-  `E2E_STEP_TIMEOUT` (ms, default 60000).
+  `E2E_STEP_TIMEOUT` (ms, default 60000), `E2E_ALLOW_MUTATING` (`"1"` also runs
+  flows marked `"mutates": true`; CI sets it, local runs opt in:
+  `E2E_ALLOW_MUTATING=1 ./scripts/e2e.sh`).
 - Hermetic stack (`scripts/e2e.sh`): `E2E_PG_PORT` (5433), `E2E_API_PORT` (3101),
   `E2E_WEB_PORT` (3100), `E2E_PG_CONTAINER` (`devdigest-e2e-postgres`),
   `E2E_PG_IMAGE` (`pgvector/pgvector:pg16`).
@@ -105,3 +112,6 @@ a CI artifact by `.github/workflows/e2e-web.yml`).
 | `05-pr-diff` | PR #482 → Files changed tab → seeded file renders in the diff viewer |
 | `06-onboarding` | `/onboarding` → add-repository form renders (no submit) |
 | `07-settings` | `/settings/api-keys` + `/settings/models` → section titles render |
+| `08-skills` | `/skills` → seeded skill cards + Preview tab → Security Reviewer's Skills tab shows "2 of 12 enabled" and the globally-off skill |
+| `09-conventions` | `/conventions` → seeded convention candidates, their `file:line` evidence, snippets and confidence meters, and the accept counter |
+| `10-pr-finding-actions` | PR #482 → Agent runs → **reject a finding** → still rejected after a full reload (**mutating**: needs `E2E_ALLOW_MUTATING=1`, runs last) |

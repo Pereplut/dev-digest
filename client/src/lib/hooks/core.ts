@@ -14,6 +14,7 @@ import type {
   SecretsStatus,
   Repo,
   PrMeta,
+  PrPage,
   PrDetail,
   SpecFile,
   IndexStatus,
@@ -99,10 +100,40 @@ export function useDeleteRepo() {
 }
 
 // ---- Pull requests (F1: GET /repos/:id/pulls, GET /pulls/:id) ----
+/** Page size asked of the API, and a stop so a pathological repo cannot spin. */
+const PULLS_PAGE_SIZE = 200;
+const PULLS_MAX_PAGES = 25;
+
 export function usePulls(repoId: string | null | undefined) {
   return useQuery({
     queryKey: ["pulls", repoId],
-    queryFn: () => api.get<PrMeta[]>(`/repos/${repoId}/pulls`),
+    /**
+     * The endpoint is keyset-paginated; this follows the cursors and hands back
+     * the flat array every caller already expects — so the PR list page and the
+     * shell badge are untouched.
+     *
+     * Deliberately NOT one page. The list derives its status filter, text
+     * search, sort AND the sidebar's needs-review badge from the whole set, and
+     * `status` is computed in TypeScript (needs_review / stale are derived from
+     * head_sha and age, not stored), so serving one page would make the badge
+     * undercount app-wide and silently apply the filters to a subset. What
+     * pagination fixes is the DATABASE side: each request is now bounded, and
+     * the three decoration `IN` lists span one page instead of the repo's
+     * entire PR history.
+     */
+    queryFn: async () => {
+      const out: PrMeta[] = [];
+      let cursor: string | null = null;
+      for (let page = 0; page < PULLS_MAX_PAGES; page++) {
+        const qs = new URLSearchParams({ limit: String(PULLS_PAGE_SIZE) });
+        if (cursor) qs.set("cursor", cursor);
+        const res = await api.get<PrPage>(`/repos/${repoId}/pulls?${qs.toString()}`);
+        out.push(...res.items);
+        cursor = res.next_cursor;
+        if (!cursor) break;
+      }
+      return out;
+    },
     enabled: !!repoId,
     // Auto-refresh PR statuses: re-sync from GitHub every 60s while the page is
     // open, and whenever the window regains focus.
@@ -116,6 +147,25 @@ export function usePullDetail(prId: string | number | null | undefined) {
     queryKey: ["pull", prId],
     queryFn: () => api.get<PrDetail>(`/pulls/${prId}`),
     enabled: prId != null,
+  });
+}
+
+/**
+ * PR detail addressed the way the route is keyed: repo + PR number.
+ *
+ * The detail page used to call `usePulls` purely to translate the number in
+ * the URL into a row uuid, which meant waiting for the entire PR list — an
+ * endpoint that also syncs from GitHub and backfills diff stats — before the
+ * detail request could even start.
+ */
+export function usePullByNumber(
+  repoId: string | null | undefined,
+  number: string | number | null | undefined,
+) {
+  return useQuery({
+    queryKey: ["pull-by-number", repoId, number],
+    queryFn: () => api.get<PrDetail>(`/repos/${repoId}/pulls/${number}`),
+    enabled: !!repoId && number != null,
   });
 }
 

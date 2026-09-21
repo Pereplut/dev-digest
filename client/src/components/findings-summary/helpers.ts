@@ -4,6 +4,26 @@ import type { FindingRecord, FindingsCounts, ReviewRecord } from "@devdigest/sha
 
 /** Severities that get a chip, worst first. */
 export const FINDING_SEVERITIES = ["CRITICAL", "WARNING", "SUGGESTION"] as const;
+
+/**
+ * Severity → CSS colour token. The single source of truth for finding colours.
+ *
+ * This lived in three places: FindingCard's own constants (imported by
+ * FindingsPanel by reaching PAST FindingCard's barrel into its internals), and
+ * a third copy inlined in the trace drawer's FindingsSection. The copies had
+ * DRIFTED — the inlined one rendered SUGGESTION as `--accent` and had no INFO
+ * key. `--sugg` is the value the rest of the findings UI uses and is now the
+ * only one, so SUGGESTION badges in the trace drawer change colour to match.
+ */
+export const SEV_COLOR: Record<string, string> = {
+  CRITICAL: "var(--crit)",
+  WARNING: "var(--warn)",
+  SUGGESTION: "var(--sugg)",
+  INFO: "var(--info)",
+};
+
+/** Fallback colour for an unknown severity. */
+export const SEV_COLOR_FALLBACK = "var(--text-muted)";
 export type FindingSeverity = (typeof FINDING_SEVERITIES)[number];
 
 /** Open = not dismissed (accepted findings still count). */

@@ -7,7 +7,7 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { Button, Drawer, LiveLogStream, Tabs, type LogLine } from "@devdigest/ui";
+import { Button, Drawer, LiveLogStream, Tabs, type LogLine } from "@/components/ui-client";
 import type { FindingRecord, RunSummary } from "@devdigest/shared";
 import { useRunTrace } from "@/lib/hooks/trace";
 import { useRunEvents } from "@/lib/hooks/reviews";

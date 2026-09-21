@@ -17,6 +17,11 @@ aliases, not published modules):
 | `e2e/`           | `@devdigest/e2e`            | Deterministic browser e2e (agent-browser)             | —    |
 | `server/src/vendor/shared` | `@devdigest/shared` | Zod contracts shared across every package             | —    |
 
+Instructions for coding agents live in **`AGENTS.md`** — one at the root and one per
+package. The `CLAUDE.md` next to each is a three-line shim that imports it (Claude Code
+reads only `CLAUDE.md`), so edit `AGENTS.md` and leave the shim alone;
+`scripts/check-agent-docs.sh` checks the pairing.
+
 `repo-intel` (the codebase indexer that powers the **Indexed** badge and feeds
 project context into reviews) lives inside the server at
 [`server/src/modules/repo-intel`](server/src/modules/repo-intel). Only
@@ -148,6 +153,16 @@ path filter — full strategy in **[`TESTING.md`](TESTING.md)**.
 Server tests split by filename: `*.it.test.ts` are DB-backed (testcontainers
 Postgres); everything else is hermetic. The browser e2e flows live in
 [`e2e/`](e2e/README.md) and run deterministically (no LLM).
+
+### Self-review before a PR
+The [`pr-self-review`](.claude/skills/pr-self-review/SKILL.md) skill (`/pr-self-review`) reviews all local changes
+with the repo's skills: UI skills on `client/` files, backend and architecture skills on `server/` and `reviewer-core/` files.
+Any `CRITICAL` finding blocks `gh pr create`, `gh pr merge` and `git push` from Claude Code until it is fixed and re-reviewed.
+To gate pushes made outside Claude too, enable the git hook once per clone:
+
+```bash
+git config core.hooksPath scripts/git-hooks
+```
 
 ## Troubleshooting
 

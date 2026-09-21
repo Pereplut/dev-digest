@@ -1,6 +1,9 @@
 /* Showcase.tsx — renders every design-system component for visual verification.
-   Used by the /showcase route (both themes) and by the smoke tests.
-   Dev-only page: labels are intentionally not internationalized. */
+   There is NO /showcase route (an earlier version of this comment claimed one);
+   the only consumer is `src/test/smoke.test.tsx`, which renders <Gallery /> in
+   both themes as a design-system regression check. Keep it exported for that
+   test, or delete both together.
+   Dev-only: labels are intentionally not internationalized. */
 "use client";
 
 import React from "react";
@@ -42,7 +45,7 @@ import {
   LiveLogStream,
   ExportWizardSteps,
   AutoTriggerStatus,
-} from "@devdigest/ui";
+} from "@/components/ui-client";
 import { s } from "./styles";
 import { SEVERITIES, CATEGORIES, MODEL_OPTIONS } from "./constants";
 

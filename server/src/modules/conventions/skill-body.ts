@@ -1,0 +1,178 @@
+/**
+ * Aggregation: accepted convention candidates → one markdown skill body.
+ *
+ * The server produces this as the DEFAULT only. The modal hands the whole text
+ * back to the user, who may rewrite any of it before saving (criterion 41), and
+ * whatever they submit is what gets stored.
+ *
+ * Pure: takes candidates, returns a string.
+ */
+import { CONVENTION_SKILL_LIMITS, type ConventionCandidate } from '@devdigest/shared';
+
+export interface ConventionSkillTexts {
+  name: string;
+  description: string;
+  body: string;
+}
+
+/** `acme/payments-api` → `payments-api-conventions`. */
+export function defaultSkillName(repoFullName: string): string {
+  const suffix = '-conventions';
+  const slug = slugify(shortName(repoFullName)).slice(
+    0,
+    CONVENTION_SKILL_LIMITS.name - suffix.length,
+  );
+  return `${slug}${suffix}`;
+}
+
+/** `acme/payments-api` → `payments-api`. */
+function shortName(repoFullName: string): string {
+  return repoFullName.split('/').pop() ?? repoFullName;
+}
+
+export function buildConventionSkill(
+  repoFullName: string,
+  candidates: ConventionCandidate[],
+): ConventionSkillTexts {
+  const name = defaultSkillName(repoFullName);
+  return {
+    name,
+    description: `${candidates.length} house ${
+      candidates.length === 1 ? 'convention' : 'conventions'
+    } extracted from ${shortName(repoFullName)}`.slice(0, CONVENTION_SKILL_LIMITS.description),
+    body: renderConventionsSkill(repoFullName, candidates),
+  };
+}
+
+/**
+ * The body is bounded by CONVENTION_SKILL_LIMITS.body, because this text is the
+ * prefill for `POST /repos/:id/conventions/skill`, whose schema enforces that
+ * cap. Accepted candidates accumulate across every scan and each carries a
+ * snippet of up to 2 000 chars, so an unbounded default would hand the user a
+ * 400 they could only escape by deleting text. Whole conventions are dropped
+ * rather than truncated mid-snippet, and the body says how many.
+ */
+export function renderConventionsSkill(
+  repoFullName: string,
+  candidates: ConventionCandidate[],
+): string {
+  const parts: string[] = [
+    `# ${defaultSkillName(repoFullName)}`,
+    '',
+    `House conventions for \`${shortName(repoFullName)}\`. Flag changes that violate any rule below and cite the offending \`file:line\`.`,
+  ];
+
+  const used = new Set<string>();
+  let length = parts.join('\n').length;
+  let rendered = 0;
+
+  for (const c of candidates) {
+    const heading = uniqueSlug(c.rule, used);
+    const block: string[] = ['', `## ${heading}`, ensureSentence(c.rule)];
+    if (c.evidence_path) {
+      const fence = fenceFor(c.evidence_snippet);
+      block.push('', `Detected in \`${formatLocation(c)}\`:`, '', `${fence}ts`, c.evidence_snippet, fence);
+    }
+
+    // +1 for the newline that joins this block to the previous part.
+    const blockLength = block.join('\n').length + 1;
+    if (length + blockLength > BODY_BUDGET) break;
+
+    parts.push(...block);
+    length += blockLength;
+    rendered += 1;
+  }
+
+  const omitted = candidates.length - rendered;
+  if (omitted > 0) {
+    parts.push(
+      '',
+      `_${omitted} further ${omitted === 1 ? 'convention' : 'conventions'} omitted: the skill body is limited to ${CONVENTION_SKILL_LIMITS.body} characters._`,
+    );
+  }
+  return parts.join('\n');
+}
+
+/**
+ * Room reserved for the "N further conventions omitted" note, so appending it
+ * can never be what pushes the body over the limit.
+ */
+const OMISSION_NOTE_BUDGET = 120;
+const BODY_BUDGET = CONVENTION_SKILL_LIMITS.body - OMISSION_NOTE_BUDGET;
+
+/**
+ * A fence longer than the longest backtick run inside the snippet.
+ *
+ * The snippet is repository text. A fixed ``` fence lets a file that itself
+ * contains ``` (any file documenting markdown will) close the block early, so
+ * the rest of the snippet stops being code and becomes body markdown. That
+ * matters more here than usual: this body is stored as a skill, and skill
+ * bodies are placed in the SYSTEM message as agent CONFIGURATION — the trusted
+ * region — by `assemblePrompt`, while every other repo-derived input is
+ * delimiter-wrapped. Escaping out of the fence therefore promotes third-party
+ * file content into instructions for every later review with this skill.
+ */
+function fenceFor(snippet: string): string {
+  const longest = (snippet.match(/`+/g) ?? []).reduce((m, run) => Math.max(m, run.length), 0);
+  return '`'.repeat(Math.max(3, longest + 1));
+}
+
+/**
+ * `src/api/users.ts:23-31`, or `…:23` when the range is one line.
+ *
+ * The path is sanitised for the same reason the rule is: it is model output
+ * bounded only by `z.string().min(1)`, and for a candidate the machine rejected
+ * but a user accepted it was never matched against a real file at all. It is
+ * rendered inside backticks in the skill body, so a path carrying a newline and
+ * a `##` would break out and forge a heading in the trusted SYSTEM region.
+ */
+export function formatLocation(c: ConventionCandidate): string {
+  const path = sanitizePath(c.evidence_path);
+  if (c.evidence_start_line === null) return path;
+  if (c.evidence_end_line === null || c.evidence_end_line === c.evidence_start_line) {
+    return `${path}:${c.evidence_start_line}`;
+  }
+  return `${path}:${c.evidence_start_line}-${c.evidence_end_line}`;
+}
+
+/** One line, no backticks — so it cannot close the span it is rendered in. */
+function sanitizePath(path: string): string {
+  return path
+    .replace(/\p{Cc}+/gu, ' ')
+    .replace(/[`\s]+/g, ' ')
+    .trim();
+}
+
+function uniqueSlug(rule: string, used: Set<string>): string {
+  const base = slugify(rule).split('-').slice(0, 5).join('-') || 'convention';
+  let candidate = base;
+  let n = 2;
+  while (used.has(candidate)) candidate = `${base}-${n++}`;
+  used.add(candidate);
+  return candidate;
+}
+
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/**
+ * One line, no control characters, no leading markdown structure.
+ *
+ * `rule` is free-form model output that no proof step validates (only its
+ * length is bounded), and it lands in the trusted SYSTEM region via the skill
+ * body. Collapsing it to a single line stops it forging a heading, a list or a
+ * fence and thereby appearing to be part of the agent's own configuration.
+ */
+function ensureSentence(rule: string): string {
+  const trimmed = rule
+    .replace(/\p{Cc}+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/^[#>\-*`\s]+/, '')
+    .trim();
+  if (trimmed.length === 0) return '';
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}

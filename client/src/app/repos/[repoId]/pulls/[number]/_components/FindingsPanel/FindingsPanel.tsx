@@ -6,7 +6,7 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { Toggle, EmptyState, SeverityBadge, type Severity } from "@devdigest/ui";
+import { Toggle, EmptyState, SeverityBadge, type Severity } from "@/components/ui-client";
 import type { FindingRecord } from "@devdigest/shared";
 import {
   FINDING_SEVERITIES,
@@ -14,7 +14,9 @@ import {
   type FindingSeverity,
 } from "@/components/findings-summary";
 import { FindingCard } from "../FindingCard";
-import { SEV_COLOR, SEV_COLOR_FALLBACK } from "../FindingCard/constants";
+// Was `../FindingCard/constants` — reaching past FindingCard's barrel into its
+// internals. The colours now live in the shared findings-summary module.
+import { SEV_COLOR, SEV_COLOR_FALLBACK } from "@/components/findings-summary";
 import { useFindingAction } from "../../../../../../../lib/hooks/reviews";
 import { KEY_TO_ACTION } from "./constants";
 import { filterBySeverity, visibleFindings } from "./helpers";

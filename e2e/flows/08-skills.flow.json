@@ -1,0 +1,22 @@
+{
+  "name": "Skills Lab lists the seeded skills and an agent's Skills tab shows its links",
+  "description": "Spec 0006. Loads /skills (redirects to the first skill), checks the seeded skill cards and the Preview tab, then opens Security Reviewer's Skills tab: 2 of the 12 workspace skills reach its prompt (phantom-api-gate is linked but globally off). Read-only: no toggle, checkbox, drag or import is clicked, and nothing triggers a model call.",
+  "steps": [
+    { "cmd": ["open", "{BASE}/skills"], "label": "load the Skills Lab" },
+    { "cmd": ["wait", "--url", "/skills/"], "label": "index redirects to the first skill's detail route" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "skills fetch settles" },
+    { "cmd": ["wait", "--text", "pr-quality-rubric"], "label": "a seeded skill card is listed" },
+    { "cmd": ["wait", "--text", "phantom-api-gate"], "label": "the globally-disabled seeded skill is listed too" },
+    { "cmd": ["wait", "--text", "Rendered as the reviewing agent receives it."], "label": "the detail pane opens on the Preview tab" },
+    { "cmd": ["wait", "--text", "tokens added to the system prompt"], "label": "the preview shows the skill's token cost" },
+    { "cmd": ["open", "{BASE}/agents"], "label": "go to the agents list" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "agents fetch settles" },
+    { "cmd": ["find", "text", "Security Reviewer", "click"], "label": "open Security Reviewer in the editor" },
+    { "cmd": ["wait", "--url", "tab=config"], "label": "editor opens on the Config tab" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Skills", "--exact"], "label": "switch to the Skills tab (the sidebar Skills entry is a link, not a button)" },
+    { "cmd": ["wait", "--url", "tab=skills"], "label": "Skills tab is active in the URL" },
+    { "cmd": ["wait", "--text", "2 of 12 enabled"], "label": "2 linked skills reach the prompt; phantom-api-gate is off globally" },
+    { "cmd": ["wait", "--text", "secret-leakage-gate"], "label": "a linked skill row is listed" },
+    { "cmd": ["wait", "--text", "off globally"], "label": "the globally-disabled linked skill is flagged as not sent" }
+  ]
+}

@@ -4,7 +4,7 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { Icon, Card, Avatar, Markdown } from "@devdigest/ui";
+import { Icon, Card, Avatar, Markdown } from "@/components/ui-client";
 import type { PrReviewComment } from "@/lib/types";
 import { cs } from "../comments";
 

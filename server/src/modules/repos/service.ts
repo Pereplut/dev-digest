@@ -31,11 +31,16 @@ export interface CloneJobPayload {
 }
 
 export class RepoService {
-  private repo: RepoRepository;
-
-  constructor(private container: Container) {
-    this.repo = new RepoRepository(container.db);
-  }
+  /**
+   * The repository is a constructor argument (B4) so a test can pass a stub
+   * instead of reaching into a private field after construction. It defaults
+   * to the real one over `container.db`, so every call site stays
+   * `new RepoService(container)`.
+   */
+  constructor(
+    private container: Container,
+    private repo: RepoRepository = new RepoRepository(container.db),
+  ) {}
 
   /**
    * Register the `clone` job handler once. Authenticates the clone with the

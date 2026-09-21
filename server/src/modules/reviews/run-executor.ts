@@ -1,6 +1,6 @@
 import type { Container } from '../../platform/container.js';
 import type { Provider, Review, RunTrace, UnifiedDiff } from '@devdigest/shared';
-import { reviewPullRequest, countBlockers } from '@devdigest/reviewer-core';
+import { reviewPullRequest, countBlockers, assemblePrompt } from '@devdigest/reviewer-core';
 import { RunLogger } from '../../platform/run-logger.js';
 import * as schema from '../../db/schema.js';
 import type { AgentRow } from '../../db/rows.js';
@@ -8,6 +8,11 @@ import type { ReviewRepository, FindingRow, PullRow, ReviewRow } from './reposit
 import { REVIEW_STRATEGY } from './constants.js';
 import { taskLine } from './helpers.js';
 import { loadDiff } from './diff-loader.js';
+// Validates the document against RunTraceSchema before it is persisted, so a
+// malformed trace fails at write-time instead of being tolerated on every read.
+import { buildRunTrace, countPromptTokens } from '../../platform/trace-builder.js';
+// Pure skill helpers (ring 1): the ONE `### Skill:` formatter and the log line.
+import { renderSkillBlock, skillsLogLine, type LoadedSkill } from '../skills/helpers.js';
 
 /** Thrown by a run when the user cancels it mid-flight (between map files). */
 export class RunCancelledError extends Error {
@@ -152,6 +157,10 @@ export class ReviewRunExecutor {
 
     runLog.info(`Starting review with agent "${agent.name}" (${agent.provider}/${agent.model})`);
 
+    // Kept outside the try so a failed run's trace still shows the skills it
+    // had resolved before the failure.
+    let skills: LoadedSkill[] = [];
+
     try {
       // Resolve the agent's LLM provider. (container.llm throws if the provider
       // key is missing — caught below and persisted as a failed run.)
@@ -183,6 +192,11 @@ export class ReviewRunExecutor {
 
       const task = taskLine(pull) + rankNote;
 
+      // Skills (spec 0006): enabled on the link AND globally, in link order.
+      // They are text appended to the SYSTEM message by the engine.
+      skills = await this.loadSkills(workspaceId, agent.id);
+      runLog.info(skillsLogLine(skills));
+
       // ---- Engine: assemble → single-pass → grounding -----------------------
       // The pure review pipeline lives in @devdigest/reviewer-core (shared with
       // the CI runner). The service owns only I/O: repo-intel context resolution
@@ -203,6 +217,7 @@ export class ReviewRunExecutor {
         // PR author's description/body — untrusted; assemblePrompt wraps +
         // truncates it. Omitted when the PR has no body.
         ...(pull.body ? { prDescription: pull.body } : {}),
+        ...(skills.length > 0 ? { skills: skills.map((s) => s.block) } : {}),
         task,
         sessionId: `${repo.owner}/${repo.name}#${pull.number}:${agent.name}`,
         onEvent: (e) => runLog.event(e.kind, e.msg, e.data),
@@ -214,78 +229,107 @@ export class ReviewRunExecutor {
 
       const keptFindings = outcome.review.findings;
 
-      // ---- Persist review + findings ----------------------------------------
-      const review = await this.repo.insertReview({
-        workspaceId,
-        prId: pull.id,
-        agentId: agent.id,
-        runId,
-        kind: 'review',
-        verdict: outcome.review.verdict,
-        summary: outcome.review.summary,
-        score: outcome.review.score,
-        model: agent.model,
-      });
-      const findingRows = await this.repo.insertFindings(review.id, keptFindings);
-      runLog.result(`Persisted review ${review.id} with ${findingRows.length} finding(s)`);
-
-      // Mark the commit this review ran against so the PR list can tell
-      // reviewed / needs-review (head moved) / stale apart.
-      await this.repo.markReviewed(pull.id, pull.headSha);
-
-      const durationMs = Date.now() - start;
-
-      // Deterministic blocker count (severity ≥ the agent's gate) — the signal
-      // the timeline colors on, NOT the model's self-reported verdict.
-      const blockers = countBlockers(keptFindings, agent.ciFailOn);
-
-      // ---- Observability: agent_runs + ONE run_traces document --------------
-      await this.repo.completeAgentRun(runId, {
-        status: 'done',
-        durationMs,
-        tokensIn,
-        tokensOut,
-        costUsd,
-        findingsCount: findingRows.length,
-        grounding,
-        score: outcome.review.score,
-        blockers,
-        error: null,
-      });
-
-      const trace: RunTrace = {
-        config: {
-          agent: agent.name,
-          version: String(agent.version),
-          provider: agent.provider,
+      // ---- Persist review + findings + observability, ATOMICALLY -------------
+      // These five writes used to run as independent statements, so an
+      // interruption between any two left a concretely broken state: a review
+      // with zero findings; a PR still reading `needs_review` although it had
+      // just been reviewed; a run stuck `running` whose review already existed
+      // (and which the PR-list query then skipped, hiding the findings); or a
+      // `done` run with no trace document. One transaction — a run now lands
+      // completely or not at all.
+      const { review, findingRows } = await this.repo.transaction(async (repo) => {
+        const review = await repo.insertReview({
+          workspaceId,
+          prId: pull.id,
+          agentId: agent.id,
+          runId,
+          kind: 'review',
+          verdict: outcome.review.verdict,
+          summary: outcome.review.summary,
+          score: outcome.review.score,
           model: agent.model,
-          pr: pull.number,
-          source: 'local',
-        },
-        stats: {
-          duration_ms: durationMs,
-          tokens_in: tokensIn,
-          tokens_out: tokensOut,
-          findings: findingRows.length,
+        });
+        const findingRows = await repo.insertFindings(review.id, keptFindings);
+        await repo.insertRunSkills(
+          runId,
+          skills.map((s, order) => ({
+            order,
+            skillId: s.id,
+            skillName: s.name,
+            version: s.version,
+            tokens: s.tokens,
+          })),
+        );
+        runLog.result(`Persisted review ${review.id} with ${findingRows.length} finding(s)`);
+
+        // Mark the commit this review ran against so the PR list can tell
+        // reviewed / needs-review (head moved) / stale apart.
+        await repo.markReviewed(pull.id, pull.headSha);
+
+        const durationMs = Date.now() - start;
+
+        // Deterministic blocker count (severity ≥ the agent's gate) — the signal
+        // the timeline colors on, NOT the model's self-reported verdict.
+        const blockers = countBlockers(keptFindings, agent.ciFailOn);
+
+        // ---- Observability: agent_runs + ONE run_traces document ------------
+        await repo.completeAgentRun(runId, {
+          status: 'done',
+          durationMs,
+          tokensIn,
+          tokensOut,
+          costUsd,
+          findingsCount: findingRows.length,
           grounding,
-          cost_usd: costUsd,
-        },
-        prompt_assembly: outcome.assembly,
-        tool_calls: outcome.chunks.map((c) => ({
-          tool: 'review_file',
-          args: c.label,
-          meta: outcome.mode,
-          ms: Math.round(durationMs / Math.max(outcome.chunks.length, 1)),
-        })),
-        raw_output: outcome.raw,
-        memory_pulled: [],
-        specs_read: [],
-        // Persisted log = the run's FULL event buffer (incl. shared pre-work:
-        // diff load + intent), not just events recorded inside this method.
-        log: runLog.logFor(runId),
-      };
-      runLog.info('Run complete; trace persisted');
-      await this.repo.saveRunTrace(runId, trace);
+          score: outcome.review.score,
+          blockers,
+          error: null,
+        });
+
+        // buildRunTrace Zod-validates before persisting, so a malformed trace
+        // fails here instead of being tolerated on every subsequent read. It
+        // throws inside the transaction, which rolls the run back to "failed"
+        // — loud and coherent, rather than a review with an unreadable trace.
+        const trace = buildRunTrace({
+          config: {
+            agent: agent.name,
+            version: String(agent.version),
+            provider: agent.provider,
+            model: agent.model,
+            pr: pull.number,
+            source: 'local',
+          },
+          stats: {
+            duration_ms: durationMs,
+            tokens_in: tokensIn,
+            tokens_out: tokensOut,
+            findings: findingRows.length,
+            grounding,
+            cost_usd: costUsd,
+          },
+          promptAssembly: outcome.assembly,
+          toolCalls: outcome.chunks.map((c) => ({
+            tool: 'review_file',
+            args: c.label,
+            meta: outcome.mode,
+            ms: Math.round(durationMs / Math.max(outcome.chunks.length, 1)),
+          })),
+          rawOutput: outcome.raw,
+          memoryPulled: [],
+          specsRead: [],
+          // Persisted log = the run's FULL event buffer (incl. shared pre-work:
+          // diff load + intent), not just events recorded inside this method.
+          log: runLog.logFor(runId),
+          skillsUsed: skills.map(toSkillUsed),
+          promptTokens: countPromptTokens(outcome.assembly, (text) =>
+            this.container.tokenizer.count(text),
+          ),
+        });
+        runLog.info('Run complete; trace persisted');
+        await repo.saveRunTrace(runId, trace);
+
+        return { review, findingRows };
+      });
       this.container.runBus.complete(runId);
 
       return { review, findings: findingRows, grounding, raw: outcome.review };
@@ -308,11 +352,26 @@ export class ReviewRunExecutor {
         })
         .catch(() => undefined);
       await this.repo
-        .saveRunTrace(runId, this.traceFromBuffer(runId, pull, agent, '0/0 passed', Date.now() - start))
+        .saveRunTrace(
+          runId,
+          this.traceFromBuffer(runId, pull, agent, '0/0 passed', Date.now() - start, skills),
+        )
         .catch(() => undefined);
       this.container.runBus.complete(runId);
       throw err;
     }
+  }
+
+  /**
+   * The agent's effective skills, rendered through the single formatter and
+   * token-counted with the same tokenizer the trace uses.
+   */
+  private async loadSkills(workspaceId: string, agentId: string): Promise<LoadedSkill[]> {
+    const rows = await this.container.skillsRepo.enabledForAgent(workspaceId, agentId);
+    return rows.map((r) => {
+      const block = renderSkillBlock(r.name, r.body);
+      return { id: r.id, name: r.name, version: r.version, block, tokens: this.container.tokenizer.count(block) };
+    });
   }
 
   /**
@@ -413,7 +472,16 @@ export class ReviewRunExecutor {
     agent: AgentRow,
     grounding: string,
     durationMs = 0,
+    skills: LoadedSkill[] = [],
   ): RunTrace {
+    // The engine never ran (or failed mid-way), so there is no assembly to
+    // copy. Render the skills slot through the engine's own assemblePrompt so
+    // it matches what a successful run records, byte for byte.
+    const skillsSlot =
+      skills.length > 0
+        ? (assemblePrompt({ system: '', skills: skills.map((s) => s.block), diff: '' }).assembly
+            .skills ?? null)
+        : null;
     return {
       config: {
         agent: agent.name,
@@ -424,12 +492,23 @@ export class ReviewRunExecutor {
         source: 'local',
       },
       stats: { duration_ms: durationMs, tokens_in: 0, tokens_out: 0, findings: 0, grounding, cost_usd: null },
-      prompt_assembly: { system: agent.systemPrompt, skills: null, memory: null, specs: null, user: '' },
+      prompt_assembly: { system: agent.systemPrompt, skills: skillsSlot, memory: null, specs: null, user: '' },
       tool_calls: [],
       raw_output: '',
       memory_pulled: [],
       specs_read: [],
       log: this.container.runBus.buffer(runId).map((e) => ({ t: e.t, kind: e.kind, msg: e.msg })),
+      ...(skills.length > 0
+        ? {
+            skills_used: skills.map(toSkillUsed),
+            prompt_tokens: { skills: this.container.tokenizer.count(skillsSlot ?? '') },
+          }
+        : {}),
     };
   }
+}
+
+/** A loaded skill as recorded in the trace's `skills_used`. */
+function toSkillUsed(s: LoadedSkill): { id: string; name: string; version: number; tokens: number } {
+  return { id: s.id, name: s.name, version: s.version, tokens: s.tokens };
 }

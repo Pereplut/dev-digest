@@ -12,11 +12,21 @@ on:
     paths:
       - 'reviewer-core/**'
       - 'server/src/vendor/shared/**'
+      # test/run.test.ts imports ../../server/src/adapters/mocks.js, so a change
+      # to the server's mock adapters can break this suite. Without this filter
+      # that breakage only surfaces on an unrelated PR that happens to touch
+      # reviewer-core/**.
+      - 'server/src/adapters/**'
       - '.github/workflows/reviewer-core.yml'
   pull_request:
     paths:
       - 'reviewer-core/**'
       - 'server/src/vendor/shared/**'
+      # test/run.test.ts imports ../../server/src/adapters/mocks.js, so a change
+      # to the server's mock adapters can break this suite. Without this filter
+      # that breakage only surfaces on an unrelated PR that happens to touch
+      # reviewer-core/**.
+      - 'server/src/adapters/**'
       - '.github/workflows/reviewer-core.yml'
 
 permissions:

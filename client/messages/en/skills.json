@@ -1,101 +1,152 @@
 {
-  "page": {
-    "crumbLab": "Skills Lab",
-    "crumbSkills": "Skills",
-    "heading": "Skills",
-    "addSkill": "Add Skill",
+  "crumb": {
+    "lab": "Skills Lab",
+    "skills": "Skills"
+  },
+  "list": {
+    "title": "Skills",
+    "add": "Add Skill",
+    "create": "Create skill",
+    "import": "Import skill",
     "searchPlaceholder": "Search skills…",
+    "searchLabel": "Search skills",
     "loadError": "Could not load skills.",
-    "menu": {
-      "fromFile": "Import from file",
-      "fromUrl": "Import from URL",
-      "community": "Search community skills…"
-    },
-    "empty": {
-      "title": "No skills yet",
-      "body": "Import a skill from a file, a URL, or the community catalog.",
-      "cta": "Import from file"
-    },
-    "selectPrompt": {
-      "title": "Select a skill",
-      "body": "Pick a skill on the left to preview its body."
-    }
+    "emptyTitle": "No skills yet",
+    "emptyBody": "Create a skill or import a SKILL.md to get started.",
+    "noMatches": "No skills match “{query}”."
+  },
+  "index": {
+    "emptyTitle": "No skills yet",
+    "emptyBody": "A skill is a reusable markdown instruction block that review agents attach to their system prompt. Create one, or import a SKILL.md or an archive.",
+    "create": "Create skill",
+    "import": "Import skill"
+  },
+  "type": {
+    "rubric": "rubric",
+    "convention": "convention",
+    "security": "security",
+    "custom": "custom"
+  },
+  "source": {
+    "manual": "Manual",
+    "extracted": "Extracted",
+    "community": "Community",
+    "imported": "Imported"
+  },
+  "card": {
+    "agents": "{count, plural, one {# agent} other {# agents}}",
+    "pull": "{rate} pull",
+    "accept": "{rate} accept",
+    "toggleLabel": "Enable {name} for every agent",
+    "noDescription": "No description"
   },
   "detail": {
-    "crumbSkill": "Skill",
-    "back": "← All skills",
-    "loadError": "Could not load this skill.",
-    "notFound": {
-      "title": "Skill not found",
-      "body": "It may have been deleted."
-    }
-  },
-  "drawer": {
-    "title": "Add a skill",
-    "subtitle": "Import from a file, a URL, or search vetted community skills",
+    "version": "v{version}",
+    "disabled": "Globally off",
+    "runOnEvals": "Run on evals",
+    "loadErrorTitle": "Could not load this skill",
+    "loadErrorBody": "It may have been deleted, or the API is unreachable.",
     "tabs": {
-      "file": "From file",
-      "url": "From URL",
-      "community": "Community"
-    },
-    "importFailed": "Import failed"
-  },
-  "file": {
-    "nameLabel": "Skill name",
-    "nameHint": "Optional — derived from the first heading if blank.",
-    "namePlaceholder": "pr-quality-rubric",
-    "bodyLabel": "Skill body (Markdown)",
-    "bodyHint": "Pasted content is wrapped as untrusted data — never executed as instructions.",
-    "bodyPlaceholder": "# Rule\nDescribe the rule…",
-    "importing": "Importing…",
-    "import": "Import skill",
-    "success": "Imported \"{name}\" (stored as untrusted data)."
-  },
-  "url": {
-    "label": "Skill URL",
-    "hint": "Fetched server-side, stored as untrusted, and left disabled until vetted.",
-    "placeholder": "https://example.com/skills/security.md",
-    "fetching": "Fetching…",
-    "import": "Import from URL",
-    "success": "Imported \"{name}\". Disabled until you vet + enable it."
-  },
-  "community": {
-    "searchPlaceholder": "Search community skills (e.g. security)…",
-    "allLanguages": "All languages",
-    "loadError": "Could not load community skills",
-    "retry": "Retry",
-    "noMatch": {
-      "title": "No matching skills",
-      "body": "Try a different search term."
-    },
-    "importing": "Importing…",
-    "import": "Import"
-  },
-  "listItem": {
-    "needsVetting": "needs vetting",
-    "vettingTitle": "Untrusted source — vet before enabling",
-    "type": {
-      "rubric": "rubric",
-      "convention": "convention",
-      "security": "security",
-      "custom": "custom"
-    },
-    "source": {
-      "manual": "Manual",
-      "extracted": "Extracted",
-      "community": "Community",
-      "imported_url": "Imported"
+      "config": "Config",
+      "context": "Context",
+      "preview": "Preview",
+      "evals": "Evals",
+      "stats": "Stats",
+      "versions": "Versions"
     }
+  },
+  "form": {
+    "newTitle": "New skill",
+    "title": "Configuration",
+    "name": "Name",
+    "namePlaceholder": "e.g. untested-branches",
+    "description": "Description",
+    "descriptionHint": "Directive: say when this skill applies and what the agent must check — it is the skill's interface.",
+    "type": "Type",
+    "body": "Body",
+    "bodyHint": "Markdown. Appended to the agent's system prompt as its own block.",
+    "write": "Write",
+    "preview": "Preview",
+    "previewEmpty": "Nothing to preview yet.",
+    "message": "Change note",
+    "messagePlaceholder": "What changed? (optional, shown in Versions)",
+    "save": "Save skill",
+    "create": "Create skill",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "deleteConfirm": "Delete skill “{name}”? It is used by {count, plural, one {# agent} other {# agents}} and will be detached from them. This cannot be undone.",
+    "deletedToast": "Skill deleted",
+    "savedToast": "Saved as v{version}",
+    "createdToast": "Skill created",
+    "errors": {
+      "required": "Required.",
+      "tooLong": "At most {max} characters.",
+      "invalid": "Invalid value."
+    },
+    "serverError": "The server rejected this skill: {message}"
   },
   "preview": {
-    "untrustedBadge": "untrusted source",
-    "enabled": "Enabled",
-    "disabled": "Disabled",
-    "save": "Save",
-    "edit": "Edit",
-    "untrustedNotice": "This skill came from an untrusted source. Its body is stored as data (delimiter-wrapped) and must be vetted before it is enabled for an agent.",
-    "bodyLabel": "Skill body (Markdown)",
-    "bodyHint": "Saving a changed body creates a new immutable version.",
-    "version": "v{version}"
+    "title": "Preview",
+    "subtitle": "Rendered as the reviewing agent receives it.",
+    "tokens": "≈ {count} tokens added to the system prompt",
+    "tokensUnknown": "Token count is computed when the skill is saved."
+  },
+  "stats": {
+    "usedBy": "Used by",
+    "agentsSuffix": "{count, plural, one {agent} other {agents}}",
+    "pullFrequency": "Pull frequency",
+    "acceptRate": "Accept rate",
+    "findings30d": "Findings (30d)",
+    "agentsTitle": "Agents using this skill",
+    "agentsEmpty": "No agent has this skill attached.",
+    "open": "Open",
+    "openLabel": "Open {name}",
+    "categoriesTitle": "Findings by category",
+    "categoriesEmpty": "No findings in the last 30 days.",
+    "attributionHint": "Findings are attributed to runs that included this skill, not to the skill alone.",
+    "loadError": "Could not load stats."
+  },
+  "versions": {
+    "title": "Version history",
+    "count": "{count, plural, one {# version} other {# versions}}",
+    "hint": "Every save snapshots the body so eval runs stay reproducible against the exact text they scored.",
+    "edited": "Edited",
+    "current": "Current",
+    "diff": "Diff",
+    "restore": "Restore",
+    "restoreConfirm": "Restore v{version}? It is saved as a new version; nothing is deleted.",
+    "restoredToast": "Restored v{from} as v{to}",
+    "diffTitle": "v{from} → v{to} (current)",
+    "diffSubtitle": "Body changes. Green lines were added since v{from}; red lines were removed.",
+    "noChanges": "The body is identical to the current version.",
+    "empty": "No versions yet.",
+    "loadError": "Could not load versions."
+  },
+  "import": {
+    "title": "Import skill",
+    "subtitle": "Upload a .md, .zip or .skill file. Nothing is saved until you confirm.",
+    "drop": "Drop a file here, or",
+    "choose": "Choose file",
+    "fileLabel": "Skill file",
+    "accepted": "Accepted: .md, .zip, .skill (max 1 MB). Only markdown is read; scripts are never executed.",
+    "parsing": "Parsing…",
+    "trustTitle": "Read it before saving",
+    "trustBody": "An imported skill is someone else's instructions inside your agent's system prompt. Read it before saving.",
+    "from": "From {filename}",
+    "nameLabel": "Name",
+    "nameConflict": "A skill with this name already exists — choose another name.",
+    "descriptionLabel": "Description",
+    "typeLabel": "Type",
+    "bodyLabel": "Body",
+    "ignoredTitle": "Ignored files",
+    "ignoredEmpty": "No other files in the upload.",
+    "executable": "executable — not processed",
+    "confirm": "Import skill",
+    "saving": "Importing…",
+    "cancel": "Cancel",
+    "back": "Choose another file",
+    "importedToast": "Imported {name}",
+    "error": "Could not import this file: {message}"
   }
 }

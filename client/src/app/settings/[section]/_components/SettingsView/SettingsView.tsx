@@ -6,7 +6,7 @@
 import React from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { EmptyState, SETTINGS_SECTIONS } from "@devdigest/ui";
+import { EmptyState, SETTINGS_SECTIONS } from "@/components/ui-client";
 import { useTranslations } from "next-intl";
 import { AppShell } from "../../../../../components/app-shell";
 import { SettingsApiKeys } from "./_components/SettingsApiKeys";

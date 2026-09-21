@@ -21,32 +21,28 @@ import { parse, Lang, type SgNode } from '@ast-grep/napi';
 import { readFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 
-import type { ExtractedReference, ExtractedSymbol } from '../codeindex/extract.js';
 import { MAX_SIGNATURE_CHARS, SUPPORTED_EXT } from '../../modules/repo-intel/constants.js';
+import type {
+  CodeParser,
+  ParsedImport,
+  ParsedInvocationHead,
+  ParsedReference,
+  ParsedSymbol,
+} from './port.js';
 
 // ---------------------------------------------------------------------------
-// Public types — superset of the regex extractor's row shapes.
+// Public types — declared in port.ts (see its header for why), re-exported here
+// because test/astgrep.test.ts and existing callers import them from the
+// adapter. This file is the ONLY one allowed to import @ast-grep/napi.
 // ---------------------------------------------------------------------------
 
-export interface ParsedSymbol extends ExtractedSymbol {
-  /** True when the declaration is reached through an `export` form. */
-  exported: boolean;
-  /** Declaration head trimmed to MAX_SIGNATURE_CHARS; null for kinds without one. */
-  signature: string | null;
-  /** 1-based line of the closing token of the declaration body. */
-  endLine: number;
-}
-
-export interface ParsedReference extends ExtractedReference {
-  /** Path passed in by the caller — surfaced so consumers can fan-out. */
-  refFile: string;
-}
-
-export interface ParsedImport {
-  name: string;
-  source: string;
-  isType: boolean;
-}
+export type {
+  CodeParser,
+  ParsedImport,
+  ParsedInvocationHead,
+  ParsedReference,
+  ParsedSymbol,
+} from './port.js';
 
 // ---------------------------------------------------------------------------
 // Lang mapping — accepts SUPPORTED_EXT and falls back to null otherwise.
@@ -465,15 +461,6 @@ export function parseReferences(file: string, source: string): ParsedReference[]
 // parseInvocationHeads — T1.3 Phantom-API gate fuel
 // ---------------------------------------------------------------------------
 
-export interface ParsedInvocationHead {
-  /** The bare identifier being invoked (callee name, ctor name, or JSX tag). */
-  name: string;
-  /** 1-based line of the invocation. */
-  line: number;
-  /** Which AST shape produced this head. */
-  kind: 'call' | 'new' | 'jsx';
-}
-
 /**
  * Bare-identifier invocation heads only — the phantom-gate's high-precision
  * input. We DELIBERATELY skip `x.foo()` (member calls) because we can't
@@ -636,4 +623,38 @@ export async function parseChangedFiles(
   }
 
   return { symbols, references, imports };
+}
+
+// ---------------------------------------------------------------------------
+// The port implementation
+// ---------------------------------------------------------------------------
+
+/**
+ * CodeParser backed by @ast-grep/napi — a thin delegation layer over the
+ * functions above. Those stay exported on purpose: test/astgrep.test.ts drives
+ * them directly, and `parseChangedFiles` / `langForFile` have no port method
+ * (the port exposes `supports()` instead, so `Lang` never leaks to consumers).
+ *
+ * Stateless, so the container hands the same instance to every caller.
+ */
+export class AstGrepParser implements CodeParser {
+  supports(file: string): boolean {
+    return langForFile(file) !== null;
+  }
+
+  parseSymbols(file: string, source: string): ParsedSymbol[] {
+    return parseSymbols(file, source);
+  }
+
+  parseReferences(file: string, source: string): ParsedReference[] {
+    return parseReferences(file, source);
+  }
+
+  parseInvocationHeads(file: string, source: string): ParsedInvocationHead[] {
+    return parseInvocationHeads(file, source);
+  }
+
+  parseImports(file: string, source: string): ParsedImport[] {
+    return parseImports(file, source);
+  }
 }

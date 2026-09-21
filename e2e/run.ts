@@ -9,12 +9,21 @@
  * the flow. We add only light substring checks on top.
  *
  * Env:
- *   E2E_BASE_URL       web app origin (default http://localhost:3000)
- *   AGENT_BROWSER_BIN  binary name/path (default "agent-browser")
- *   E2E_STEP_TIMEOUT   per-command timeout in ms (default 60000)
+ *   E2E_BASE_URL        web app origin (default http://localhost:3000)
+ *   AGENT_BROWSER_BIN   binary name/path (default "agent-browser")
+ *   E2E_STEP_TIMEOUT    per-command timeout in ms (default 60000)
+ *   E2E_ALLOW_MUTATING  "1" to also run flows declaring `"mutates": true`
  *
- * Flows target read-only seeded data, so nothing here triggers an LLM call or
- * needs an API key. Run order is the lexical order of the flow filenames.
+ * Almost every flow targets read-only seeded data, so nothing triggers an LLM
+ * call or needs an API key. A flow that WRITES declares `"mutates": true` and is
+ * skipped unless E2E_ALLOW_MUTATING=1: `npm test` can be aimed at a developer's
+ * dev database, and rejecting a finding cannot be undone from the UI (there is
+ * no reset action, and re-seeding does not clear `dismissed_at`). CI sets it —
+ * its Postgres is a fresh container every run.
+ *
+ * Run order is the lexical order of the flow filenames, and it MATTERS: all
+ * flows share one seeded stack, so mutating flows sort last (08+) and cannot
+ * change counts that an earlier read-only flow asserts on.
  */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -39,6 +48,7 @@ const RESULTS_DIR = join(HERE, "test-results");
 const BASE = process.env.E2E_BASE_URL ?? "http://localhost:3000";
 const BIN = process.env.AGENT_BROWSER_BIN ?? "agent-browser";
 const STEP_TIMEOUT = Number(process.env.E2E_STEP_TIMEOUT ?? 60_000);
+const ALLOW_MUTATING = process.env.E2E_ALLOW_MUTATING === "1";
 
 /** Run one agent-browser command; resolve with its stdout, reject on non-zero exit. */
 async function ab(args: string[]): Promise<string> {
@@ -101,8 +111,15 @@ async function main(): Promise<void> {
   }
 
   const results: FlowResult[] = [];
+  const skipped: string[] = [];
   try {
     for (const { file, flow } of flows) {
+      if (flow.mutates && !ALLOW_MUTATING) {
+        skipped.push(`${flow.name}  (${file})`);
+        console.log(`\n⊘ ${flow.name}  (${file})`);
+        console.log(`   skipped: mutating flow — set E2E_ALLOW_MUTATING=1 to run it`);
+        continue;
+      }
       results.push(await runFlow(file, flow));
     }
   } finally {
@@ -111,6 +128,13 @@ async function main(): Promise<void> {
   }
 
   console.log(`\n${summarize(results)}`);
+  if (skipped.length > 0) {
+    // Say so loudly. A suite that silently omits flows and still exits 0 is
+    // indistinguishable from one that ran them — exactly the trap the
+    // integration workflow's Docker self-skip set (see server/INSIGHTS.md).
+    console.log(`\n${skipped.length} mutating flow(s) SKIPPED (E2E_ALLOW_MUTATING is not "1"):`);
+    for (const s of skipped) console.log(`  ⊘ ${s}`);
+  }
   process.exit(results.every((r) => r.ok) ? 0 : 1);
 }
 

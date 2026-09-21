@@ -1,0 +1,30 @@
+{
+  "name": "Reject a finding, and it stays rejected after a reload",
+  "mutates": true,
+  "description": "The three defining user actions (run a review, cancel a run, accept/reject a finding) had no end-to-end coverage: flow 04 waits for the 'Reject' button and deliberately never clicks it, because every flow shares one seeded stack. This flow clicks it. It runs LAST so the counts flows 02/04 assert on are still pristine when they run, and it is gated behind E2E_ALLOW_MUTATING=1 so `npm test` aimed at a dev database cannot silently dismiss a real finding — there is no undo in the UI, and re-seeding does not clear dismissed_at. The load-bearing assertion is the RE-NAVIGATION at the end: 'rejected' surviving a fresh page load is what proves the action reached Postgres rather than just React state. Still no model call — the action is a plain PATCH on seeded data.",
+  "steps": [
+    { "cmd": ["open", "{BASE}/"], "label": "load the app root" },
+    { "cmd": ["wait", "--url", "/pulls"], "label": "land on the PR list" },
+    { "cmd": ["find", "text", "Add rate limiting to public API endpoints", "click"], "label": "open the PR row" },
+    { "cmd": ["wait", "--url", "/pulls/482"], "label": "navigate to the PR detail route" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "PR detail data settles" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Agent runs"], "label": "switch to the Agent runs tab" },
+    { "cmd": ["wait", "--url", "tab=findings"], "label": "findings tab is active in the URL" },
+    { "cmd": ["wait", "--text", "N+1 query in user list endpoint"], "label": "the seeded WARNING finding is on screen" },
+
+    { "cmd": ["scrollintoview", "button[aria-label=\"1 warning\"]"], "label": "scroll the WARNING pill into view (find … click doesn't scroll the app's inner container)" },
+    { "cmd": ["find", "role", "button", "click", "--name", "1 warning", "--exact"], "label": "filter to the WARNING finding, so exactly one card — and one Reject button — is on screen" },
+    { "cmd": ["wait", "--fn", "!document.body.innerText.includes('Hardcoded Stripe secret key in commit')"], "label": "the CRITICAL card is filtered out, making the Reject click unambiguous" },
+
+    { "cmd": ["find", "role", "button", "click", "--name", "Reject"], "label": "reject the warning finding (the mutation this flow exists for)" },
+    { "cmd": ["wait", "--text", "rejected"], "label": "the card is labelled rejected" },
+
+    { "cmd": ["open", "{BASE}/"], "label": "re-navigate from scratch — a reload is what proves the write persisted" },
+    { "cmd": ["wait", "--url", "/pulls"], "label": "back on the PR list" },
+    { "cmd": ["find", "text", "Add rate limiting to public API endpoints", "click"], "label": "open the PR again" },
+    { "cmd": ["wait", "--url", "/pulls/482"], "label": "PR detail route again" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "PR detail data settles" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Agent runs"], "label": "back to the Agent runs tab" },
+    { "cmd": ["wait", "--text", "rejected"], "label": "still rejected after a full reload — the action reached the database" }
+  ]
+}

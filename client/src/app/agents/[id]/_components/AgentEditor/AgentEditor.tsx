@@ -1,13 +1,14 @@
-/* AgentEditor — basic agent config editor (model + system prompt). Later
-   lessons add Skills/Evals/Stats/CI tabs; the Part-0 starter ships Config only.
-   Tab state still lives in ?tab= for forward-compatibility. */
+/* AgentEditor — the agent editor shell: tab bar + the active tab (Config or
+   Skills). Tab state lives in ?tab= (owned by the page). Evals/Stats/CI are
+   not built yet and stay out of TABS. */
 "use client";
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { Tabs } from "@devdigest/ui";
+import { Tabs } from "@/components/ui-client";
 import type { Agent } from "@devdigest/shared";
 import { ConfigTab } from "./_components/ConfigTab";
+import { SkillsTab } from "./_components/SkillsTab";
 import { TABS } from "./constants";
 import { s } from "./styles";
 
@@ -20,7 +21,15 @@ export function AgentEditor({ agent, tab, onTab }: { agent: Agent; tab: string; 
         <Tabs tabs={tabs} value={tab} onChange={onTab} pad="0 24px" />
       </div>
       <div style={s.body}>
-        <ConfigTab agent={agent} />
+        {/* `key` remounts the tab when the agent changes, which is what resets
+            its local state. ConfigTab previously did that with an effect that
+            fired nine setState calls on [agent.id] — rendering the previous
+            agent's values for one frame on every switch. */}
+        {tab === "skills" ? (
+          <SkillsTab key={agent.id} agentId={agent.id} />
+        ) : (
+          <ConfigTab key={agent.id} agent={agent} />
+        )}
       </div>
     </div>
   );

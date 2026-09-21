@@ -3,7 +3,7 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { Chip, Button, TextInput, SelectInput } from "@devdigest/ui";
+import { Chip, Button, TextInput, SelectInput } from "@/components/ui-client";
 import { STATUS_FILTERS } from "../../constants";
 import { s } from "../../styles";
 

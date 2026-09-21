@@ -1,4 +1,4 @@
-import type { Db } from '../../db/client.js';
+import type { Db, DbOrTx } from '../../db/client.js';
 import * as t from '../../db/schema.js';
 import type { Finding, Intent, RunSummary, RunTrace } from '@devdigest/shared';
 
@@ -23,7 +23,25 @@ import * as runRepo from './repository/run.repo.js';
 import * as pullRepo from './repository/pull.repo.js';
 
 export class ReviewRepository {
-  constructor(private db: Db) {}
+  constructor(private db: DbOrTx) {}
+
+  /**
+   * Run several repository calls as ONE atomic unit.
+   *
+   * The callback receives a repository bound to the transaction, so a service
+   * owns the boundary without reaching for `db` itself (which would put SQL
+   * orchestration in the application ring and bypass this layer):
+   *
+   *   await repo.transaction(async (r) => {
+   *     const review = await r.insertReview(…);
+   *     await r.insertFindings(review.id, …);
+   *   });
+   *
+   * Nested calls become savepoints in Drizzle, so composing is safe.
+   */
+  transaction<T>(cb: (repo: ReviewRepository) => Promise<T>): Promise<T> {
+    return (this.db as Db).transaction((tx) => cb(new ReviewRepository(tx)));
+  }
 
   // ---- PR lookup (workspace-scoped) --------------------------------------
 
@@ -173,6 +191,11 @@ export class ReviewRepository {
   /** Record the head SHA a review ran against (PR-list freshness derivation). */
   markReviewed(prId: string, sha: string): Promise<void> {
     return pullRepo.markReviewed(this.db, prId, sha);
+  }
+
+  /** Record which skills (at which version) went into a run's prompt. */
+  insertRunSkills(runId: string, skills: runRepo.RunSkillValues[]): Promise<void> {
+    return runRepo.insertRunSkills(this.db, runId, skills);
   }
 
   /** Persist the WHOLE run log as ONE document. PK = runId → agent_runs. */

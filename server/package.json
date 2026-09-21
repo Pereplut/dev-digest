@@ -7,12 +7,13 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
-    "lint": "eslint ."
+    "lint": "eslint . && pnpm arch",
+    "arch": "depcruise src --output-type err-long"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.33.1",
@@ -20,6 +21,7 @@
     "@fastify/autoload": "^6.0.3",
     "@fastify/cors": "^10.0.2",
     "@fastify/helmet": "^13.0.2",
+    "@fastify/multipart": "^9.4.0",
     "@fastify/rate-limit": "^11.0.0",
     "@vscode/ripgrep": "^1.15.9",
     "dependency-cruiser": "^17.4.3",
@@ -28,6 +30,7 @@
     "fastify": "^5.2.0",
     "fastify-sse-v2": "^4.2.1",
     "fastify-type-provider-zod": "^4.0.2",
+    "fflate": "^0.8.3",
     "graphology": "^0.26.0",
     "graphology-metrics": "^2.4.0",
     "js-tiktoken": "^1.0.21",

@@ -1,0 +1,85 @@
+{
+  "$comment": "Routes each changed file to the skills that review it. Globs are repo-relative; `**` spans directories, `*` does not, `{a,b}` is alternation. A file gets the union of every matching route. `skip` files are never sent to a reviewer (the deterministic repo rules in review_scope.py still see them). A reviewable file no route matches is 'unmapped' and gets `unmapped_skills`. `chunk_files` caps how many files one reviewer agent gets.",
+  "chunk_files": 30,
+  "skip": [
+    "**/*.md",
+    "**/*.{png,jpg,jpeg,gif,svg,ico,webp,woff,woff2}",
+    "**/pnpm-lock.yaml",
+    "**/package-lock.json",
+    "**/yarn.lock",
+    "skills-lock.json",
+    "server/src/db/migrations/**",
+    "client/src/vendor/ui/**",
+    "**/node_modules/**",
+    "**/dist/**",
+    "client/messages/**",
+    "e2e/flows/**"
+  ],
+  "routes": [
+    {
+      "name": "ui",
+      "glob": "client/src/**/*.{ts,tsx}",
+      "exclude": ["client/src/vendor/**", "**/*.test.{ts,tsx}", "client/src/test/**"],
+      "skills": ["react-best-practices", "react-code-organization", "next-best-practices"]
+    },
+    {
+      "name": "ui-tests",
+      "glob": "client/**/*.test.{ts,tsx}",
+      "skills": ["react-testing-library"]
+    },
+    {
+      "name": "backend-architecture",
+      "glob": "server/src/**/*.ts",
+      "exclude": ["server/src/vendor/**"],
+      "skills": ["onion-architecture"]
+    },
+    {
+      "name": "backend-http",
+      "glob": "server/src/{app.ts,server.ts,modules/**/routes.ts,platform/**/*.ts}",
+      "skills": ["fastify-best-practices"]
+    },
+    {
+      "name": "backend-data",
+      "glob": "server/src/{db/**/*.ts,modules/**/repository.ts,modules/**/repository/**/*.ts}",
+      "skills": ["drizzle-orm-patterns"]
+    },
+    {
+      "name": "backend-schema",
+      "glob": "server/src/db/schema{.ts,/**/*.ts}",
+      "skills": ["postgresql-table-design"]
+    },
+    {
+      "name": "review-engine",
+      "glob": "reviewer-core/src/**/*.ts",
+      "skills": ["onion-architecture", "typescript-expert"]
+    },
+    {
+      "name": "contracts",
+      "glob": "{server,client}/src/vendor/shared/**/*.ts",
+      "skills": ["zod", "typescript-expert"]
+    },
+    {
+      "name": "tests-ts",
+      "glob": "{server,reviewer-core,e2e}/**/*.ts",
+      "exclude": ["server/src/**", "reviewer-core/src/**"],
+      "skills": ["typescript-expert"]
+    },
+    {
+      "name": "all-code",
+      "glob": "**/*.{ts,tsx}",
+      "exclude": ["**/*.test.{ts,tsx}", "**/test/**", "client/src/vendor/**", "server/src/vendor/**"],
+      "skills": ["security", "typescript-expert"]
+    }
+  ],
+  "content_routes": [
+    {
+      "name": "zod-users",
+      "glob": "**/*.{ts,tsx}",
+      "exclude": ["**/*.test.{ts,tsx}", "**/test/**"],
+      "pattern": "from\\s+['\"]zod['\"]",
+      "skills": ["zod"]
+    }
+  ],
+  "unmapped_skills": ["security"],
+  "never_routed": ["mermaid-diagram", "engineering-insights", "pr-self-review"]
+}

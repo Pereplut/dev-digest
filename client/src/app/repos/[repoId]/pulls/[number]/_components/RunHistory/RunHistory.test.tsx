@@ -4,6 +4,16 @@
  * a settled run is colored/labelled by its denormalized blocker/finding counts,
  * and shows the review score ring. A run matched to its review shows open
  * finding chips with a hover card; an unmatched run keeps the text line.
+ *
+ * The popover interactions below deliberately stay on fireEvent. RunHistory
+ * renders FindingsPopover with its DEFAULT delayMs (150), so focusing the
+ * trigger schedules an open on a timer (FindingsPopover.tsx:82-86,137) while
+ * Enter toggles (FindingsPopover.tsx:140-147). user-event's click/tab fire real
+ * focus events, so focus-then-Enter races that timer: whether Enter opens or
+ * closes the card depends on wall-clock timing. fireEvent dispatches the
+ * keydown alone, which is deterministic. The popover's own hover/focus/Escape
+ * behaviour is covered in components/findings-summary/FindingsPopover.test.tsx,
+ * whose harness passes delayMs={0}.
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, cleanup, fireEvent, within } from "@testing-library/react";

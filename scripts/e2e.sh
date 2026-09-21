@@ -24,7 +24,7 @@ cd "$ROOT"
 
 # --- config (all overridable; defaults dodge the dev stack on 5432/3000/3001) ---
 PG_CONTAINER="${E2E_PG_CONTAINER:-devdigest-e2e-postgres}"
-PG_PORT="${E2E_PG_PORT:-5433}"
+PG_PORT="${E2E_PG_PORT:-5434}"
 PG_IMAGE="${E2E_PG_IMAGE:-pgvector/pgvector:pg16}"
 PG_DB="${E2E_PG_DB:-devdigest}"
 PG_USER="${E2E_PG_USER:-devdigest}"

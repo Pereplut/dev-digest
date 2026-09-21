@@ -16,6 +16,13 @@ import { ReviewService } from './service.js';
  *   POST   /findings/:id/(accept|dismiss)              → finding actions
  */
 const FINDING_ACTIONS = ['accept', 'dismiss'] as const;
+
+/**
+ * Max run events buffered for ONE slow SSE consumer before the oldest are
+ * dropped. A review emits on the order of tens of events, so this only bites
+ * when a client has genuinely stalled.
+ */
+const SSE_QUEUE_LIMIT = 512;
 export default async function reviewsRoutes(appBase: FastifyInstance) {
   const app = appBase.withTypeProvider<ZodTypeProvider>();
   const { container } = app;
@@ -58,8 +65,22 @@ export default async function reviewsRoutes(appBase: FastifyInstance) {
         const queue: RunEvent[] = [];
         let resolve: (() => void) | null = null;
         let done = false;
+        let closed = false;
+        let dropped = 0;
 
         const unsubscribe = container.runBus.subscribe(runId, (e) => {
+          // Bounded backpressure. A stalled client must not grow this without
+          // limit; the complete log is persisted to run_traces, so the LIVE
+          // tail can afford to drop its oldest frames.
+          if (queue.length >= SSE_QUEUE_LIMIT) {
+            queue.shift();
+            if (dropped++ === 0) {
+              req.log.warn(
+                { runId, limit: SSE_QUEUE_LIMIT },
+                'sse: consumer too slow — dropping oldest run events',
+              );
+            }
+          }
           queue.push(e);
           resolve?.();
         });
@@ -68,8 +89,20 @@ export default async function reviewsRoutes(appBase: FastifyInstance) {
           resolve?.();
         });
 
+        // fastify-sse-v2 pipes this iterator into the raw response and never
+        // calls .return() on it, so a client disconnect while we are parked on
+        // the promise below would suspend this generator forever — its finally
+        // would never run and the subscription would leak. Waking it on close
+        // is what lets the cleanup happen.
+        const onClose = () => {
+          closed = true;
+          done = true;
+          resolve?.();
+        };
+        reply.raw.on('close', onClose);
+
         try {
-          while (true) {
+          while (!closed) {
             if (queue.length === 0) {
               if (done) break;
               await new Promise<void>((r) => (resolve = r));
@@ -84,6 +117,7 @@ export default async function reviewsRoutes(appBase: FastifyInstance) {
             };
           }
         } finally {
+          reply.raw.off('close', onClose);
           unsubscribe();
           offDone();
         }

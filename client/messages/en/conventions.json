@@ -1,26 +1,86 @@
 {
-  "page": {
-    "crumbLab": "Skills Lab",
-    "crumbConventions": "Conventions",
-    "headingPrefix": "Conventions in ",
-    "repoFallback": "repo",
-    "subtitle": "Scan the cloned repo to surface house-rules — each backed by evidence you can turn into a Skill.",
-    "scanning": "Scanning…",
+  "crumb": {
+    "lab": "Skills Lab",
+    "conventions": "Conventions"
+  },
+  "list": {
+    "title": "Conventions in",
+    "detected": "Detected from {count, plural, one {# sample file} other {# sample files}}",
+    "lastScan": "last scan {when}",
+    "neverScanned": "not scanned yet",
+    "scanning": "Scanning the repository…",
     "rescan": "Re-scan",
-    "runExtraction": "Run extraction",
-    "extractionFailed": "Extraction failed",
+    "deselectAll": "Deselect all",
+    "selectAll": "Select all",
+    "counter": "{accepted} of {total} accepted",
+    "createSkill": "Create skill",
+    "rejectedCount": "{count, plural, one {# rejected candidate} other {# rejected candidates}}",
+    "showRejected": "Show rejected",
+    "hideRejected": "Hide rejected",
     "loadError": "Could not load conventions.",
-    "empty": {
-      "title": "No conventions extracted yet",
-      "body": "Scan the repo to surface house-rules — naming, error handling, structure — each backed by evidence you can turn into a Skill.",
-      "cta": "Run extraction"
-    },
-    "candidateCount": "{count, plural, one {# candidate} other {# candidates}} · grounded against sampled files"
+    "emptyTitle": "No conventions yet",
+    "emptyBody": "Run a scan to extract the coding conventions this repository already follows.",
+    "emptyCta": "Scan repository",
+    "noRepoTitle": "No repository selected",
+    "noRepoBody": "Pick a repository from the switcher to extract its conventions.",
+    "noCloneTitle": "This repository has no local checkout",
+    "noCloneBody": "DevDigest reads real files to verify each convention. Sync the repository first, then run a scan.",
+    "scanFailed": "The last scan failed: {reason}",
+    "sampledByWalk": "The repository is not indexed yet, so files were picked by a directory scan."
   },
   "card": {
+    "copy": "Copy {path}",
+    "copied": "Copied",
     "confidence": "Confidence",
+    "accept": "Accept",
     "accepted": "Accepted",
-    "accepting": "Accepting…",
-    "acceptAsSkill": "Accept as Skill"
+    "reject": "Reject",
+    "rejected": "Rejected",
+    "edit": "Edit rule",
+    "editLabel": "Rule",
+    "save": "Save",
+    "cancel": "Cancel",
+    "unverified": "Evidence could not be verified",
+    "reason": {
+      "file_not_found": "That file does not exist in the repository.",
+      "line_out_of_range": "The cited lines are outside that file.",
+      "snippet_not_found": "That code is not at the cited lines."
+    }
+  },
+  "category": {
+    "naming": "naming",
+    "structure": "structure",
+    "error-handling": "error handling",
+    "async": "async",
+    "testing": "testing",
+    "api": "api",
+    "data": "data",
+    "style": "style"
+  },
+  "create": {
+    "title": "Create skill from conventions",
+    "banner": "Merged from {count, plural, one {# accepted convention} other {# accepted conventions}} in {repo}. Everything below is editable before you save.",
+    "name": "Name",
+    "description": "Description",
+    "type": "Type",
+    "enabled": "Enabled",
+    "enabledHint": "Whether this block is added to agents' prompts.",
+    "body": "Skill body",
+    "bodyFile": "{name}.md",
+    "unsaved": "unsaved",
+    "tokens": "≈ {count} tokens",
+    "write": "Write",
+    "previewTab": "Preview",
+    "previewEmpty": "Nothing to preview yet.",
+    "footer": "Saved as v1 · added to Skills Lab",
+    "cancel": "Cancel",
+    "submit": "Create skill",
+    "successToast": "Skill “{name}” created.",
+    "loadError": "Could not load the skill draft. Please try again.",
+    "noneAccepted": "Accept at least one convention to create a skill.",
+    "errors": {
+      "required": "Required",
+      "tooLong": "Must be at most {max} characters"
+    }
   }
 }

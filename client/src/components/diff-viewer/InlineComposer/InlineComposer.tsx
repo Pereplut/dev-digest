@@ -4,7 +4,7 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { Textarea, Button } from "@devdigest/ui";
+import { Textarea, Button } from "@/components/ui-client";
 import { cs, type DiffCommentApi } from "../comments";
 
 export function InlineComposer({

@@ -3,10 +3,21 @@
  * accessible summary, and the portalled card opens on hover/focus/Enter, closes
  * on leave/Escape, is read-only (no buttons), and never lets a click reach the
  * surrounding row.
+ *
+ * These tests drive the trigger with user-event, which fires the real pointer
+ * and focus sequences. Two consequences are load-bearing here:
+ *  - FOCUS OPENS THE CARD (onFocus={openSoon}), and Enter TOGGLES it. So a
+ *    focus-then-Enter sequence opens and then closes; each test starts from the
+ *    state it actually wants rather than assuming Enter always opens.
+ *  - The harness passes delayMs={0}, which also disables the CLOSE_DELAY_MS
+ *    grace period. Moving a real pointer off the trigger therefore closes the
+ *    card immediately, so the click-through test below still uses fireEvent for
+ *    the in-card click — see the comment there.
  */
 import React from "react";
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import type { FindingRecord, FindingsCounts } from "@devdigest/shared";
 import messages from "../../../messages/en/prReview.json";
@@ -88,6 +99,7 @@ function renderWithIntl(ui: React.ReactElement) {
 }
 
 const COUNTS: FindingsCounts = { CRITICAL: 1, WARNING: 2, SUGGESTION: 0 };
+const TRIGGER = { name: "1 critical, 2 warnings" };
 
 describe("SeverityCounts", () => {
   it("renders a chip per non-zero severity with its count", () => {
@@ -109,18 +121,16 @@ describe("SeverityCounts", () => {
 describe("FindingsPopover", () => {
   it("names the trigger by its non-zero counts", () => {
     renderWithIntl(<Harness counts={COUNTS} />);
-    expect(screen.getByRole("button", { name: "1 critical, 2 warnings" })).toHaveAttribute(
-      "aria-expanded",
-      "false",
-    );
+    expect(screen.getByRole("button", TRIGGER)).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("hover opens the card with title, category, file:lines, confidence and rationale; leaving closes it", () => {
+  it("hover opens the card with title, category, file:lines, confidence and rationale; leaving closes it", async () => {
+    const user = userEvent.setup();
     const onOpenChange = vi.fn();
     renderWithIntl(<Harness counts={COUNTS} onOpenChange={onOpenChange} />);
-    const trigger = screen.getByRole("button", { name: "1 critical, 2 warnings" });
+    const trigger = screen.getByRole("button", TRIGGER);
 
-    fireEvent.mouseEnter(trigger);
+    await user.hover(trigger);
     const card = screen.getByRole("dialog", { name: "2 findings in this run" });
     expect(card.parentElement).toBe(document.body); // portalled out of the row
     expect(screen.getByText("Hardcoded Stripe secret key in commit")).toBeInTheDocument();
@@ -132,34 +142,62 @@ describe("FindingsPopover", () => {
     expect(trigger).toHaveAttribute("aria-expanded", "true");
     expect(onOpenChange).toHaveBeenLastCalledWith(true);
 
-    fireEvent.mouseLeave(trigger);
+    await user.unhover(trigger);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(onOpenChange).toHaveBeenLastCalledWith(false);
   });
 
-  it("focus opens it and Escape closes it", () => {
+  it("tabbing to the trigger opens it and Escape closes it", async () => {
+    const user = userEvent.setup();
     renderWithIntl(<Harness counts={COUNTS} />);
-    fireEvent.focus(screen.getByRole("button", { name: "1 critical, 2 warnings" }));
+
+    // The trigger is the only tabbable node in the harness.
+    await user.tab();
+    expect(screen.getByRole("button", TRIGGER)).toHaveFocus();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
-    fireEvent.keyDown(document, { key: "Escape" });
+
+    await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("the preview is read-only: no buttons or links in the card", () => {
+  it("Enter toggles the card shut and open again", async () => {
+    const user = userEvent.setup();
     renderWithIntl(<Harness counts={COUNTS} />);
-    fireEvent.keyDown(screen.getByRole("button", { name: "1 critical, 2 warnings" }), { key: "Enter" });
+
+    await user.tab(); // focus opens it
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    await user.keyboard("{Enter}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await user.keyboard("{Enter}");
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("the preview is read-only: no buttons or links in the card", async () => {
+    const user = userEvent.setup();
+    renderWithIntl(<Harness counts={COUNTS} />);
+
+    await user.tab();
     const card = screen.getByRole("dialog");
     expect(within(card).queryAllByRole("button")).toHaveLength(0);
     expect(within(card).queryAllByRole("link")).toHaveLength(0);
   });
 
-  it("clicks on the trigger or a finding never reach the row, and the card stays open", () => {
+  it("clicks on the trigger or a finding never reach the row, and the card stays open", async () => {
+    const user = userEvent.setup();
     const onRowClick = vi.fn();
     renderWithIntl(<Harness counts={COUNTS} onRowClick={onRowClick} />);
-    const trigger = screen.getByRole("button", { name: "1 critical, 2 warnings" });
+    const trigger = screen.getByRole("button", TRIGGER);
 
-    fireEvent.click(trigger);
-    fireEvent.keyDown(trigger, { key: "Enter" });
+    await user.click(trigger);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    // fireEvent, deliberately: user.click would first move the pointer off the
+    // trigger, and with delayMs={0} there is no grace period, so mouseleave
+    // closes the card before the click could land. In the app delayMs is 150
+    // and CLOSE_DELAY_MS keeps it open across that move. What is under test is
+    // click-through (the row must not fire), not the pointer path.
     fireEvent.click(screen.getByText("N+1 query in user list endpoint"));
 
     expect(onRowClick).not.toHaveBeenCalled();

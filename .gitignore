@@ -17,6 +17,7 @@ coverage/
 .turbo/
 .pnpm-store/
 *.log
+__pycache__/
 .devdigest/cache/
 clones/
 playwright-report/
@@ -24,6 +25,9 @@ test-results/
 
 # engineering-insights hook state (condensed transcripts, per-session markers)
 .claude/.insights-state/
+
+# pr-self-review state (plan, findings, verdict, report) — per-clone, per-diff
+.claude/.pr-self-review/
 
 # emdash worktree config (local)
 .emdash.json

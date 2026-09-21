@@ -65,4 +65,59 @@ Supersedes: "Claude Code Stop hooks fire after every reply, not at session end"
 **Context:** verifying run cost by running reviewer-core, server and client checks as parallel Bash calls, each starting with `cd <pkg>`.
 **Insight:** the calls share a shell session, so a `cd` in one leaks into the others — `pnpm typecheck` "in server/" actually ran reviewer-core's scripts and the server results were bogus.
 **Apply:** wrap each parallel package command in a subshell with an absolute path: `(cd /abs/server && pnpm …)`; confirm with `pwd` in the output.
-**Evidence:** `CLAUDE.md:3-4` (package commands must run from inside each package dir).
+**Evidence:** `AGENTS.md:3-4` (package commands must run from inside each package dir).
+
+### 2026-09-18 — [llm] A subagent's `file:line` evidence may be quoting a doc, not the repo state
+**Context:** an Explore audit reported `package.json` as `skip-worktree`, citing `server/CLAUDE.md:25`; a Plan agent then ran `git ls-files -v` and got `H`.
+**Insight:** a subagent finding *looks* like evidence because it carries a `file:line`, but the cited line can be documentation that was already stale. The audit had faithfully quoted a wrong doc.
+**Apply:** before building a spec on a subagent's finding, check whether its evidence is a command's output or a doc; if it's a doc, re-derive it from the command yourself.
+**Evidence:** `server/AGENTS.md:25` (the claim, now hedged to "some clones"); `git ls-files -v server/package.json` → `H`.
+
+### 2026-09-18 — [tool] Claude Code reads only CLAUDE.md; AGENTS.md needs an import stub
+**Context:** moving the repo's agent docs to the cross-tool `AGENTS.md` name (spec 0004).
+**Insight:** there is no setting, env var or fallback that makes Claude Code read `AGENTS.md`. The documented options are a `CLAUDE.md` containing a bare `@AGENTS.md` import (resolved relative to the importing file, up to 4 hops, expanded when that `CLAUDE.md` loads — nested ones included) or a symlink. A backticked `` `@AGENTS.md` `` is literal text and is **not** imported.
+**Apply:** keep every `AGENTS.md` paired with its `CLAUDE.md` stub; `scripts/check-agent-docs.sh` enforces it. Content edits go in `AGENTS.md`; anything the `#` memory shortcut appends to a `CLAUDE.md` should be moved across.
+**Evidence:** `CLAUDE.md:5` (the import), `scripts/check-agent-docs.sh:20` (the bare-line check); `code.claude.com/docs/en/memory.md`.
+
+### 2026-09-18 — [odd] `skills-lock.json` owns only 6 of the 11 installed skills; the catalog README is stale
+**Context:** deciding whether a new frontend-organization skill should extend `react-best-practices` — i.e. whether local edits to it would survive a skill sync.
+**Insight:** the lockfile is not a manifest of `.claude/skills/`. Locked *and* present: `drizzle-orm-patterns`, `fastify-best-practices`, `next-best-practices`, `postgresql-table-design`, `typescript-expert`, `zod`. Purely local (safe to edit): `react-best-practices`, `react-testing-library`, `security`, `mermaid-diagram`, `engineering-insights`. Locked with **no directory at all**: `architecture-patterns`, `github-workflow-automation`. Separately, `.claude/skills/README.md:3` claims a `.cursor/skills/ → ../.claude/skills` symlink "for Cursor compatibility" — there is no `.cursor` directory and nothing under it is tracked, so Cursor currently gets none of these skills.
+**Apply:** before editing a skill, check it against `skills-lock.json` (not the catalog table) — a locked skill's local edits are lost on sync. Don't trust the catalog README's claims about Cursor wiring; that symlink still needs creating if cross-tool support is wanted.
+**Evidence:** `skills-lock.json` (6 sourced entries matching directories), `.claude/skills/README.md:3` (the symlink claim), `.claude/skills/README.md:9-19` (catalog listing skills the lockfile doesn't own); `git ls-files .cursor` → empty.
+
+### 2026-09-19 — [fix] A review fingerprint built from `git diff` output goes stale on `git commit`
+**Context:** building the pr-self-review verdict, which must survive committing reviewed work but not any edit.
+**Insight:** hashing `git diff --binary <base>` plus the untracked files separately gives different bytes for the same content once a new file moves from untracked to committed. The verdict went stale on commit. Hashing each changed path's *current content* (plus the exec bit), with no reference to git state, fixes it.
+**Apply:** any "was this exact tree reviewed/tested" fingerprint should hash the content of the changed paths, not the output of a git command whose format depends on staging state.
+**Evidence:** `.claude/skills/pr-self-review/scripts/review_scope.py:113` (content-based fingerprint); `test_review_scope.py:254` failed with `1 != 0` before the fix.
+
+### 2026-09-19 — [tool] A Python hook that imports a sibling module writes an untracked `__pycache__/`
+**Context:** the pr-self-review gate imports `review_scope.py`, whose fingerprint covers untracked files.
+**Insight:** the import alone creates `scripts/__pycache__/*.pyc`. That is an untracked file, so the reviewed tree changed just because the gate ran; `.gitignore` did not cover `__pycache__/`.
+**Apply:** set `sys.dont_write_bytecode = True` before importing in hooks and tests (or `PYTHONDONTWRITEBYTECODE=1` in CI). `__pycache__/` is now ignored repo-wide as a backstop.
+**Evidence:** `.claude/hooks/pr-self-review-gate.py:54`; `git status` showed `?? .claude/skills/pr-self-review/scripts/__pycache__/review_scope.cpython-312.pyc`.
+
+### 2026-09-19 — [llm] An adversarial verifier downgrades an injection that has no caller yet
+**Context:** end-to-end pr-self-review run on a planted diff with `sql.raw` interpolating `repoId` in a new service function.
+**Insight:** the security reviewer graded it CRITICAL. The refute-agent downgraded it because nothing calls the function, so no request/LLM input reaches it and it misses the "exploitable" bar. The onion reviewer's CRITICAL on the same line (a service importing drizzle) was confirmed, so the diff still blocked. The verifier is strict about reachability, and layering rules are what catch latent bugs in dead code.
+**Apply:** don't expect the security lens alone to block unreached code; keep the architecture CRITICALs (dependency direction) in the rubric, because they are unconditional.
+**Evidence:** `.claude/skills/pr-self-review/SKILL.md:65` (verify step), `:139` (skill labels vs verdicts); scratch-run report: `security … sql-injection-raw-interpolation _(was CRITICAL: no caller exists yet)_`.
+
+### 2026-09-19 — [fix] A command-matching gate must skip heredoc bodies, or it blocks its own commit
+**Context:** committing the pr-self-review gate with `git commit -F - <<'EOF'`; one commit-message line began "git push and …".
+**Insight:** the tokenizer read that heredoc line as a real `git push` and denied the commit. Stripping heredoc bodies before matching fixed it, and commands after the terminator are still checked.
+**Apply:** any PreToolUse Bash matcher should treat heredoc bodies (commit messages, PR bodies) as data; add a test with the trigger word inside a heredoc.
+**Evidence:** `.claude/skills/pr-self-review/scripts/review_scope.py:580` (`_strip_heredocs`); `test_review_scope.py:164,169`.
+
+### 2026-09-19 — [tool] A `!`-prefixed prompt command bypasses Claude Code PreToolUse hooks
+**Context:** the pr-self-review gate blocked `git push` from Claude; the user ran `! git push` instead.
+**Insight:** `!` commands run outside Claude's tools, so the Bash PreToolUse gate never sees them, and the opt-in git `pre-push` hook only fires when `core.hooksPath` is set. The push went through with no verdict.
+**Apply:** the Claude gate is not a hard guarantee; to cover manual pushes enable `git config core.hooksPath scripts/git-hooks`.
+**Evidence:** `.claude/settings.json:16` (Bash matcher); `scripts/git-hooks/pre-push:1`; push `5502ba1..0f3eec0` succeeded via `!`.
+
+### 2026-09-20 — [tool] A pr-self-review verdict taken with `--base HEAD` dies on the next commit
+Extends: "A review fingerprint built from `git diff` output goes stale on `git commit`"
+**Context:** reviewed the uncommitted conventions work with `--base HEAD` (13 reviewers instead of 41 vs `origin/main`), got a PASS, then committed. `check` immediately reported the verdict stale.
+**Insight:** the content fingerprint survived the commit exactly as designed — what moved was the base. `check` re-resolves the verdict's own `base_ref`, and `HEAD` is a moving ref, so `verdict["base"]` (the old commit) no longer equals the freshly resolved one and the verdict is rejected before the fingerprint is ever compared. Worse, a re-plan after the commit sees an almost-empty diff, so a trivial 1-reviewer round would "pass" the gate without the branch's real content ever being certified.
+**Apply:** review against a stable ref (`origin/main`, or the branch point) whenever the work will be committed before it is pushed. `--base HEAD` is only for a check you will consume immediately, without committing in between. Never satisfy the gate with a post-commit re-plan whose diff is empty.
+**Evidence:** `.claude/skills/pr-self-review/scripts/review_scope.py:482` (`verdict.get("base") != base`), `:476` (`resolve_base(root, verdict.get("base_ref"))`); verdict `base_ref: HEAD -> 2e8a98a2d1c1` vs `HEAD` now `27f83ba89f3a`.

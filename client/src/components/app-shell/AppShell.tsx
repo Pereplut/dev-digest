@@ -4,7 +4,7 @@
 "use client";
 
 import React from "react";
-import { AppFrame, CommandPalette, ShortcutsHelp, type Crumb } from "@devdigest/ui";
+import { AppFrame, CommandPalette, ShortcutsHelp, type Crumb } from "@/components/ui-client";
 import { useGlobalShortcuts, useShellCommands, useShellContext } from "./hooks";
 
 export function AppShell({ children, crumb }: { children: React.ReactNode; crumb?: Crumb[] }) {

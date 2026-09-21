@@ -249,6 +249,61 @@ export class RepoIntelRepository {
   }
 
   /**
+   * Delete-then-insert symbols + references for a repo as ONE atomic unit.
+   *
+   * `paths === null` replaces the whole repo (full index); otherwise only the
+   * listed files are replaced (incremental slice).
+   *
+   * Why this exists: the pipeline used to run the delete and the two inserts as
+   * separate statements, so a failure in between left the repo with ZERO
+   * symbols while `repo_index_state` still carried its previous `status:'full'`
+   * — the facade then reported a healthy index over an empty table, which is
+   * exactly the silent degradation recorded in INSIGHTS.md. Wrapping only these
+   * three writes keeps the transaction short: the graph build and repo-map
+   * render that follow are slow (external process + tokenizer) and must NOT be
+   * held inside a transaction.
+   */
+  async replaceSymbolsAndReferences(
+    repoId: string,
+    paths: string[] | null,
+    symbols: IndexerSymbolRow[],
+    references: IndexerReferenceRow[],
+  ): Promise<void> {
+    // Incremental refresh with nothing changed and nothing to write: stay
+    // zero-DB, matching the existing inline-empty guard in deleteForFiles.
+    if (paths !== null && paths.length === 0 && symbols.length === 0 && references.length === 0) {
+      return;
+    }
+    await this.db.transaction(async (tx) => {
+      if (paths === null) {
+        await tx.delete(t.symbols).where(eq(t.symbols.repoId, repoId));
+        await tx.delete(t.references).where(eq(t.references.repoId, repoId));
+      } else if (paths.length > 0) {
+        await tx
+          .delete(t.symbols)
+          .where(and(eq(t.symbols.repoId, repoId), inArray(t.symbols.path, paths)));
+        await tx
+          .delete(t.references)
+          .where(and(eq(t.references.repoId, repoId), inArray(t.references.fromPath, paths)));
+      }
+      if (symbols.length > 0) {
+        // Same clamp as insertSymbols: a pathological multi-KB identifier would
+        // otherwise blow the btree row-size limit and crash the indexer.
+        const safe = symbols.map((r) => ({ ...r, name: clampIndexedName(r.name) }));
+        for (let i = 0; i < safe.length; i += INSERT_CHUNK_SIZE) {
+          await tx.insert(t.symbols).values(safe.slice(i, i + INSERT_CHUNK_SIZE));
+        }
+      }
+      if (references.length > 0) {
+        const safe = references.map((r) => ({ ...r, toSymbol: clampIndexedName(r.toSymbol) }));
+        for (let i = 0; i < safe.length; i += INSERT_CHUNK_SIZE) {
+          await tx.insert(t.references).values(safe.slice(i, i + INSERT_CHUNK_SIZE));
+        }
+      }
+    });
+  }
+
+  /**
    * Wipe symbols whose `path` is in `paths` and references whose `fromPath`
    * is in `paths`. Used by the incremental indexer before re-parsing a slice.
    * Inline-empty guard keeps the no-op refresh path zero-DB.

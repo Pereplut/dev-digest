@@ -11,6 +11,34 @@
  *
  * The tables are organized into domain files under `./schema/`; this barrel
  * re-exports them so every consumer keeps importing from `db/schema` unchanged.
+ *
+ * ---------------------------------------------------------------------------
+ * ROADMAP SCAFFOLDING — 15 of these 41 tables have no read or write anywhere in
+ * `src/` outside this schema and `db/seed.ts` (measured 2026-09-18). They are
+ * kept DELIBERATELY: they cost nothing at runtime and are expensive to re-add,
+ * but nothing is wired to them yet, so do not assume a feature exists because
+ * its table does — and do not spend effort indexing or constraining them until
+ * something reads them.
+ *
+ *   ci.ts        ciInstallations, ciRuns          (entire file unused)
+ *   eval.ts      evalCases, evalRuns,
+ *                conformanceChecks, composedReviews (entire file unused)
+ *   knowledge.ts memory                           ← a pgvector table
+ *                (conventions + conventionScans are LIVE as of spec 0007)
+ *   context.ts   codeChunks, onboarding           ← `codeChunks` is pgvector
+ *   ops.ts       installedPlugins, digests
+ *   runs.ts      multiAgentRuns
+ *   reviews.ts   prBrief
+ *   core.ts      workspaceMembers
+ *
+ * Both pgvector tables are in that list, which is why the missing ANN
+ * (ivfflat/hnsw) index does not bite yet — add one when they are first queried.
+ *
+ * Re-derive this list with:
+ *   grep -rhoE "export const [a-zA-Z0-9_]+ = pgTable" src/db/schema/*.ts
+ *   # then, per name: grep -rn "t\.<name>\b" src --include=*.ts \
+ *   #   | grep -v "^src/db/schema/" | grep -v "^src/db/seed"
+ * ---------------------------------------------------------------------------
  */
 export * from './schema/core';
 export * from './schema/repos';
@@ -32,11 +60,11 @@ import { pullRequests, prFiles, prCommits } from './schema/pulls';
 import { reviews, findings, prIntent, prBrief } from './schema/reviews';
 import { skills, skillVersions } from './schema/skills';
 import { agents, agentVersions, agentSkills } from './schema/agents';
-import { memory, conventions } from './schema/knowledge';
+import { memory, conventions, conventionScans } from './schema/knowledge';
 import { codeChunks, symbols, references, onboarding } from './schema/context';
 import { evalCases, evalRuns, conformanceChecks, composedReviews } from './schema/eval';
 import { ciInstallations, ciRuns } from './schema/ci';
-import { agentRuns, runTraces, multiAgentRuns } from './schema/runs';
+import { agentRuns, runTraces, runSkills, multiAgentRuns } from './schema/runs';
 import { jobs, installedPlugins, digests } from './schema/ops';
 import {
   repoIndexState,
@@ -66,6 +94,7 @@ export const schema = {
   agentVersions,
   agentSkills,
   conventions,
+  conventionScans,
   memory,
   codeChunks,
   symbols,
@@ -79,6 +108,7 @@ export const schema = {
   ciRuns,
   agentRuns,
   runTraces,
+  runSkills,
   multiAgentRuns,
   jobs,
   installedPlugins,

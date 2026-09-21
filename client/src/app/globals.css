@@ -22,3 +22,30 @@
     transform: translateY(0);
   }
 }
+
+/* Markdown rendered by the kit's <Markdown> (class `dd-md`). Tailwind's preflight
+   strips list markers and heading sizes, and the vendored component only styles
+   inline elements, so block structure is restored here (first-party CSS, no
+   vendor edit). Used by skill previews, findings and comments. */
+.dd-md h1,
+.dd-md h2,
+.dd-md h3,
+.dd-md h4 {
+  font-weight: 650;
+  color: var(--text-primary);
+  margin: 14px 0 8px;
+  line-height: 1.3;
+}
+.dd-md h1 { font-size: 1.35em; }
+.dd-md h2 { font-size: 1.2em; }
+.dd-md h3 { font-size: 1.08em; }
+.dd-md > :first-child { margin-top: 0; }
+.dd-md ul,
+.dd-md ol {
+  margin: 0 0 10px;
+  padding-left: 1.4em;
+}
+.dd-md ul { list-style: disc; }
+.dd-md ol { list-style: decimal; }
+.dd-md li { margin: 3px 0; }
+.dd-md li > p { margin: 0; }

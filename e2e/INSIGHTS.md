@@ -47,3 +47,28 @@ Written via the [`engineering-insights`](../.claude/skills/engineering-insights/
 **Insight:** with a decoy `role="button"` named "1 critical, 1 warning" injected before the pill, `--name "1 warning" --exact` clicked the pill (decoy 0 clicks) while the same command without `--exact` clicked the decoy. `wait --fn "!document.body.innerText.includes('…')"` resolves as soon as the text is gone.
 **Apply:** use `--exact` whenever one control's accessible name is a substring of another's; `wait --fn` is the deterministic way to assert disappearance.
 **Evidence:** `e2e/flows/04-pr-findings.flow.json:21-22` (exact click + `wait --fn`).
+
+### 2026-09-18 — [tool] Inner-container scroll state persists across steps, so a scroll fix can regress a later step
+Extends: "`find … click` silently misses controls below the fold (inner scroll container)"
+**Context:** after adding a `scrollintoview` so flow 04's severity pill could be clicked, the flow's *previously passing* Timeline hover step started failing.
+**Insight:** the scroll position of the nested container carries over from step to step. Scrolling down to reach one target leaves a later target above the fold, where `hover` won't find it — so the fix for one step broke another, costing a second full hermetic run.
+**Apply:** treat scroll position as flow state: give every below-the-fold interaction its own `scrollintoview`, including the ones that used to pass, and re-run the whole flow after any scroll change — not just the step you fixed.
+**Evidence:** `e2e/flows/04-pr-findings.flow.json:20` (scroll down to the pill), `:26` (scroll back up to the Timeline chips); `e2e/docs/locators.md:22`.
+
+### 2026-09-18 — [tool] A temporary `NNz-` flow is the debugger for bugs that only reproduce on the hermetic stack
+**Context:** flow 04's pill bug reproduced only under `./scripts/e2e.sh` (different viewport/layout than the dev app), where there is no interactive browser to inspect.
+**Insight:** `run.ts` runs `*.flow.json` in lexical order, so a throwaway `04z-debug-pill.flow.json` runs right after `04-`, reusing the booted stack and the same session state. Having it `eval` the suspect state into a fixed on-page banner and then screenshot gives a readable diagnosis; `test-results/` is gitignored, so the artifact never reaches git.
+**Apply:** to debug a hermetic-only failure, add an `NNz-`-suffixed flow next to the failing one, render state into a banner, read the screenshot, then delete the flow.
+**Evidence:** `e2e/run.ts:54-56` (`readdirSync(...).filter(...).sort()`); `.gitignore:23` (`test-results/`).
+
+### 2026-09-20 — [tool] The mutating flow's closing re-navigation is flaky, and the step that fails MOVES
+**Context:** adding `09-conventions` (spec 0007) renumbered the mutating flow to `10-`; it then failed where it had passed 9/9 before, which read as a regression from the new neighbour.
+**Insight:** it is not caused by the neighbour. Removing `09-conventions` entirely — restoring the exact pre-change adjacency — still fails, and fails at a *different* step: `✗ back on the PR list` instead of `✗ PR detail route again`. Both are `wait --url` timeouts in the same closing "re-navigate from scratch" sequence, and under heavy load it failed at the flow's *first* step instead. A wandering failure point is a timing race, not a deterministic break; the API served every one of those requests 200.
+**Apply:** don't attribute a `10-pr-finding-actions` failure to your change until you have re-run with your flow removed and compared *which* step failed. Its closing re-navigation needs a `wait --load networkidle` between the click and the `wait --url`; until then treat 9/10 with only that flow red as a known flake.
+**Evidence:** `e2e/flows/10-pr-finding-actions.flow.json` (the closing `open`/`find … click`/`wait --url` sequence); runs with and without `e2e/flows/09-conventions.flow.json` failed at different steps of it.
+
+### 2026-09-20 — [measured] The hermetic stack needs ~2 GB free; below that flows fail as `wait --url` timeouts
+**Context:** three flows failed on a 7.9 GB WSL2 box while `./scripts/dev.sh` and six unrelated containers were up; load average peaked at 189 and background tasks were OOM-killed.
+**Insight:** `./scripts/e2e.sh` adds a Postgres container, a Fastify API, a second `next dev` and Chrome to whatever is already running. Starved, `next dev`'s first compile of a route outruns the 60 s `E2E_STEP_TIMEOUT`, so the failure always surfaces as `wait --url` right after `open` — which looks like a broken route, not a resource problem. Stopping the unrelated containers took load 189 → 5 and the same suite went 7/10 → 9/10, with the two "broken" pages (`/settings/api-keys`, `/pulls/482`) passing untouched.
+**Apply:** before believing an e2e failure, check `uptime` and `free -m`. A `wait --url` timeout straight after an `open`, on a page that loads fine in the dev app, is resource starvation — free memory and re-run rather than editing the flow.
+**Evidence:** `scripts/e2e.sh` (boots API :3101 + web :3100 + `devdigest-e2e-postgres`); `e2e/run.ts` (`E2E_STEP_TIMEOUT`, default 60000).

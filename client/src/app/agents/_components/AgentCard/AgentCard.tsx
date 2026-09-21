@@ -4,7 +4,7 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { Icon, Badge, Toggle } from "@devdigest/ui";
+import { Icon, Badge, Toggle } from "@/components/ui-client";
 import type { Agent } from "@devdigest/shared";
 import { useDeleteAgent } from "../../../../lib/hooks/agents";
 import { modelColor } from "./helpers";
@@ -27,7 +27,29 @@ export function AgentCard({
   const del = useDeleteAgent();
   const color = modelColor(ag.model);
   return (
-    <div onClick={onClick} style={s.card(!!active, ag.enabled)}>
+    // Interactive attributes are attached ONLY when onClick is supplied:
+    // advertising role="button" on a card that does nothing would be worse than
+    // leaving it inert. Not a real <button> — the card contains a Toggle and a
+    // delete <button>, and nesting buttons is invalid HTML.
+    <div
+      onClick={onClick}
+      {...(onClick
+        ? {
+            role: "button",
+            tabIndex: 0,
+            onKeyDown: (ev: React.KeyboardEvent) => {
+              // Keys pressed on a nested control (a button or link inside this header)
+              // bubble here too; leave them to that control.
+              if (ev.target !== ev.currentTarget) return;
+              if (ev.key === "Enter" || ev.key === " ") {
+                ev.preventDefault(); // Space would otherwise scroll the page
+                onClick();
+              }
+            },
+          }
+        : {})}
+      style={s.card(!!active, ag.enabled)}
+    >
       <div style={s.headerRow}>
         <div style={s.iconBox}>
           <Icon.Cpu size={15} />
@@ -41,11 +63,11 @@ export function AgentCard({
         <button
           onClick={(e) => {
             e.stopPropagation();
-            if (window.confirm(`Delete agent "${ag.name}"? This cannot be undone.`)) del.mutate(ag.id);
+            if (window.confirm(t("card.deleteConfirm", { name: ag.name }))) del.mutate(ag.id);
           }}
           disabled={del.isPending}
-          title="Delete agent"
-          aria-label="Delete agent"
+          title={t("card.deleteLabel")}
+          aria-label={t("card.deleteLabel")}
           style={{
             background: "none",
             border: "none",

@@ -3,8 +3,9 @@
 
 import React from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useTranslations } from "next-intl";
-import { Icon, Avatar, Badge, CircularScore } from "@devdigest/ui";
+import { Icon, Avatar, Badge, CircularScore } from "@/components/ui-client";
 import { RunCostBadge } from "@/components/run-cost-badge";
 import {
   FindingsPopover,
@@ -46,7 +47,16 @@ export function PRRow({ pr, repoId }: { pr: PrMeta; repoId: string }) {
       <div style={s.rowTitleCell}>
         <Icon.GitPullRequest size={15} style={s.rowIcon(st.c)} />
         <div style={s.rowTitleWrap}>
-          <div style={s.rowTitle(h)}>{pr.title}</div>
+          {/* The row keeps its onClick for click-anywhere, but the title is a
+              real link: that makes the row reachable by keyboard, openable in a
+              new tab and middle-clickable — none of which a div onClick gives.
+              stopPropagation keeps the row's router.push from firing too: that
+              would navigate twice on a click and pull the current tab away on
+              a Ctrl/Cmd-click. The style resets only color/decoration, so the
+              browser's focus ring stays visible. */}
+          <Link href={detailHref} onClick={(e) => e.stopPropagation()} style={s.rowTitleLink}>
+            <div style={s.rowTitle(h)}>{pr.title}</div>
+          </Link>
           <span className="mono" style={s.rowNumber}>
             #{pr.number}
           </span>
