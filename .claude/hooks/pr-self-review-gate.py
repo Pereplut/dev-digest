@@ -23,14 +23,20 @@ it is still not a boundary: any indirection (an unknown wrapper, eval, a variabl
 "git", a quote inside the word) defeats it. Treat every shape not covered by a test as
 uncovered.
 
-MAYBE_GATED below is a raw-text regex while `git_escape` matches de-quoted tokens, so it can
-never be as wide, and the deny above is conditional on it — which has made it the weakest link
-three times. It now matches the escape flags and the `diff` subcommand as well as the program
-names, because each earlier version was narrower than the check behind it: `--out\\put=` escaped
-first, then `gi"t" diff --output=x` (no literal `git` once quoted), then `gi"t" diff /etc/passwd
-/dev/null` once the operand rule existed but only the flags were in the regex. Treat this as a
-cost filter, never as part of the guard: when in doubt, widen it — the import is lazy, so the
-saving it buys is small next to a silent arbitrary-file read.
+There is NO raw-text pre-filter any more, deliberately. There used to be one, to save the import
+on ordinary Bash calls, and it was the weakest link four times running: a regex over un-lexed
+text can never be as wide as a check over de-quoted tokens, so every time the check got wider
+the filter became the hole. `--out\\put=` escaped it, then `gi"t" diff --output=x` (no literal
+`git` once quoted), then `gi"t" diff /etc/passwd /dev/null`, then `gi"t" di"ff" …` with both
+words quoted. Each fix widened the regex and the next round found the next spelling. So the
+check now runs on every Bash command.
+
+It is not free, and the honest number is not "a few ms": measured here, median over 15 runs,
+this hook takes **41 ms** per Bash call against **22 ms** with the old short-circuit, so the
+check costs about **19 ms every time you run anything**. (Of the 41, ~17 ms is bare Python
+startup, which was paid either way.) That is the price of the guard not depending on how the
+command happens to be spelled. If it ever needs to come back, make it a filter that cannot be
+narrower than the check — not another regex.
 
 Write/Edit: denies hand-writing the verdict file; only `review_scope.py write-verdict` may.
 
@@ -39,12 +45,9 @@ check itself errors, the PR action is denied with the error.
 """
 import json
 import os
-import re
 import sys
 
 SCRIPTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "skills", "pr-self-review", "scripts")
-# Cheap pre-filter so ordinary Bash calls never pay for the import or a git call.
-MAYBE_GATED = re.compile(r"\bpush\b|\bgh\b|\bgit\b|\bdiff\b|--output|--no-index")
 
 
 def deny(reason):
@@ -71,8 +74,6 @@ def main():
     if tool != "Bash":
         return
     command = tool_input.get("command") or ""
-    if not MAYBE_GATED.search(command):
-        return
 
     try:
         # No __pycache__: an untracked .pyc would itself change the reviewed tree.
@@ -85,15 +86,28 @@ def main():
         # never passes on a green verdict.
         escape = rs.git_escape(command)
         if escape:
-            deny(f"Denied: {escape}. This is not the read-only git the permission allowlist "
-                 "takes it for. `--output=<file>` writes and TRUNCATES that path. A `git diff` "
-                 "operand outside the working tree — an absolute path, a `..` segment, or "
-                 "anything paired with `/dev/null` — puts git in no-index mode, where it prints "
-                 "both files: that reads paths the settings `deny` list covers, and git enters "
-                 "that mode with or without `--no-index`. Write with Write, read with Read, and "
-                 "keep diff operands repo-relative. If the flag or path belongs to a DIFFERENT "
-                 "program in the same call, this check cannot tell them apart: run the two "
-                 "commands separately. Do not re-spell it to get past this.")
+            why = {
+                "git --output": "`--output=<file>` writes and TRUNCATES that path.",
+                "git --no-index": "no-index mode diffs two paths anywhere on disk and PRINTS "
+                                  "both.",
+                "git --contents": "`git blame --contents=<file>` reads that file and prints "
+                                  "every line of it.",
+                "git --extcmd": "`git difftool --extcmd=<prog>` runs an arbitrary program.",
+                "wc --files0-from": "`wc --files0-from=<file>` reads that file and echoes its "
+                                    "bytes back in the error message.",
+                "git diff on a path outside the tree": "a diff operand outside the working tree "
+                                                       "— absolute, `..`, `/dev/null`, or one "
+                                                       "the shell still has to expand — puts "
+                                                       "git in no-index mode, where it prints "
+                                                       "both files, with or without "
+                                                       "`--no-index`.",
+            }.get(escape, "it opens a path the caller names.")
+            deny(f"Denied: {escape} — {why} That is not the read-only command the permission "
+                 "allowlist takes it for, and it reaches the paths the settings `deny` list "
+                 "covers. Read files with Read, write them with Write, and keep diff operands "
+                 "repo-relative. If the flag or path belongs to a DIFFERENT program in the same "
+                 "call, this check cannot tell them apart: run the two commands separately. Do "
+                 "not re-spell it to get past this.")
 
         action = rs.is_gated_command(command)
         if not action:

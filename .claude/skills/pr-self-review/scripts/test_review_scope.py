@@ -236,7 +236,23 @@ class WriteEscapeTest(unittest.TestCase):
         "git -C / diff etc/hostname etc/hosts",    # relocated, so the operands look relative
         "git -C $HOME diff .ssh/id_rsa .bashrc",
         "git --git-dir=/other/.git diff a b",
+        "git difftool --no-prompt /etc/hostname /dev/null",   # same capability, other spelling
     ]
+
+    # Read primitives in commands that are NOT `git diff` at all. The docstring used to claim
+    # no other allowlisted command prints a file; two of the eight it named do, and both were
+    # reproduced on a throwaway file before being listed here.
+    OTHER_PROGRAM_ESCAPES = [
+        ("git blame --contents=/tmp/x HEAD -- .gitignore", "git --contents"),
+        ("git blame --contents /tmp/x HEAD -- README.md", "git --contents"),
+        ("wc --files0-from=/tmp/x", "wc --files0-from"),
+        ("wc -l --files0-from=/home/u/.netrc", "wc --files0-from"),
+        ("git difftool --extcmd=cat a b", "git --extcmd"),
+    ]
+
+    def test_other_programs_that_open_a_named_path(self):
+        for cmd, label in self.OTHER_PROGRAM_ESCAPES:
+            self.assertEqual(rs.git_escape(cmd), label, cmd)
 
     CLEAN = [
         "git diff --stat HEAD",
@@ -275,44 +291,39 @@ class WriteEscapeTest(unittest.TestCase):
         self.assertEqual(rs.git_escape("git diff --output=/tmp/x 'unterminated"), "git --output")
         self.assertEqual(rs.git_escape("git diff --no-index a b 'unterminated"), "git --no-index")
 
-    # Spellings git_escape catches that the hook's raw-text pre-filter loses, so the check
-    # never runs on them. Live, documented in the hook, and deliberately not in ESCAPES —
-    # putting them there would assert an invariant the code does not hold.
-    #
-    # The filter matches the program names, the subcommand and the flags, so what is left has
-    # to quote its way past ALL of them — both `git` and `diff`. Each earlier corpus was
-    # emptied by widening the filter (`gi"t" diff --output=x` lived here and is caught today),
-    # which is the point of pinning it. Every line below was run through both layers before
-    # being written down.
-    LOST_BEFORE_THE_CHECK = [
-        'gi"t" di"ff" --outp"ut"=/tmp/x',
-        'gi"t" di"ff" /etc/passwd /dev/null',
-        'gi"t" di"ff" --no-"index" a b',
-    ]
+    # There used to be a LOST_BEFORE_THE_CHECK corpus here: spellings this function caught but
+    # the hook's raw-text pre-filter dropped before the check could run. It was emptied and
+    # refilled four times — each fix widened the regex, and the next review round found the
+    # next spelling that slipped past it (`--out\put=`, then a quoted `git`, then a quoted
+    # `git` with a plain path, then both words quoted). A regex over un-lexed text can never be
+    # as wide as a check over de-quoted tokens, so the pre-filter is gone and the hook runs the
+    # check on every Bash command. These tests drive the real hook instead.
 
-    def test_shapes_lost_before_the_check_are_the_known_ones(self):
-        """Pins the gap so it cannot widen silently: git_escape catches these, the pre-filter
-        does not. If one starts passing the filter, move it into ESCAPES."""
-        spec = importlib.util.spec_from_file_location(
-            "gate", os.path.join(os.path.dirname(__file__), "..", "..", "..", "hooks",
-                                 "pr-self-review-gate.py"))
-        gate = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(gate)
-        for cmd in self.LOST_BEFORE_THE_CHECK:
-            self.assertIsNotNone(rs.git_escape(cmd), cmd)
-            self.assertIsNone(gate.MAYBE_GATED.search(cmd), f"pre-filter now catches: {cmd}")
+    def _gate(self, command):
+        """Run the actual hook on one Bash command; returns its deny reason, or None."""
+        gate_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "hooks",
+                                 "pr-self-review-gate.py")
+        payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": command}})
+        out = subprocess.run([sys.executable, gate_path], input=payload, capture_output=True,
+                             text=True, cwd=os.path.dirname(gate_path))
+        if not out.stdout.strip():
+            return None
+        return json.loads(out.stdout)["hookSpecificOutput"].get("permissionDecisionReason")
 
-    def test_every_escape_in_the_corpus_survives_the_prefilter(self):
-        """The hook short-circuits on a regex before calling git_escape, so a command the
-        regex drops is never checked — that is how `--out\\put=` shipped as a live bypass.
-        This asserts it for both escape corpora; the known gap is pinned above."""
-        spec = importlib.util.spec_from_file_location(
-            "gate", os.path.join(os.path.dirname(__file__), "..", "..", "..", "hooks",
-                                 "pr-self-review-gate.py"))
-        gate = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(gate)
-        for cmd in self.ESCAPES + self.READ_ESCAPES + self.IMPLICIT_READ_ESCAPES:
-            self.assertTrue(gate.MAYBE_GATED.search(cmd), f"pre-filter would skip: {cmd}")
+    def test_the_hook_denies_every_escape_however_it_is_spelled(self):
+        """The whole corpus through the real hook, including the shapes that used to be lost in
+        front of it: no spelling reaches the check by luck any more."""
+        corpus = (self.ESCAPES + self.READ_ESCAPES + self.IMPLICIT_READ_ESCAPES
+                  + [c for c, _ in self.OTHER_PROGRAM_ESCAPES]
+                  + ['gi"t" di"ff" --outp"ut"=/tmp/x',
+                     'gi"t" di"ff" /etc/passwd /dev/null',
+                     'gi"t" di"ff" --no-"index" a b'])
+        for cmd in corpus:
+            self.assertIsNotNone(self._gate(cmd), f"hook allowed: {cmd}")
+
+    def test_the_hook_allows_ordinary_commands(self):
+        for cmd in self.CLEAN + ["ls -la", "echo hi", "pnpm --dir server typecheck"]:
+            self.assertIsNone(self._gate(cmd), f"hook denied: {cmd}")
 
 
 class RepoFlowTest(unittest.TestCase):

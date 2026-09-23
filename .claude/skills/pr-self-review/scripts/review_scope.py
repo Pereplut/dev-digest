@@ -626,14 +626,22 @@ def is_gated_command(command):
 
 
 # A permission allowlist entry matches a command PREFIX, so `Bash(git diff:*)` approves every
-# flag that follows it, and two things git does then leave the repository entirely:
-#   --output=<file>   git writes and TRUNCATES that path
-#   no-index mode     git diffs two paths ANYWHERE on disk and PRINTS them, which is a read of
-#                     any file the process can open — including every path the settings `deny`
-#                     list exists to protect (`.env`, `~/.ssh`, credentials)
-# A deny entry cannot catch either: deny matching is prefix/word based, and the flag trails the
-# subcommand. So the check lives here, where the command is already tokenized.
-_GIT_ESCAPE_FLAGS = ("--output", "--no-index")
+# flag that follows it — and several "read-only" commands then open a path the caller names:
+#   git  --output=<file>    writes and TRUNCATES that path
+#   git  --no-index         diffs two paths ANYWHERE on disk and PRINTS them
+#   git  --contents=<file>  `git blame` reads that file and prints every line of it
+#   git  --extcmd=<prog>    `git difftool` runs an arbitrary program
+#   wc   --files0-from=<f>  reads the file and echoes its bytes back in the error message
+# Every one of those reaches the paths the settings `deny` list exists to protect (`.env`,
+# `~/.ssh`, credentials). A deny entry cannot catch any of them: deny matching is prefix/word
+# based and the flag trails the program. So the check lives here, on tokens.
+#
+# Each entry below was reproduced on a throwaway file before being added. The list is a floor,
+# not an inventory: the lesson of five rounds is that the next one is already here unfound.
+_ESCAPE_FLAGS = {
+    "git": ("--output", "--no-index", "--contents", "--extcmd"),
+    "wc": ("--files0-from",),
+}
 
 # ...but matching `--no-index` is NOT enough, and believing it was is how this shipped broken
 # once. git enables no-index mode ON ITS OWN as soon as a path operand points outside the working
@@ -682,9 +690,12 @@ def _outside_tree_operand(argv):
     option that does take a separate argument (`-S`, `-G`, `-O`) gets its argument tested too;
     that can cost a prompt on `git diff -S /some/string`, which is the right direction to err.
     """
-    if "diff" not in argv:
+    # `difftool` too: same operands, same implicit no-index, and it was invisible here while
+    # the check keyed on the literal token `diff` — which is the spelling-not-capability
+    # mistake this function exists to stop making.
+    cut = next((i for i, t in enumerate(argv) if t in ("diff", "difftool")), None)
+    if cut is None:
         return None
-    cut = argv.index("diff")
 
     head, i = argv[1:cut], 0
     while i < len(head):
@@ -735,20 +746,24 @@ def git_escape(command):
     flag, and **anyone who wants to evade it can**. Indirection defeats it — a wrapper it does
     not know, `eval`, a variable holding "git", a clustered `bash -lc`. For the write side,
     `git diff > file` and the `Write` tool are allowed and reach the same paths anyway, so that
-    half really is only a surprise removed. The READ side is not: no other allowlisted command
-    prints the body of a file outside the repo (`git status|log|show|blame|ls-files|rev-parse`,
-    `ls`, `wc` do not), and `deny` blocks the Read tool on exactly those paths — so a gap here
-    is an arbitrary-file-read hole, not a cosmetic one. Treat it that way; calling it cosmetic
-    is what made a spelling-only guard look sufficient the first time.
-    Do not read the absence of a named bypass here as coverage;
-    assume every shape not tested is uncovered, and do not add an "out of scope" list, which
-    review found incomplete twice. Quoting does NOT defeat this function — shlex de-quotes
-    before the program name is read, so `gi"t" diff --output=x` is caught here.
+    half really is only a surprise removed. The READ side is a real capability gate — `deny`
+    blocks the Read tool on exactly the paths these flags reach — so a gap here is an
+    arbitrary-file-read hole, not a cosmetic one.
 
-    What it does do: if any segment's program resolves to git, ANY token matching one of the
-    flags, anywhere in the command, denies. Coarse on purpose, because the flag can belong to
-    another segment (`git diff $(echo --output=x)`); the cost is denying an unrelated
-    `git log … && tool --output …`, which the caller splits into two commands.
+    An earlier version of this paragraph claimed "no other allowlisted command prints the body
+    of a file outside the repo (`git status|log|show|blame|ls-files|rev-parse`, `ls`, `wc` do
+    not)". That was WRONG about two of the eight it named, and review found both by trying them:
+    `git blame --contents=<file>` prints every line of that file, and `wc --files0-from=<file>`
+    echoes its bytes back inside the error message. A sentence like that one is a claim of
+    coverage, and this module has no way to make such a claim — so it does not make one. Assume
+    every shape not tested is uncovered; do not add an "out of scope" list, which review found
+    incomplete twice. Quoting does NOT defeat this function — shlex de-quotes before the program
+    name is read, so `gi"t" diff --output=x` is caught here.
+
+    What it does do: if any segment's program is one this table knows, ANY token matching one of
+    that program's flags, anywhere in the command, denies. Coarse on purpose, because the flag
+    can belong to another segment (`git diff $(echo --output=x)`); the cost is denying an
+    unrelated `git log … && tool --output …`, which the caller splits into two commands.
 
     On an unlexable command the fallback is NARROWER than the rule above: it needs a literal
     flag in the same segment as a literal `git`, **with `git` first** — so
@@ -764,7 +779,7 @@ def git_escape(command):
         m = _CONSERVATIVE_ESCAPE.search(_strip_heredocs(command))
         return f"git {m.group(1)}" if m else None
 
-    runs_git = False
+    programs = set()
     for segment in segments:
         prog, argv = _program_and_args(segment)
         if prog is None:
@@ -778,14 +793,16 @@ def git_escape(command):
                 nested = git_escape(argv[k])
                 if nested:
                     return nested
-        if prog == "git":
-            runs_git = True
+        if prog in _ESCAPE_FLAGS:
+            programs.add(prog)
 
-    if runs_git:
+    if programs:
         for tok in (tok for segment in segments for tok in segment):
-            for flag in _GIT_ESCAPE_FLAGS:
-                if tok == flag or tok.startswith(flag + "="):
-                    return f"git {flag}"
+            for prog in sorted(programs):
+                for flag in _ESCAPE_FLAGS[prog]:
+                    if tok == flag or tok.startswith(flag + "="):
+                        return f"{prog} {flag}"
+    if "git" in programs:
         for segment in segments:
             prog, argv = _program_and_args(segment)
             if prog == "git" and _outside_tree_operand(argv):

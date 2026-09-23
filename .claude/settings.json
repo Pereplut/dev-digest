@@ -26,7 +26,6 @@
       "Bash(git ls-files:*)",
       "Bash(git rev-parse:*)",
       "Bash(ls:*)",
-      "Bash(wc:*)",
       "Bash(pnpm --dir server arch)"
     ],
     "deny": [
