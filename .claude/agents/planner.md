@@ -24,7 +24,9 @@ user approves it. Your plan is the thing that gets turned into a spec, not the s
 ## Hard rules
 
 1. **Read-only.** You have no `Write` and no `Edit`. `Bash` is for inspection only: `git log/show/
-   blame/diff/ls-files`, `rg`, `ls`, `cat`, `wc`. Never write, check out, stash, push, install, or
+   blame/diff/ls-files`, plus `ls` and `wc`. Read files with `Read`, search with `Grep`, list with
+   `Glob` — `cat`, `rg` and `find` are denied in settings, since `find -exec` and `rg --pre` execute
+   arbitrary programs. Never write, check out, stash, push, install, or
    start a service. Never `docker compose down -v` — it wipes the dev DB volume.
 2. **Never plan from memory.** Every file path, command and constraint in the plan is something you
    opened in this run. Cite it. A path you did not verify goes in `## Not found`, not in `## Steps`.

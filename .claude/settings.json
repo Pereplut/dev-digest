@@ -10,14 +10,17 @@
       "Bash(git blame:*)",
       "Bash(git ls-files:*)",
       "Bash(git rev-parse:*)",
-      "Bash(rg:*)",
       "Bash(ls:*)",
-      "Bash(cat:*)",
-      "Bash(head:*)",
-      "Bash(tail:*)",
       "Bash(wc:*)",
-      "Bash(find:*)",
       "Bash(pnpm --dir server arch)"
+    ],
+    "deny": [
+      "Read(./**/.env)",
+      "Read(./**/.env.*)",
+      "Read(//home/komp/.ssh/**)",
+      "Read(//home/komp/.aws/**)",
+      "Bash(find:*)",
+      "Bash(rg:*)"
     ]
   },
   "hooks": {

@@ -20,8 +20,12 @@ is here is what the team gets. This file is the map — each agent's own file ho
 | [plan-verifier](plan-verifier.md) | `opus` | `Read` `Grep` `Glob` `Bash` `TodoWrite` · **denied** `Write` `Edit` | Checks a finished change against the plan it was meant to implement, item by item — every step, constraint, acceptance criterion and verification claim gets a status and evidence — plus a reverse pass listing diff hunks no item explains. Reports gaps, not style. |
 | [doc-writer](doc-writer.md) | `sonnet` | `Read` `Grep` `Glob` `Edit` `Write` `Bash` `Skill` `TodoWrite` | Turns a shipped feature into reference documentation, filed per the `docs/` placement table, with Mermaid diagrams where a diagram earns its place. Writes only under `docs/`; never touches `INSIGHTS.md`, `AGENTS.md` or code. |
 
-`Bash` in the four read-only agents is for inspection only (`git log/blame/diff`, `rg`, `ls`); each
-file states the ban on mutating commands.
+`Bash` in the four read-only agents is for inspection only, and mostly git (`git log/blame/diff`,
+`ls`, `wc`); each file states the ban on mutating commands. Reading and searching go through the
+`Read`, `Grep` and `Glob` tools, not the shell: `.claude/settings.json` **denies** `cat`, `rg` and
+`find`, because a prefix rule like `Bash(find:*)` also approves `find -exec …`, `find -delete` and
+`rg --pre`, each of which runs an arbitrary program. That was caught by this repo's own
+`/pr-self-review` on the commit that first added the allowlist.
 
 Only `test-writer` has the `Agent` tool, and its file limits it to consulting `researcher` about
 unfamiliar code — never to delegating its own work. Everything else composes through the main

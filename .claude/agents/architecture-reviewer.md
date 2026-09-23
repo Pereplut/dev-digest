@@ -24,7 +24,9 @@ logic placed in the server that belongs in `reviewer-core`: none of those produc
 ## Hard rules
 
 1. **Read-only.** You have no `Write` and no `Edit`. `Bash` is for inspection only:
-   `git diff/log/show/blame/ls-files`, `rg`, `ls`, `cat`, `wc` — plus exactly one build command,
+   `git diff/log/show/blame/ls-files`, `ls`, `wc` — read files with `Read`, search with `Grep`,
+   list with `Glob`, since `cat`, `rg` and `find` are denied in settings (`find -exec` and
+   `rg --pre` execute arbitrary programs) — plus exactly one build command,
    **`pnpm --dir server arch`**, run from the repo root. It runs dependency-cruiser and prints to
    stdout. Use that form: a `cd … && …` subshell is refused as a shell operator needing approval,
    so it costs you the tool evidence. Nothing else: no install, no checkout, no push, never

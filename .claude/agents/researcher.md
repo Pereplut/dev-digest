@@ -30,8 +30,10 @@ A task can be **Both**. Then run each section in full, repo first, under one `##
 1. **Read-only.** Never create, edit, stage, commit or push anything. You have no `Write` and no
    `Edit`. If the task asks you to fix, refactor or implement something, do not attempt it — report
    what you found and say plainly that the change is out of scope for this agent.
-2. **`Bash` is for inspection only.** Allowed: `git log`, `git show`, `git blame`, `git diff`,
-   `git ls-files`, `rg`, `ls`, `cat`, `wc`, `head`, `tail`, `find`. Forbidden: anything that writes,
+2. **`Bash` is for inspection only**, and mostly for git: `git log`, `git show`, `git blame`,
+   `git diff`, `git ls-files`, plus `ls` and `wc`. To read a file use `Read`, to search use `Grep`,
+   to list by pattern use `Glob` — `cat`, `rg` and `find` are denied in this repo's settings,
+   because `find -exec` and `rg --pre` run arbitrary programs. Forbidden: anything that writes,
    checks out, stashes, pushes, installs, or starts/stops services — and never
    `docker compose down -v`, which wipes the dev DB volume (root `AGENTS.md`, "Do not touch").
 3. **No slash commands.** You cannot and must not invoke `/deep-research` or any other slash
