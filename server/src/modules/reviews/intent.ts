@@ -22,6 +22,7 @@ import * as schema from '../../db/schema.js';
 import type { ReviewRepository, PullRow } from './repository.js';
 import {
   INTENT_MAX_BODY_CHARS,
+  INTENT_MAX_COMMITS,
   INTENT_MAX_PATHS,
   INTENT_MAX_SPEC_CHARS,
   INTENT_MAX_SPEC_FILE_BYTES,
@@ -82,6 +83,7 @@ interface GatheredSource {
  * this PR proposes, and it needs no filesystem access at all.
  */
 async function gather(
+  repo: ReviewRepository,
   pull: PullRow,
   repoRow: typeof schema.repos.$inferSelect,
   diffText: string,
@@ -123,6 +125,12 @@ async function gather(
     .map((l) => l.slice(6))
     .slice(0, INTENT_MAX_PATHS);
   if (paths.length > 0) push('paths', 'paths', paths.join('\n'), 'used');
+
+  // The system prompt tells the model it is shown commit subjects, so it has to
+  // actually get them: a source named but never supplied invites a quote that
+  // then fails verification and silently costs confidence.
+  const commits = await repo.listCommitSubjects(pull.id, INTENT_MAX_COMMITS);
+  if (commits.length > 0) push('commits', 'commits', commits.join('\n'), 'used');
 
   // `cleaned`, not `pull.body`: an HTML comment is invisible in GitHub's
   // rendered view, so a link hidden in one would pull a file off disk and into
@@ -176,7 +184,7 @@ export async function deriveIntent(
 ): Promise<DerivedIntent | undefined> {
   const t0 = Date.now();
   try {
-    const { sources, specs, title, body } = await gather(pull, repoRow, diffText);
+    const { sources, specs, title, body } = await gather(repo, pull, repoRow, diffText);
     const hash = intentInputHash({ headSha: pull.headSha, title, body, specs });
 
     const stored = await repo.getIntent(pull.id);

@@ -158,6 +158,10 @@ export class ReviewRepository {
     return pullRepo.getIntentInputHash(this.db, prId);
   }
 
+  listCommitSubjects(prId: string, limit: number): Promise<string[]> {
+    return pullRepo.listCommitSubjects(this.db, prId, limit);
+  }
+
   // ---- observability: agent_runs + run_traces ----------------------------
 
   /** Create an agent_runs row in `running` state; returns its id (= the runId). */

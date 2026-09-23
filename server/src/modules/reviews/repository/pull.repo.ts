@@ -142,6 +142,31 @@ export async function getIntent(db: DbOrTx, prId: string): Promise<PrIntentRecor
 }
 
 /** The input hash of the stored intent, for the reuse check. Cheaper than the full row. */
+/**
+ * Commit subject lines for the classifier, oldest first, capped.
+ *
+ * Only the first line of each message: the subject is the author saying what
+ * the commit is for, and the body is usually the same detail the PR
+ * description already carries.
+ *
+ * May legitimately return nothing. `pr_commits` is DELETEd and re-inserted on
+ * every PR-detail load (`modules/pulls/repository/pull.repo.ts`), so a PR that
+ * has not been opened has no rows here. The intent layer treats the source as
+ * absent, which is the same as any other source it did not get.
+ */
+export async function listCommitSubjects(
+  db: DbOrTx,
+  prId: string,
+  limit: number,
+): Promise<string[]> {
+  const rows = await db
+    .select({ message: t.prCommits.message })
+    .from(t.prCommits)
+    .where(eq(t.prCommits.prId, prId))
+    .limit(limit);
+  return rows.map((r) => r.message.split('\n')[0]?.trim() ?? '').filter((s) => s.length > 0);
+}
+
 export async function getIntentInputHash(db: DbOrTx, prId: string): Promise<string | null> {
   const [row] = await db
     .select({ inputHash: t.prIntent.inputHash })

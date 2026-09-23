@@ -40,7 +40,15 @@ const classification = {
   evidence: [{ source_kind: 'body' as const, ref: 'body', quote: 'Adds GET /health/ready.' }],
 };
 
-function stubs(over: { data?: unknown; throws?: Error; stored?: unknown; storedHash?: string } = {}) {
+function stubs(
+  over: {
+    data?: unknown;
+    throws?: Error;
+    stored?: unknown;
+    storedHash?: string;
+    commits?: string[];
+  } = {},
+) {
   const upsert = vi.fn().mockResolvedValue(undefined);
   const completeStructured = vi.fn(async () => {
     if (over.throws) throw over.throws;
@@ -57,6 +65,7 @@ function stubs(over: { data?: unknown; throws?: Error; stored?: unknown; storedH
   const repo = {
     getIntent: vi.fn().mockResolvedValue(over.stored),
     getIntentInputHash: vi.fn().mockResolvedValue(over.storedHash ?? null),
+    listCommitSubjects: vi.fn().mockResolvedValue(over.commits ?? []),
     upsertIntent: upsert,
   } as unknown as ReviewRepository;
   // `resolveFeatureModel` reads the workspace's override through
@@ -216,6 +225,29 @@ describe('deriveIntent', () => {
     // ...and the real path is put back, so what is stored and shown is the path.
     expect(row.evidence[0].ref).toBe('specs/0008.md');
     expect(row.confidence).toBe('high');
+  });
+
+  it('supplies the commit subjects the system prompt promises the model', async () => {
+    const { repo, container, upsert, completeStructured } = stubs({
+      commits: ['fix: stop the probe flapping', 'test: cover the 503 path'],
+    });
+    await deriveIntent(container, repo, 'ws', pull(), repoRow(), DIFF, runLog);
+    const row = upsert.mock.calls[0]?.[1];
+    const commits = row.sources.find((s: { kind: string }) => s.kind === 'commits');
+    expect(commits?.status).toBe('used');
+    // ...and they actually reach the model, not just the sources list.
+    // The stub takes no declared parameters, so its recorded args are untyped.
+    const sent = JSON.stringify((completeStructured.mock.calls[0] as unknown[] | undefined)?.[0]);
+    expect(sent).toContain('stop the probe flapping');
+  });
+
+  it('omits the commits source when the PR has no commit rows', async () => {
+    // pr_commits is wiped and refilled on every PR-detail load, so "none" is a
+    // normal state, not an error: the source is simply absent.
+    const { repo, container, upsert } = stubs({ commits: [] });
+    await deriveIntent(container, repo, 'ws', pull(), repoRow(), DIFF, runLog);
+    const row = upsert.mock.calls[0]?.[1];
+    expect(row.sources.some((s: { kind: string }) => s.kind === 'commits')).toBe(false);
   });
 
   it('does not act on a spec link hidden in an HTML comment', async () => {
