@@ -63,24 +63,34 @@ export interface PromptIntent {
   sources?: string[];
 }
 
+/** The caveat a `low` band adds. Fixed text, so its cost is known in advance. */
+const LOW_CONFIDENCE_NOTE =
+  'NOTE: no documentation was available — this was inferred from indirect signals and may be wrong.';
+
 /**
  * Render the intent block. Pure and exported so the server can measure it and
  * tests can assert its shape without building a whole prompt.
  *
  * The heading carries the caveat rather than a separate sentence, so the model
  * cannot read the body of the block without having seen how much to trust it.
+ *
+ * The note is budgeted for and appended AFTER the cut, never pushed onto the
+ * lines and truncated with them. The classifier's own schema allows a body of
+ * roughly 1970 characters (a 300-char intent plus two lists of 5 × 160), which
+ * is more than MAX_INTENT_CHARS — so truncating last dropped the caveat exactly
+ * on the runaway classifications that most needed it, and a test asserting only
+ * the length passed while it vanished.
  */
 export function formatIntentBlock(intent: PromptIntent): string {
   const lines = [`Category: ${intent.category}`, `Purpose: ${intent.intent}`];
   if (intent.in_scope?.length) lines.push(`In scope: ${intent.in_scope.join('; ')}`);
   if (intent.out_of_scope?.length) lines.push(`Out of scope: ${intent.out_of_scope.join('; ')}`);
   if (intent.sources?.length) lines.push(`Derived from: ${intent.sources.join(', ')}`);
-  if (intent.confidence === 'low') {
-    lines.push(
-      'NOTE: no documentation was available — this was inferred from indirect signals and may be wrong.',
-    );
-  }
-  return lines.join('\n').slice(0, MAX_INTENT_CHARS);
+
+  const note = intent.confidence === 'low' ? LOW_CONFIDENCE_NOTE : '';
+  const room = Math.max(0, MAX_INTENT_CHARS - (note ? note.length + 1 : 0));
+  const body = lines.join('\n').slice(0, room);
+  return note ? `${body}\n${note}` : body;
 }
 
 export interface PromptParts {

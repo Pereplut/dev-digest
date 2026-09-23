@@ -100,6 +100,21 @@ describe('intent slot', () => {
     expect(block.length).toBe(MAX_INTENT_CHARS);
   });
 
+  it('keeps the low-confidence caveat on a runaway classification', () => {
+    // The schema permits a body longer than the cap (a 300-char intent plus two
+    // lists of 5 x 160), so the caveat has to survive the cut, not ride on it.
+    const block = formatIntentBlock({
+      ...intent,
+      confidence: 'low',
+      intent: 'x'.repeat(300),
+      in_scope: Array.from({ length: 5 }, () => 'a'.repeat(160)),
+      out_of_scope: Array.from({ length: 5 }, () => 'b'.repeat(160)),
+    });
+    expect(block).toContain('inferred from indirect signals');
+    expect(block.length).toBeLessThanOrEqual(MAX_INTENT_CHARS);
+    expect(block.endsWith('may be wrong.')).toBe(true);
+  });
+
   it('omits empty lists rather than rendering them blank', () => {
     const block = formatIntentBlock({
       category: 'unknown',
