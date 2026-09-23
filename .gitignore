@@ -31,3 +31,8 @@ test-results/
 
 # emdash worktree config (local)
 .emdash.json
+
+# Compose overrides are per-machine (a host port already taken, a different
+# volume path). Compose merges this file automatically when present, so
+# committing one would force every clone onto one developer's local setup.
+docker-compose.override.yml
