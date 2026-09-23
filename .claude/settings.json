@@ -39,7 +39,10 @@
       "Read(~/.claude.json)",
       "Read(~/.npmrc)",
       "Read(~/.git-credentials)",
+      "Read(~/.netrc)",
       "Read(~/.docker/config.json)",
+      "Read(~/.kube/config)",
+      "Read(~/.config/gcloud/**)",
       "Bash(find:*)",
       "Bash(rg:*)"
     ]

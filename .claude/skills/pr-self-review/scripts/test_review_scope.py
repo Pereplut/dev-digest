@@ -234,10 +234,30 @@ class WriteEscapeTest(unittest.TestCase):
     def test_unparseable_lookalike_errs_closed(self):
         self.assertEqual(rs.write_escape("git diff --output=/tmp/x 'unterminated"), "git --output")
 
-    def test_hook_prefilter_is_not_narrower_than_the_check(self):
-        """The hook short-circuits on a regex before calling write_escape. When that regex is
-        narrower than the check, the check never runs — which is how `--out\\put=` shipped as a
-        live bypass. Every command the check catches must survive the pre-filter."""
+    # Spellings write_escape catches that the hook's raw-text pre-filter loses, so the check
+    # never runs on them. Live, documented in the hook, and deliberately not in ESCAPES —
+    # putting them there would assert an invariant the code does not hold.
+    LOST_BEFORE_THE_CHECK = [
+        'gi"t" diff --output=/tmp/x HEAD',
+        'g"i"t diff --output=/tmp/x',
+    ]
+
+    def test_shapes_lost_before_the_check_are_the_known_ones(self):
+        """Pins the gap so it cannot widen silently: write_escape catches these, the pre-filter
+        does not. If one starts passing the filter, move it into ESCAPES."""
+        spec = importlib.util.spec_from_file_location(
+            "gate", os.path.join(os.path.dirname(__file__), "..", "..", "..", "hooks",
+                                 "pr-self-review-gate.py"))
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        for cmd in self.LOST_BEFORE_THE_CHECK:
+            self.assertEqual(rs.write_escape(cmd), "git --output", cmd)
+            self.assertIsNone(gate.MAYBE_GATED.search(cmd), f"pre-filter now catches: {cmd}")
+
+    def test_every_escape_in_the_corpus_survives_the_prefilter(self):
+        """The hook short-circuits on a regex before calling write_escape, so a command the
+        regex drops is never checked — that is how `--out\\put=` shipped as a live bypass.
+        This asserts it for the ESCAPES corpus only; the known gap is pinned above."""
         spec = importlib.util.spec_from_file_location(
             "gate", os.path.join(os.path.dirname(__file__), "..", "..", "..", "hooks",
                                  "pr-self-review-gate.py"))

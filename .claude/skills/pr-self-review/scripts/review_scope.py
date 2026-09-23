@@ -651,11 +651,13 @@ def write_escape(command):
 
     THE CEILING, so nobody mistakes this for a boundary: it catches the plain spelling of a
     mistaken `--output`, and **anyone who wants to evade it can**. Indirection defeats it —
-    a wrapper it does not know, `eval`, a variable holding "git", a clustered `bash -lc`,
-    a quote inside the word `git` — and so does simply using `git diff > file` or the `Write`
-    tool, both of which are allowed and reach the same paths. Do not read the absence of a
-    named bypass here as coverage; assume every shape not tested is uncovered, and do not add
-    an "out of scope" list, which review found incomplete twice.
+    a wrapper it does not know, `eval`, a variable holding "git", a clustered `bash -lc` — and
+    so does simply using `git diff > file` or the `Write` tool, both of which are allowed and
+    reach the same paths. Do not read the absence of a named bypass here as coverage; assume
+    every shape not tested is uncovered, and do not add an "out of scope" list, which review
+    found incomplete twice. Quoting does NOT defeat this function — shlex de-quotes before the
+    program name is read, so `gi"t" diff --output=x` is caught here; it is the hook's raw-text
+    pre-filter that loses it, one layer up.
 
     What it does do: if any segment's program resolves to git, ANY `--output` token anywhere in
     the command denies. Coarse on purpose, because the flag can belong to another segment
@@ -663,7 +665,8 @@ def write_escape(command):
     which the caller splits into two commands.
 
     On an unlexable command the fallback is NARROWER than the rule above: it needs a literal
-    `--output` in the same segment as a literal `git`.
+    `--output` in the same segment as a literal `git`, **with `git` first** — so
+    `tool --output=x && git diff 'unterminated` returns None, where the token rule would deny.
 
     A caller must not pre-filter on a raw-text pattern: this matches de-quoted tokens, no regex
     over un-lexed text can be as wide, and the hook's own filter has now let two spellings

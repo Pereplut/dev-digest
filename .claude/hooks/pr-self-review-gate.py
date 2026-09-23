@@ -7,7 +7,7 @@ POST .../pulls, .../merges, PUT .../pulls/N/merge, GraphQL PR mutations) unless
 local changes, and it found no CRITICAL. The deny reason tells the agent to ask the user to
 run /pr-self-review: the skill has `disable-model-invocation: true`, so only a person starts it.
 
-Bash, unconditionally: denies `git ... --output=<file>`. `git diff|log|show` sit on the
+Bash, ahead of any review state: denies `git ... --output=<file>`. `git diff|log|show` sit on the
 permission allowlist as "read-only", but an allowlist entry matches a command PREFIX, so it
 approves every flag that follows — and `--output` writes and truncates an arbitrary path
 without going through Write or Edit. A `deny` entry cannot close it (deny matching is
@@ -16,10 +16,13 @@ prefix/word based; the flag trails the subcommand), so the check happens here, o
 That check corrects a mistaken belief; it is NOT a barrier, and anyone who wants to evade it
 can — `git diff > file` and the Write tool are allowed and reach the same paths, and any
 indirection (an unknown wrapper, eval, a variable holding "git", a quote inside the word)
-defeats it. Treat every shape not covered by a test as uncovered. MAYBE_GATED is a raw-text
-regex while the check matches de-quoted tokens, so it cannot be as wide: two spellings have
-already walked through it (`--out\\put=`, then `gi"t"`). It is a cost filter, not a guard —
-when in doubt, let the command reach `write_escape`.
+defeats it. Treat every shape not covered by a test as uncovered.
+
+MAYBE_GATED below is a raw-text regex while `write_escape` matches de-quoted tokens, so it
+cannot be as wide, and the deny above is conditional on it. **A quoted program name is live
+today:** `gi"t" diff --output=x` has no literal `git` for the regex, so it never reaches the
+check that would catch it. `--out\\put=` used to escape the same way and no longer does. Treat
+this regex as a cost filter, never as part of the guard: when in doubt, widen it.
 
 Write/Edit: denies hand-writing the verdict file; only `review_scope.py write-verdict` may.
 
