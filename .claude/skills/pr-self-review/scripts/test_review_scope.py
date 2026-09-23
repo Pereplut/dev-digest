@@ -255,6 +255,15 @@ class WriteEscapeTest(unittest.TestCase):
             self.assertEqual(rs.git_escape(cmd), label, cmd)
 
     CLEAN = [
+        # Each of these was hard-denied by the first version of the brace and `-S` rules, which
+        # is the opposite failure: the guard standing in the way of ordinary work.
+        'git log --oneline -5 | awk "{print $1}"',   # another program's braces, and quoted
+        "git ls-files | xargs -I{} echo {}",         # another program's braces, unquoted
+        'git log --grep="v[0-9]{2}"',                # git's own segment, but quoted
+        'git log -S"fix" --oneline',                 # -S is the pickaxe outside blame
+        "git log -Sfoo",
+        "git commit -S -m hi",                       # ...and GPG signing in commit
+        "git log --ignore-rev abc",                  # a real flag, not an abbreviation
         "git diff --stat HEAD",
         "git diff > /tmp/x",                       # a redirect is the shell's, not git's
         "git log --oneline -5",
@@ -293,8 +302,8 @@ class WriteEscapeTest(unittest.TestCase):
             self.assertEqual(rs.git_escape(cmd), "git --contents", cmd)
 
     def test_blame_revs_file_flags_that_echo_the_file(self):
-        self.assertEqual(rs.git_escape("git blame -S /tmp/x .gitignore"), "git -S")
-        self.assertEqual(rs.git_escape("git blame -S/tmp/x .gitignore"), "git -S")
+        self.assertEqual(rs.git_escape("git blame -S /tmp/x .gitignore"), "git blame -S")
+        self.assertEqual(rs.git_escape("git blame -S/tmp/x .gitignore"), "git blame -S")
         self.assertEqual(
             rs.git_escape("git blame --ignore-revs-file=/tmp/x .gitignore"),
             "git --ignore-revs-file",

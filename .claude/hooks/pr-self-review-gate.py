@@ -7,21 +7,26 @@ POST .../pulls, .../merges, PUT .../pulls/N/merge, GraphQL PR mutations) unless
 local changes, and it found no CRITICAL. The deny reason tells the agent to ask the user to
 run /pr-self-review: the skill has `disable-model-invocation: true`, so only a person starts it.
 
-Bash, ahead of any review state: denies `git ... --output=<file>`, and `git diff` given an
-operand outside the working tree. `git diff|log|show` sit on the permission allowlist as
-"read-only", but an allowlist entry matches a command PREFIX, so it approves every flag and
-path that follows — `--output` writes and truncates an arbitrary path, and a diff operand
-outside the tree puts git in no-index mode, where it PRINTS both files. git enters that mode on
-its own, with no `--no-index` anywhere in the command, which is why the check matches operands
-and not just flag spellings. A `deny` entry cannot close either (deny matching is prefix/word
-based; the flag and the path trail the subcommand), so the check happens here, on tokens.
+Bash, ahead of any review state: denies the flags and operands that make an otherwise read-only
+command open a path the caller names — `git ... --output=<file>`, `git blame --contents=<file>`,
+`wc --files0-from=<file>`, and `git diff` given an operand outside the working tree, which puts
+git in no-index mode where it PRINTS both files. git enters that mode on its own, with no
+`--no-index` in the command, which is why the check matches operands and not just spellings. A
+`deny` entry cannot close any of them — deny matching is prefix/word based and the flag or path
+trails the subcommand — so the check happens here, on tokens.
 
-The write half corrects a mistaken belief and is NOT a barrier: `git diff > file` and the Write
-tool are allowed and reach the same paths. The read half IS a capability gate — no other
-allowlisted command prints a file outside the repo, and `deny` blocks Read on those paths — but
-it is still not a boundary: any indirection (an unknown wrapper, eval, a variable holding
-"git", a quote inside the word) defeats it. Treat every shape not covered by a test as
-uncovered.
+Why here at all: an allowlist entry matches a command PREFIX, so `Bash(<cmd>:*)` approves every
+flag and path that follows. The prefix grants that made this exploitable (`git diff`, `git
+blame`, `wc`) have since been REMOVED from `.claude/settings.json`; what is still granted is
+`git status|log|show|ls-files|rev-parse`, `ls` and one exact `pnpm` command. So this hook is now
+defence in depth rather than the only barrier, and the commands it denies mostly prompt anyway.
+
+What it does NOT claim: that nothing else can read a file. An earlier version of this docstring
+said "no other allowlisted command prints a file outside the repo" — that sentence was wrong
+about `git blame` and `wc`, and believing it is why two review rounds stopped looking. The
+guard covers the spellings that have tests. Assume every shape not tested is uncovered, and
+note that any indirection (an unknown wrapper, eval, a variable holding "git", a quote inside
+the word) defeats it regardless.
 
 There is NO raw-text pre-filter any more, deliberately. There used to be one, to save the import
 on ordinary Bash calls, and it was the weakest link four times running: a regex over un-lexed
@@ -95,8 +100,9 @@ def main():
                 "git --extcmd": "`git difftool --extcmd=<prog>` runs an arbitrary program.",
                 "wc --files0-from": "`wc --files0-from=<file>` reads that file and echoes its "
                                     "bytes back in the error message.",
-                "git -S": "`git blame -S <file>` reads that file and prints every line of it "
-                          "back through `error: bad graft data:`.",
+                "git blame -S": "`git blame -S <file>` reads that file and prints every line of "
+                                "it back through `error: bad graft data:`. (`-S` elsewhere is "
+                                "the pickaxe or GPG signing and is not denied.)",
                 "git --ignore-revs-file": "`git blame --ignore-revs-file=<file>` reads that file "
                                           "and reports its first line back.",
                 "git brace expansion": "the command contains a brace the shell will expand, and "
