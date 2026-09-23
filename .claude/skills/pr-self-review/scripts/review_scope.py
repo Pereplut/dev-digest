@@ -625,8 +625,8 @@ def is_gated_command(command):
     return None
 
 
-# A permission allowlist entry matches a command PREFIX, so `Bash(<cmd>:*)` approves every flag
-# that follows it — and several "read-only" commands then open a path the caller names:
+# A permission allowlist entry matches a command PREFIX, so `Bash(git diff:*)` approves every
+# flag that follows it — and several "read-only" commands then open a path the caller names:
 #   git  --output=<file>    writes and TRUNCATES that path
 #   git  --no-index         diffs two paths ANYWHERE on disk and PRINTS them
 #   git  --contents=<file>  `git blame` reads that file and prints every line of it
@@ -639,20 +639,9 @@ def is_gated_command(command):
 # Each entry below was reproduced on a throwaway file before being added. The list is a floor,
 # not an inventory: the lesson of five rounds is that the next one is already here unfound.
 _ESCAPE_FLAGS = {
-    "git": ("--output", "--no-index", "--contents", "--extcmd", "--ignore-revs-file"),
+    "git": ("--output", "--no-index", "--contents", "--extcmd", "--ignore-revs-file", "-S"),
     "wc": ("--files0-from",),
 }
-
-# `-S` cannot go in the table above. In `git blame` it names a revs file and dumps it through
-# `error: bad graft data:` lines, but in `git log`/`git diff` it is the pickaxe search and in
-# `git commit` it is GPG signing — all three ordinary. A flat entry denied `git log -S"fix"`,
-# an everyday command, with a message about git-blame that did not describe what was typed. So
-# a flag whose meaning depends on the subcommand is matched against the subcommand.
-_SUBCOMMAND_FLAGS = {"git": {"blame": ("-S",), "annotate": ("-S",)}}
-
-# `--ignore-rev` is a proper prefix of `--ignore-revs-file` and a DIFFERENT real git-blame
-# option — it takes a revision, not a file — so the abbreviation rule must not claim it.
-_NOT_ABBREVIATIONS = frozenset({"--ignore-rev"})
 # git parses long options with parse-options, which accepts any UNAMBIGUOUS ABBREVIATION, so
 # `--cont=<file>` is `--contents=<file>` and printed a file straight past an exact-token match.
 # A token therefore matches when it is a prefix of a table flag, not only when it equals one.
@@ -661,10 +650,7 @@ _NOT_ABBREVIATIONS = frozenset({"--ignore-rev"})
 # `git diff -S<string>` outright — the right direction to be wrong in, but it is a hard deny,
 # not a prompt: the hook has no 'ask' path, and saying otherwise is how the cost of this rule
 # got understated once already.
-# Shortest abbreviation the prefix rule will honour. It excludes `--` itself and nothing else:
-# `--c` IS three characters and so is inside the rule, which an earlier version of this comment
-# got backwards. Short flags never reach the rule — it requires a `--` prefix.
-_MIN_ABBREV = 3
+_MIN_ABBREV = 3  # `--c` is ambiguous in git anyway; this keeps `-S` and `--` out of the prefix rule
 
 # ...but matching `--no-index` is NOT enough, and believing it was is how this shipped broken
 # once. git enables no-index mode ON ITS OWN as soon as a path operand points outside the working
@@ -684,26 +670,6 @@ _CONSERVATIVE_ESCAPE = re.compile(
     + "|".join(re.escape(f) for fs in _ESCAPE_FLAGS.values() for f in sorted(fs, key=len, reverse=True))
     + r"|\s/[^\s]+)"
 )
-
-
-def _has_unquoted_brace(command):
-    """Is there a `{` or `}` the shell would actually act on?
-
-    shlex de-quotes, so by the time a token is inspected `--grep="v[0-9]{2}"` and
-    `{/etc/passwd,/dev/null}` look alike — and refusing both denied an ordinary regex search.
-    Brace expansion does not happen inside quotes, so a command whose every brace is quoted
-    cannot expand one, and this scans the RAW text to say which case it is.
-    """
-    quote = None
-    for i, ch in enumerate(command):
-        if quote:
-            if ch == quote and (quote == "'" or command[i - 1] != "\\"):
-                quote = None
-        elif ch in "'\"":
-            quote = ch
-        elif ch in "{}":
-            return True
-    return False
 
 
 def _reaches_outside(tok):
@@ -791,8 +757,7 @@ def git_escape(command):
       through Write or Edit.
       `git diff` in no-index mode — diffs two paths anywhere on disk and prints them, so it
       reads any file the process can open. That is the settings `deny` list (`.env`, `~/.ssh`,
-      `~/.aws`, credentials) read straight through what was then a `Bash(git diff:*)` allow
-      entry — since removed, so this is now a second layer over a prompt. It has
+      `~/.aws`, credentials) read straight through the `Bash(git diff:*)` allow entry. It has
       shipped live TWICE: first because the commit that added the `--output` check hunted the
       write side only, then because the fix matched the `--no-index` token and git turns the
       mode on by itself for any operand outside the working tree. Hence `_outside_tree_operand`
@@ -852,45 +817,25 @@ def git_escape(command):
         if prog in _ESCAPE_FLAGS:
             programs.add(prog)
 
-    # An unevaluated brace is the same problem as an unevaluated `$`: the shell rewrites
-    # `{--cont,}ents=/etc/passwd` and `git diff {/etc/passwd,/dev/null}` into something this
-    # function never sees, so it refuses rather than guesses. Scoped twice, because the first
-    # version of this rule denied `git log | awk '{print $1}'`, `git ls-files | xargs -I{}` and
-    # `git log --grep="v[0-9]{2}"`: only a brace in the git/wc SEGMENT counts (another program's
-    # braces are that program's business), and only when the raw command has an UNQUOTED brace
-    # at all (a quoted one cannot expand).
-    unquoted_brace = _has_unquoted_brace(command)
-    for segment in segments:
-        prog, _ = _program_and_args(segment)
-        if prog not in _ESCAPE_FLAGS:
-            continue
-        if unquoted_brace and any("{" in tok or "}" in tok for tok in segment):
-            return f"{prog} brace expansion"
-
     if programs:
         for tok in (tok for segment in segments for tok in segment):
+            # An unevaluated brace is the same problem as an unevaluated `$`: the shell rewrites
+            # `{--cont,}ents=/etc/passwd` and `git diff {/etc/passwd,/dev/null}` into something
+            # this function never sees. It cannot expand, so it refuses.
+            if "{" in tok or "}" in tok:
+                return f"{sorted(programs)[0]} brace expansion"
             opt = tok.split("=", 1)[0]
             for prog in sorted(programs):
                 for flag in _ESCAPE_FLAGS[prog]:
                     abbreviated = (
                         flag.startswith("--")
                         and len(opt) >= _MIN_ABBREV
-                        and opt not in _NOT_ABBREVIATIONS
                         and flag.startswith(opt)
                     )
                     if opt == flag or abbreviated:
                         return f"{prog} {flag}"
-
-    # Flags whose danger depends on the subcommand are matched per segment, against it.
-    for segment in segments:
-        prog, argv = _program_and_args(segment)
-        for sub, flags in _SUBCOMMAND_FLAGS.get(prog, {}).items():
-            if sub not in argv:
-                continue
-            for flag in flags:
-                if any(tok == flag or tok.startswith(flag) for tok in argv[argv.index(sub) + 1:]):
-                    return f"{prog} {sub} {flag}"
-
+                    if flag.startswith("-") and not flag.startswith("--") and tok.startswith(flag):
+                        return f"{prog} {flag}"  # `-S<file>` glued
     if "git" in programs:
         for segment in segments:
             prog, argv = _program_and_args(segment)
