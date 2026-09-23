@@ -27,6 +27,17 @@ is here is what the team gets. This file is the map — each agent's own file ho
 `rg --pre`, each of which runs an arbitrary program. That was caught by this repo's own
 `/pr-self-review` on the commit that first added the allowlist.
 
+Two things about that settings file are easy to misread:
+
+- **The `Read(...)` denies bind to the `Read` tool only.** `.env`, `~/.ssh`, `~/.aws` and the
+  credential stores (`~/.config/gh`, `~/.npmrc`, `~/.git-credentials`, …) cannot be opened with
+  `Read`, and cannot be written either. A shell reader — `cat`, `head`, `tail` — is *not* denied;
+  it is simply absent from `allow`, so it prompts. The guarantee is "the Read tool cannot open
+  these, and a human sees any shell attempt", not "these files are unreachable".
+- **`WebFetch` is domain-scoped**, so `researcher` can reach Claude/Anthropic docs, GitHub and this
+  stack's doc sites without a prompt, and anything else is refused. `WebSearch` stays unscoped; a
+  query string does reach the search provider.
+
 Only `test-writer` has the `Agent` tool, and its file limits it to consulting `researcher` about
 unfamiliar code — never to delegating its own work. Everything else composes through the main
 session (below). `test-writer` is also the only agent using the `skills:` frontmatter key. **On

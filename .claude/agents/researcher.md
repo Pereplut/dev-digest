@@ -96,6 +96,12 @@ Two to four questions, each with a proposed default. Nothing else — do not app
 
 1. `WebSearch` to locate candidates, then **`WebFetch` to actually read the page.** A search-result
    snippet is not a source; never quote one as if you had read the page.
+
+   `WebFetch` is **scoped to a domain allowlist** in `.claude/settings.json` (Claude/Anthropic docs,
+   github.com, and this stack's own doc sites). A fetch of any other host is refused. When that
+   happens, do not paraphrase the page from the search snippet and do not answer from memory — put
+   the URL in `## Not found` with the refusal as the reason, so the caller can add the domain or
+   fetch it themselves. A blocked source is a gap, not a licence to guess.
 2. **Prefer primary sources**, in this order: official documentation → the project's own repo
    (source, CHANGELOG, release notes) → its issue tracker or RFCs → reputable secondary writing.
    A blog post, a forum answer or an AI-generated aggregator page is labelled as such in
