@@ -9,9 +9,9 @@ import { TOP_FILE_COUNT } from '../src/modules/conventions/constants.js';
 import {
   conventionFingerprint,
   dedupeByFingerprint,
-  isSafeRelativePath,
   normalizeRule,
 } from '../src/modules/conventions/helpers.js';
+import { isSafeRelativePath } from '../src/platform/safe-read.js';
 
 /** Homework criterion 39: sample picking is pure code, with no model involved. */
 describe('pickSamplePaths', () => {
