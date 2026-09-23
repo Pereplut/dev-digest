@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { pgTable, uuid, text, integer, jsonb, timestamp, doublePrecision, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, integer, jsonb, timestamp, doublePrecision, numeric, index } from 'drizzle-orm/pg-core';
 import { now } from './_shared';
 import { workspaces } from './core';
 import { pullRequests } from './pulls';
@@ -80,6 +80,35 @@ export const findings = pgTable(
   (t) => ({ reviewIdx: index('findings_review_id_idx').on(t.reviewId) }),
 );
 
+/**
+ * Shapes stored inside `pr_intent`'s jsonb columns. Declared here rather than in
+ * `db/rows.ts` because that file imports the schema, so the schema cannot import
+ * it back. `contracts/review-api.ts` holds the API-facing (snake_case) twins.
+ */
+export type IntentSourceRow = {
+  kind: 'title' | 'body' | 'issue' | 'spec' | 'commits' | 'branch' | 'paths';
+  ref: string;
+  chars: number;
+  truncated: boolean;
+  status: 'used' | 'unreadable' | 'empty';
+};
+
+export type IntentEvidenceRow = {
+  sourceKind: IntentSourceRow['kind'];
+  ref: string;
+  quote: string;
+  /** Re-checked server-side against the exact text sent; a false one is kept, not dropped. */
+  valid: boolean;
+};
+
+/**
+ * Why a PR was opened, derived once per PR version by a cheap model (spec 0008).
+ * One row per PR: the classification is shared by every agent in a run.
+ *
+ * `confidence` is computed by the SERVER from which sources were actually
+ * available — the model is never asked for a number. See `bandConfidence` in
+ * `modules/reviews/helpers.ts`.
+ */
 export const prIntent = pgTable('pr_intent', {
   prId: uuid('pr_id')
     .primaryKey()
@@ -87,6 +116,30 @@ export const prIntent = pgTable('pr_intent', {
   intent: text('intent').notNull(),
   inScope: jsonb('in_scope').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   outOfScope: jsonb('out_of_scope').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  /** Closed set, enforced by the `IntentCategory` Zod enum. */
+  category: text('category').notNull().default('unknown'),
+  /** `high` | `medium` | `low`. Derived from `sources`, never from the model. */
+  confidence: text('confidence').notNull().default('low'),
+  /** One line, ≤ 400 chars: why the model chose this category. */
+  rationale: text('rationale'),
+  /** What the classifier was actually given, including what it could not read. */
+  sources: jsonb('sources').$type<IntentSourceRow[]>().notNull().default(sql`'[]'::jsonb`),
+  /** Quotes the model returned, each re-checked server-side against the text sent. */
+  evidence: jsonb('evidence').$type<IntentEvidenceRow[]>().notNull().default(sql`'[]'::jsonb`),
+  /**
+   * Hash of the classifier INPUTS (head sha + title + body + spec contents), not
+   * of the head sha alone: editing the description or a linked spec changes the
+   * intent while the sha stays put. A re-run reuses the row only on an exact match.
+   */
+  inputHash: text('input_hash'),
+  headSha: text('head_sha'),
+  provider: text('provider'),
+  model: text('model'),
+  tokensIn: integer('tokens_in'),
+  tokensOut: integer('tokens_out'),
+  /** Kept here and in the trace only — never added to `agent_runs.cost_usd`, which N agents would multiply. */
+  costUsd: numeric('cost_usd', { precision: 12, scale: 6 }),
+  derivedAt: timestamp('derived_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
 export const prBrief = pgTable('pr_brief', {

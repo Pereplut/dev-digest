@@ -39,3 +39,4 @@ packages: [server, client]
 | [0005-pr-self-review](0005-pr-self-review.md) | done | .claude, scripts |
 | [0006-agent-skills](0006-agent-skills.md) | in-progress | server, client, reviewer-core, e2e, .claude |
 | [0007-conventions-extractor](0007-conventions-extractor.md) | in-progress | server, client, e2e |
+| [0008-intent-layer](0008-intent-layer.md) | in-progress | server, client, reviewer-core |

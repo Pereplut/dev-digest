@@ -21,9 +21,10 @@ export const FEATURE_MODELS: FeatureModelDef[] = [
   {
     id: "review_intent",
     label: "PR Review · Intent",
-    description: "Derives a PR’s intent and scope before review.",
+    description:
+      "Classifies why a PR was opened, before review. A small model is enough: the output is a closed category plus a few quoted spans.",
     defaultProvider: "openai",
-    defaultModel: "gpt-4.1",
+    defaultModel: "gpt-4.1-mini",
   },
   {
     id: "risk_brief",

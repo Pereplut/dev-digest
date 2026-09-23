@@ -1,5 +1,5 @@
 import type { Container } from '../../platform/container.js';
-import type { FindingActionKind, RunEventKind, RunTrace } from '@devdigest/shared';
+import type { FindingActionKind, PrIntentRecord, RunEventKind, RunTrace } from '@devdigest/shared';
 import { AppError, NotFoundError } from '../../platform/errors.js';
 import type { AgentRow } from '../../db/rows.js';
 import { ReviewRepository } from './repository.js';
@@ -163,6 +163,21 @@ export class ReviewService {
   // ===========================================================================
   // Reads
   // ===========================================================================
+
+  /**
+   * The intent derived for a PR, or null when none has been (spec 0008).
+   *
+   * Null is a normal answer, not an error: the classifier is fail-open, so a PR
+   * that has never been reviewed — or whose classification failed — simply has
+   * none. The UI renders nothing in that case.
+   */
+  async getIntent(workspaceId: string, prId: string): Promise<PrIntentRecord | null> {
+    // Workspace check first: without it this would read another workspace's PR
+    // by id, which the rubric counts as a CRITICAL.
+    const pull = await this.repo.getPull(workspaceId, prId);
+    if (!pull) throw new NotFoundError('Pull request not found');
+    return (await this.repo.getIntent(prId)) ?? null;
+  }
 
   async reviewsForPull(workspaceId: string, prId: string): Promise<ReviewDto[]> {
     const pull = await this.repo.getPull(workspaceId, prId);

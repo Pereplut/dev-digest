@@ -1,4 +1,5 @@
 import type {
+  IntentCall,
   MemoryPulled,
   PromptAssembly,
   RunLogLine,
@@ -37,6 +38,12 @@ export interface BuildTraceInput {
   skillsUsed?: SkillUsed[];
   /** Token estimate per non-empty prompt_assembly slot (see countPromptTokens). */
   promptTokens?: Record<string, number>;
+  /**
+   * The intent classification that preceded this run (spec 0008), or undefined
+   * when it was not run or failed. Recording it is how a fail-open skip becomes
+   * visible: the review completes either way, so absence here is the only signal.
+   */
+  intentCall?: IntentCall | null;
 }
 
 export function buildRunTrace(input: BuildTraceInput): RunTrace {
@@ -58,6 +65,7 @@ export function buildRunTrace(input: BuildTraceInput): RunTrace {
     log: input.log,
     ...(input.skillsUsed ? { skills_used: input.skillsUsed } : {}),
     ...(input.promptTokens ? { prompt_tokens: input.promptTokens } : {}),
+    ...(input.intentCall === undefined ? {} : { intent_call: input.intentCall }),
   };
   // Validate so a malformed trace fails loudly at write-time, not read-time.
   return RunTraceSchema.parse(trace);
@@ -77,6 +85,8 @@ export const PROMPT_TOKEN_SLOTS = [
   'callers',
   'repo_map',
   'pr_description',
+  // After pr_description, matching the prompt's own order (spec 0008).
+  'intent',
   'user',
 ] as const;
 

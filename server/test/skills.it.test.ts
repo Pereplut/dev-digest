@@ -316,7 +316,14 @@ d('skills module (Testcontainers pg)', () => {
     expect(runs[0]!.status).toBe('done');
     const runId = run1.runs[0]!.run_id;
 
-    const call = llm.calls.find((c) => c.method === 'completeStructured')!;
+    // A review now makes TWO structured calls: the intent classifier runs first
+    // (spec 0008), then the review itself. Select by schema rather than by
+    // order, so adding another pre-review call cannot silently re-point this.
+    const call = llm.calls.find(
+      (c) =>
+        c.method === 'completeStructured' &&
+        (c.req as { schemaName?: string }).schemaName !== 'IntentClassification',
+    )!;
     const messages = (call.req as { messages: ChatMessage[] }).messages;
     expect(messages[0]!.role).toBe('system');
     expect(messages[0]!.content).toContain(`### Skill: ${on.name}`);
@@ -365,7 +372,13 @@ d('skills module (Testcontainers pg)', () => {
       .from(t.agentRuns)
       .where(and(eq(t.agentRuns.prId, pr.id), eq(t.agentRuns.status, 'done')));
     expect(runs2).toHaveLength(2);
-    const lastCall = llm.calls.filter((c) => c.method === 'completeStructured').at(-1)!;
+    const lastCall = llm.calls
+      .filter(
+        (c) =>
+          c.method === 'completeStructured' &&
+          (c.req as { schemaName?: string }).schemaName !== 'IntentClassification',
+      )
+      .at(-1)!;
     expect((lastCall.req as { messages: ChatMessage[] }).messages[0]!.content).not.toContain('### Skill:');
 
     const stats = ok<{
