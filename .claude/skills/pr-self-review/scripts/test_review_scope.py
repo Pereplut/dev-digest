@@ -232,6 +232,96 @@ class RepoFlowTest(unittest.TestCase):
         out = subprocess.run([sys.executable, GATE], input=payload, capture_output=True, text=True).stdout
         return json.loads(out)["hookSpecificOutput"]["permissionDecision"] if out.strip() else "allow"
 
+    def show(self, *argv):
+        """`show` with stdout captured, so a test can assert on what a reviewer would see."""
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(io.StringIO()):
+            rs.main(["show", *argv])
+        return buf.getvalue()
+
+    def test_since_narrows_the_shard_to_what_moved(self):
+        """The point of --since: a second round pays for the delta, not the whole shard."""
+        self.write("server/src/app.ts", "export const a = 2\n")
+        self.write("server/src/other.ts", "export const c = 1\n")
+        self.git("add", ".")
+        self.git("commit", "-qm", "round 1")
+        round1 = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.root,
+                                capture_output=True, text=True, check=True).stdout.strip()
+        self.write("server/src/app.ts", "export const a = 3\n")  # only this one moves
+        self.assertEqual(self.run_cli("plan", "--base", "main"), 0)
+
+        full = self.show("security#1")
+        self.assertIn("server/src/app.ts", full)
+        self.assertIn("server/src/other.ts", full)
+
+        delta = self.show("security#1", "--since", round1)
+        self.assertIn("delta re-review", delta)
+        # The moved file is listed for review; the still file is listed as settled, and its
+        # previous findings are declared to still stand rather than being re-derived.
+        self.assertIn("unchanged since", delta)
+        self.assertIn("still stand", delta)
+        head, _, tail = delta.partition("unchanged since")
+        self.assertIn("server/src/app.ts", head)
+        self.assertIn("server/src/other.ts", tail)
+
+    def test_since_inlines_the_diff_so_the_reviewer_never_runs_git(self):
+        self.write("server/src/app.ts", "export const a = 2\n")
+        self.git("commit", "-qam", "round 1")
+        round1 = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.root,
+                                capture_output=True, text=True, check=True).stdout.strip()
+        self.write("server/src/app.ts", "export const a = 3\n")
+        self.assertEqual(self.run_cli("plan", "--base", "main"), 0)
+
+        delta = self.show("security#1", "--since", round1)
+        self.assertIn("inline — do not re-run git", delta)
+        self.assertIn("-export const a = 2", delta)
+        self.assertIn("+export const a = 3", delta)
+
+    def test_since_says_so_when_nothing_in_the_shard_moved(self):
+        self.write("server/src/app.ts", "export const a = 2\n")
+        self.git("commit", "-qam", "round 1")
+        round1 = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.root,
+                                capture_output=True, text=True, check=True).stdout.strip()
+        self.assertEqual(self.run_cli("plan", "--base", "main"), 0)
+
+        delta = self.show("security#1", "--since", round1)
+        self.assertIn("Nothing in this shard changed", delta)
+        self.assertIn("re-report them as they were", delta)
+        self.assertNotIn("diff --git", delta)
+
+    def test_since_counts_an_untracked_file_as_moved(self):
+        """git diff cannot see an untracked file; a reviewer that never saw one has not
+        reviewed it, so --since must not quietly drop it."""
+        self.write("server/src/app.ts", "export const a = 2\n")
+        self.git("commit", "-qam", "round 1")
+        round1 = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.root,
+                                capture_output=True, text=True, check=True).stdout.strip()
+        self.write("server/src/brand-new.ts", "export const d = 1\n")
+        self.assertEqual(self.run_cli("plan", "--base", "main"), 0)
+
+        delta = self.show("security#1", "--since", round1)
+        self.assertIn("server/src/brand-new.ts", delta)
+        self.assertNotIn("Nothing in this shard changed", delta)
+
+    def test_since_falls_back_to_the_command_when_the_diff_is_large(self):
+        self.write("server/src/app.ts", "export const a = 2\n")
+        self.git("commit", "-qam", "round 1")
+        round1 = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.root,
+                                capture_output=True, text=True, check=True).stdout.strip()
+        self.write("server/src/app.ts", "\n".join(f"export const x{i} = {i}"
+                                                  for i in range(rs.MAX_INLINE_DIFF_LINES + 50)))
+        self.assertEqual(self.run_cli("plan", "--base", "main"), 0)
+
+        delta = self.show("security#1", "--since", round1)
+        self.assertIn("over the", delta)
+        self.assertIn(f"git diff {round1}", delta)
+
+    def test_since_rejects_a_ref_that_does_not_exist(self):
+        self.write("server/src/app.ts", "export const a = 2\n")
+        self.assertEqual(self.run_cli("plan", "--base", "main"), 0)
+        with self.assertRaises(SystemExit):
+            self.show("security#1", "--since", "no-such-ref")
+
     def test_no_changes_passes_without_a_review(self):
         self.assertEqual(rs.check(self.root)[0], 0)
         self.assertEqual(self.gate("gh pr create"), "allow")

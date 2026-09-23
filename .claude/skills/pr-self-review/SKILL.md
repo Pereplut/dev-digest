@@ -64,6 +64,23 @@ Use `Agent` with `subagent_type: "general-purpose"` and this prompt, filling in 
 
 If an agent's answer is not a valid JSON array, send it one `SendMessage` asking for the JSON only.
 
+**Note the head sha before you launch them** (`git rev-parse HEAD`). Step 2b needs it.
+
+### 2b. Re-running a reviewer after you fix something
+
+Fixing anything makes the verdict stale, so some reviewers must run again. Two rules, both about not paying twice for the same reading:
+
+- **Only re-run the reviewers whose files actually changed.** Intersect the changed paths with each agent's `files` in `plan.json`; leave the rest alone and carry their reports forward verbatim. Do not assume which ones those are — a one-line fix in a shared file can touch five shards, and a report about code that has since changed must never go in `findings.json`.
+- **Continue the same agent with `SendMessage`, do not spawn a new one.** A fresh agent re-reads the whole shard, the SKILL and the INSIGHTS from zero; the original still has all of it and its own earlier reasoning. Give it:
+
+  > Round <n>. Re-run `… review_scope.py show <ID> --since <sha from the round you last reported on>`. It lists only what moved since then, with the diff inline — do not re-run git for it, and do not re-derive findings on the files it lists as unchanged. I fixed: <what>. I did NOT fix: <what>. Report the full array again for this shard: the findings that still stand, plus anything new.
+
+  `--since` also prints "Nothing in this shard changed" when a re-run was not needed at all, which is the cheapest possible answer.
+
+Measured on the branch this rule came from: one shard re-reviewed six times by six fresh agents cost ~706k tokens, and every run re-read the same 30 files to check the 3 that had moved.
+
+**If your own fix introduces a finding, that is a normal outcome, not a reason to keep patching.** On this branch a "fix" for two false denials introduced two arbitrary-file reads; reverting it was correct and cheaper than a ninth round.
+
 ### 3. Verify every CRITICAL (skip rule findings)
 A false CRITICAL blocks a merge, so each one must survive an adversarial check. For each
 reviewer CRITICAL, launch one more `general-purpose` agent, all in one message, with this prompt:
@@ -146,7 +163,7 @@ Use one scale, the repo's own: `CRITICAL` / `WARNING` / `SUGGESTION`.
 | File | Role |
 |---|---|
 | `skill-map.json` | path globs → skills; skip list; chunk size |
-| `scripts/review_scope.py` | `plan` / `show` / `write-verdict` / `check`; also the gate's command matcher |
+| `scripts/review_scope.py` | `plan` / `show` (`--since REF` for a delta re-review) / `write-verdict` / `check`; also the gate's command matcher |
 | `scripts/test_review_scope.py` | `python3 -m unittest discover -s .claude/skills/pr-self-review/scripts -p 'test_*.py'` |
 | `.claude/hooks/pr-self-review-gate.py` | the PreToolUse gate |
 | `scripts/git-hooks/pre-push` | opt-in: `git config core.hooksPath scripts/git-hooks` |

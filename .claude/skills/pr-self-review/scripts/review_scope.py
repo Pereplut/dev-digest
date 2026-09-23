@@ -5,6 +5,7 @@
                                          file to the skills that review it, run the repo rules,
                                          write .claude/.pr-self-review/plan.json, print a summary
     review_scope.py show AGENT_ID        print one reviewer's assignment (skill, files, lines, diff cmd)
+    review_scope.py show ID --since REF  the same, narrowed to what changed since REF, diff inline
     review_scope.py write-verdict FILE   record the review's findings against the planned tree;
                                          exit 0 = pass, 2 = block (CRITICAL found)
     review_scope.py check                exit 0 = passing verdict for exactly this tree (or nothing
@@ -347,6 +348,27 @@ def _load_plan(root):
         return json.load(fh)
 
 
+def touched_since(root, ref, paths):
+    """Which of `paths` differ between `ref` and the working tree right now.
+
+    Untracked files count as touched: `git diff` cannot see them, and a reviewer that has
+    never been shown one has not reviewed it.
+    """
+    if not paths:
+        return set()
+    try:
+        out = git(root, "diff", "--name-only", ref, "--", *paths)
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit(f"--since {ref}: {exc.stderr.decode('utf-8', 'replace').strip()}")
+    return {p for p in out.split("\n") if p} | (set(paths) & set(untracked(root)))
+
+
+# How much inline diff `show --since` prints before handing back the command instead. A
+# re-review is meant to be cheap; a shard that blows this budget is not a delta any more,
+# and pasting it into a subagent defeats the point.
+MAX_INLINE_DIFF_LINES = 400
+
+
 def cmd_show(args):
     root = repo_root()
     plan = _load_plan(root)
@@ -354,16 +376,51 @@ def cmd_show(args):
     if not agent:
         raise SystemExit(f"no agent {args.agent_id!r} in plan.json")
     skill_md = os.path.join(".claude", "skills", agent["skill"], "SKILL.md")
+    files, unchanged = agent["files"], []
+
+    if args.since:
+        touched = touched_since(root, args.since, [f["path"] for f in files])
+        unchanged = [f for f in files if f["path"] not in touched]
+        files = [f for f in files if f["path"] in touched]
+
     print(f"skill: {agent['skill']}  ({skill_md})")
     print(f"base:  {plan['base']}")
+    if args.since:
+        print(f"since: {args.since}  (delta re-review)")
+    if not files:
+        print("\nNothing in this shard changed since that point. Your previous findings on it "
+              "still describe the current code; re-report them as they were.")
+        return 0
+
     print("files (changed new-side line ranges; status U = untracked, A = added):")
-    for f in agent["files"]:
+    for f in files:
         spans = ", ".join(f"{a}-{b}" if a != b else str(a) for a, b in f["lines"]) or "no added lines"
         print(f"  [{f['status']}] {f['path']}  :: {spans}")
-    tracked = [shlex.quote(f["path"]) for f in agent["files"] if f["status"] != "U"]
-    if tracked:
-        print(f"\ndiff: git diff {plan['base']} -- {' '.join(tracked)}")
-    if any(f["status"] == "U" for f in agent["files"]):
+
+    if unchanged:
+        print(f"\nunchanged since {args.since} — your previous findings on these still stand, "
+              "and nothing on them needs re-deriving:")
+        for f in unchanged:
+            print(f"  {f['path']}")
+
+    tracked = [f["path"] for f in files if f["status"] != "U"]
+    if args.since and tracked:
+        # Hand over the hunks instead of a command, so the reviewer neither runs git nor
+        # pastes its output into its own context. Diffed from `--since`, not the plan base:
+        # what moved since it last looked is the whole point.
+        body = git(root, "diff", "--no-color", "--no-ext-diff", args.since, "--", *tracked)
+        if len(body.split("\n")) <= MAX_INLINE_DIFF_LINES:
+            print(f"\ndiff since {args.since} (inline — do not re-run git for it):\n")
+            print(body.rstrip("\n"))
+        else:
+            print(f"\ndiff is {len(body.split(chr(10)))} lines, over the {MAX_INLINE_DIFF_LINES}-line "
+                  f"inline budget — run it yourself:\n  git diff {args.since} -- "
+                  f"{' '.join(shlex.quote(p) for p in tracked)}")
+    elif tracked:
+        print(f"\ndiff: git diff {plan['base']} -- "
+              f"{' '.join(shlex.quote(p) for p in tracked)}")
+
+    if any(f["status"] == "U" for f in files):
         print("untracked files are new in full — read them directly.")
     return 0
 
@@ -628,6 +685,9 @@ def main(argv=None):
     p.set_defaults(fn=cmd_plan)
     p = sub.add_parser("show")
     p.add_argument("agent_id")
+    p.add_argument("--since", metavar="REF",
+                   help="only the files this reviewer's shard has changed since REF (a sha from "
+                        "its last round), with the diff inline; the rest are listed as unchanged")
     p.set_defaults(fn=cmd_show)
     p = sub.add_parser("write-verdict")
     p.add_argument("findings", help='JSON: {"agents_completed": [ids], "findings": [...]}')
