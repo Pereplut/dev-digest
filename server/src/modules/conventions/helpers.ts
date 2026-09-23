@@ -1,9 +1,11 @@
 /**
- * Pure helpers for the conventions module: the merge fingerprint, the row → DTO
- * mapping, and path safety. No DB, no `this`, no I/O.
+ * Pure helpers for the conventions module: the merge fingerprint and the row →
+ * DTO mapping. No DB, no `this`, no I/O.
+ *
+ * Path safety moved to `platform/safe-read.ts`, shared with the intent layer
+ * (spec 0008) so one audited implementation guards both callers.
  */
 import { createHash } from 'node:crypto';
-import { isAbsolute, normalize } from 'node:path';
 import type { ConventionCandidate, ConventionScan } from '@devdigest/shared';
 import type { ConventionRow, ConventionScanRow } from '../../db/rows.js';
 
@@ -60,16 +62,6 @@ function outranks(
 ): boolean {
   if (a.evidenceValid !== b.evidenceValid) return a.evidenceValid;
   return a.confidence > b.confidence;
-}
-
-/**
- * Reject a path that would escape the clone root. The model supplies these
- * strings, so `../../etc/passwd` is a realistic input, not a hypothetical.
- */
-export function isSafeRelativePath(path: string): boolean {
-  if (!path || isAbsolute(path) || path.includes('\0')) return false;
-  const normalized = normalize(path).replace(/\\/g, '/');
-  return !normalized.startsWith('../') && normalized !== '..';
 }
 
 export function toCandidateDto(row: ConventionRow): ConventionCandidate {

@@ -49,6 +49,12 @@ export const PromptAssembly = z.object({
   repo_map: z.string().nullish(),
   /** PR author's description/body (truncated); null when absent. */
   pr_description: z.string().nullish(),
+  /**
+   * Derived-intent block (spec 0008); null when absent — including when the
+   * classifier failed, which is the normal fail-open path. Sits after
+   * `pr_description`, which it summarises, and before the code context.
+   */
+  intent: z.string().nullish(),
   user: z.string(),
 });
 export type PromptAssembly = z.infer<typeof PromptAssembly>;
@@ -79,6 +85,20 @@ export const SkillUsed = z.object({
 });
 export type SkillUsed = z.infer<typeof SkillUsed>;
 
+/** One intent classification, as recorded in a run's trace (spec 0008). */
+export const IntentCall = z.object({
+  provider: z.string(),
+  model: z.string(),
+  /** True when a stored intent matched the input hash, so no model was called. */
+  reused: z.boolean(),
+  duration_ms: z.number().int().nonnegative(),
+  tokens_in: z.number().int().nonnegative().nullish(),
+  tokens_out: z.number().int().nonnegative().nullish(),
+  cost_usd: z.number().nullish(),
+  confidence: z.enum(['high', 'medium', 'low']),
+});
+export type IntentCall = z.infer<typeof IntentCall>;
+
 /** The single-document trace stored in `run_traces.trace`. */
 export const RunTrace = z.object({
   config: z.object({
@@ -100,6 +120,14 @@ export const RunTrace = z.object({
   skills_used: z.array(SkillUsed).nullish(),
   /** Token estimate per prompt_assembly slot (cl100k). Absent in traces before spec 0006. */
   prompt_tokens: z.record(z.string(), z.number().int()).nullish(),
+  /**
+   * The intent classification call (spec 0008). Null when it was not run, or
+   * when it failed — the review proceeds either way, so this is how a silent
+   * fail-open is noticed. `reused` means a stored intent matched the input hash
+   * and no model was called. The cost is recorded here and on the `pr_intent`
+   * row, deliberately NOT in `agent_runs.cost_usd`: one call serves N agents.
+   */
+  intent_call: IntentCall.nullish(),
 });
 export type RunTrace = z.infer<typeof RunTrace>;
 

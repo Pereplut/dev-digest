@@ -8,6 +8,7 @@ import { api, API_BASE } from "../api";
 import { notify } from "../toast";
 import type {
   FindingActionKind,
+  PrIntentRecord,
   PrReviewComment,
   ReviewRecord,
   ReviewRunResponse,
@@ -53,6 +54,22 @@ export function usePrReviews(prId: string | null | undefined) {
     queryKey: ["reviews", prId],
     queryFn: () => api.get<ReviewRecord[]>(`/pulls/${prId}/reviews`),
     enabled: !!prId,
+  });
+}
+
+/**
+ * The intent derived for this PR, or null when none has been (spec 0008).
+ *
+ * Null is a normal state, not an error: the classifier runs during a review and
+ * is fail-open, so a PR that was never reviewed — or whose classification
+ * failed — simply has none, and the card renders nothing.
+ */
+export function usePrIntent(prId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["pr-intent", prId],
+    queryFn: () => api.get<{ intent: PrIntentRecord | null }>(`/pulls/${prId}/intent`),
+    enabled: !!prId,
+    select: (r) => r.intent,
   });
 }
 

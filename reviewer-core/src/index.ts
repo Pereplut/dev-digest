@@ -15,7 +15,10 @@
 export {
   assemblePrompt,
   wrapUntrusted,
+  formatIntentBlock,
+  MAX_INTENT_CHARS,
   type PromptParts,
+  type PromptIntent,
   type AssembledPrompt,
 } from './prompt.js';
 

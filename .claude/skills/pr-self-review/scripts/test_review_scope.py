@@ -206,6 +206,54 @@ class WriteEscapeTest(unittest.TestCase):
         "dash -c 'git diff --output=/tmp/x'",      # a shell that is not bash/sh/zsh
     ]
 
+    # The read-side escape. `--no-index` makes git diff two paths ANYWHERE on disk and print
+    # them, so `Bash(git diff:*)` reads straight past the settings `deny` list. Verified on
+    # disk before this check existed: `git diff --no-index <a file with a secret> /dev/null`
+    # printed its contents with no approval prompt.
+    READ_ESCAPES = [
+        "git diff --no-index /home/u/.ssh/id_rsa /dev/null",
+        "git diff --no-index=x a b",               # the `=` spelling
+        "ls && git diff --no-index a b",           # second segment
+        "bash -c 'git diff --no-index a b'",       # nested shell
+        "git diff HEAD --no-index a b",            # flag after the subcommand
+    ]
+
+    # The flag is NOT required: git enters no-index mode by itself for an operand outside the
+    # working tree. Matching the spelling alone shipped as a live hole — `git diff <tmpfile>
+    # /dev/null` printed a fake secret with no prompt, reproduced on disk before this was added.
+    IMPLICIT_READ_ESCAPES = [
+        "git diff /etc/hostname /dev/null",
+        "git diff .gitignore /dev/null",           # in-tree path paired with one outside
+        "git diff ../sibling/x y",                 # `..` reaches out just as well
+        "git diff -- /home/u/.netrc",              # after `--` it is a pathspec, still absolute
+        "git -C server diff /etc/hostname",        # -C takes a path; the OPERAND is the escape
+        "ls && git diff ~/.aws/credentials /dev/null",
+        # Each of these was a live bypass of the operand rule's first version, and each was
+        # executed on disk — they printed ~/.bashrc, /etc/hostname and /etc/hosts respectively.
+        "git diff $HOME/.ssh/id_rsa .gitignore",   # shlex de-quotes but does not EXPAND
+        "git diff ${HOME}/.aws/credentials README.md",
+        "git diff -C /etc/hostname .gitignore",    # after `diff`, -C is --find-copies: no argument
+        "git -C / diff etc/hostname etc/hosts",    # relocated, so the operands look relative
+        "git -C $HOME diff .ssh/id_rsa .bashrc",
+        "git --git-dir=/other/.git diff a b",
+        "git difftool --no-prompt /etc/hostname /dev/null",   # same capability, other spelling
+    ]
+
+    # Read primitives in commands that are NOT `git diff` at all. The docstring used to claim
+    # no other allowlisted command prints a file; two of the eight it named do, and both were
+    # reproduced on a throwaway file before being listed here.
+    OTHER_PROGRAM_ESCAPES = [
+        ("git blame --contents=/tmp/x HEAD -- .gitignore", "git --contents"),
+        ("git blame --contents /tmp/x HEAD -- README.md", "git --contents"),
+        ("wc --files0-from=/tmp/x", "wc --files0-from"),
+        ("wc -l --files0-from=/home/u/.netrc", "wc --files0-from"),
+        ("git difftool --extcmd=cat a b", "git --extcmd"),
+    ]
+
+    def test_other_programs_that_open_a_named_path(self):
+        for cmd, label in self.OTHER_PROGRAM_ESCAPES:
+            self.assertEqual(rs.git_escape(cmd), label, cmd)
+
     CLEAN = [
         "git diff --stat HEAD",
         "git diff > /tmp/x",                       # a redirect is the shell's, not git's
@@ -219,52 +267,93 @@ class WriteEscapeTest(unittest.TestCase):
 
     def test_escapes_are_caught(self):
         for cmd in self.ESCAPES:
-            self.assertEqual(rs.write_escape(cmd), "git --output", cmd)
+            self.assertEqual(rs.git_escape(cmd), "git --output", cmd)
+
+    def test_read_escapes_are_caught(self):
+        for cmd in self.READ_ESCAPES:
+            self.assertEqual(rs.git_escape(cmd), "git --no-index", cmd)
+
+    def test_implicit_no_index_is_caught_without_the_flag(self):
+        # `${HOME}/…` trips the brace rule before the operand rule; either label is a deny, and
+        # asserting the exact one would pin which guard happened to fire first.
+        for cmd in self.IMPLICIT_READ_ESCAPES:
+            self.assertIsNotNone(rs.git_escape(cmd), cmd)
+
+    def test_brace_expansion_is_refused_rather_than_guessed_at(self):
+        for cmd in ["git diff {/etc/hosts,/dev/null}",
+                    "git diff {/etc,/dev}{/hosts,/null}",
+                    "git blame --cont{ents,}=/tmp/x .gitignore"]:
+            self.assertEqual(rs.git_escape(cmd), "git brace expansion", cmd)
+
+    def test_an_abbreviated_long_option_is_the_same_option(self):
+        # git's parse-options takes any unambiguous abbreviation, so an exact-token match let
+        # `--cont=<file>` print a file. Every prefix down to _MIN_ABBREV must deny.
+        for opt in ["--contents", "--conten", "--conte", "--cont", "--con"]:
+            cmd = f"git blame {opt}=/tmp/x .gitignore"
+            self.assertEqual(rs.git_escape(cmd), "git --contents", cmd)
+
+    def test_blame_revs_file_flags_that_echo_the_file(self):
+        self.assertEqual(rs.git_escape("git blame -S /tmp/x .gitignore"), "git -S")
+        self.assertEqual(rs.git_escape("git blame -S/tmp/x .gitignore"), "git -S")
+        self.assertEqual(
+            rs.git_escape("git blame --ignore-revs-file=/tmp/x .gitignore"),
+            "git --ignore-revs-file",
+        )
 
     def test_clean_commands_pass(self):
         for cmd in self.CLEAN:
-            self.assertIsNone(rs.write_escape(cmd), cmd)
+            self.assertIsNone(rs.git_escape(cmd), cmd)
 
     def test_command_after_a_heredoc_is_still_seen(self):
         self.assertEqual(
-            rs.write_escape("git commit -F - <<'EOF'\nmsg\nEOF\ngit diff --output=/tmp/x"),
+            rs.git_escape("git commit -F - <<'EOF'\nmsg\nEOF\ngit diff --output=/tmp/x"),
             "git --output",
         )
 
     def test_unparseable_lookalike_errs_closed(self):
-        self.assertEqual(rs.write_escape("git diff --output=/tmp/x 'unterminated"), "git --output")
+        for cmd, flag in [
+            ("git diff --output=/tmp/x 'unterminated", "--output"),
+            ("git diff --no-index a b 'unterminated", "--no-index"),
+            # The fallback is built from the table now, so the flags added after it was first
+            # written are covered too. A bash-valid ANSI-C tail is enough to reach it.
+            ("git blame --contents=/tmp/x .gitignore; echo $'it\\'s'", "--contents"),
+            ("wc --files0-from=/tmp/x 'unterminated", "--files0-from"),
+        ]:
+            self.assertEqual(rs.git_escape(cmd), f"unlexable command containing {flag}", cmd)
 
-    # Spellings write_escape catches that the hook's raw-text pre-filter loses, so the check
-    # never runs on them. Live, documented in the hook, and deliberately not in ESCAPES —
-    # putting them there would assert an invariant the code does not hold.
-    LOST_BEFORE_THE_CHECK = [
-        'gi"t" diff --output=/tmp/x HEAD',
-        'g"i"t diff --output=/tmp/x',
-    ]
+    # There used to be a LOST_BEFORE_THE_CHECK corpus here: spellings this function caught but
+    # the hook's raw-text pre-filter dropped before the check could run. It was emptied and
+    # refilled four times — each fix widened the regex, and the next review round found the
+    # next spelling that slipped past it (`--out\put=`, then a quoted `git`, then a quoted
+    # `git` with a plain path, then both words quoted). A regex over un-lexed text can never be
+    # as wide as a check over de-quoted tokens, so the pre-filter is gone and the hook runs the
+    # check on every Bash command. These tests drive the real hook instead.
 
-    def test_shapes_lost_before_the_check_are_the_known_ones(self):
-        """Pins the gap so it cannot widen silently: write_escape catches these, the pre-filter
-        does not. If one starts passing the filter, move it into ESCAPES."""
-        spec = importlib.util.spec_from_file_location(
-            "gate", os.path.join(os.path.dirname(__file__), "..", "..", "..", "hooks",
-                                 "pr-self-review-gate.py"))
-        gate = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(gate)
-        for cmd in self.LOST_BEFORE_THE_CHECK:
-            self.assertEqual(rs.write_escape(cmd), "git --output", cmd)
-            self.assertIsNone(gate.MAYBE_GATED.search(cmd), f"pre-filter now catches: {cmd}")
+    def _gate(self, command):
+        """Run the actual hook on one Bash command; returns its deny reason, or None."""
+        gate_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "hooks",
+                                 "pr-self-review-gate.py")
+        payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": command}})
+        out = subprocess.run([sys.executable, gate_path], input=payload, capture_output=True,
+                             text=True, cwd=os.path.dirname(gate_path))
+        if not out.stdout.strip():
+            return None
+        return json.loads(out.stdout)["hookSpecificOutput"].get("permissionDecisionReason")
 
-    def test_every_escape_in_the_corpus_survives_the_prefilter(self):
-        """The hook short-circuits on a regex before calling write_escape, so a command the
-        regex drops is never checked — that is how `--out\\put=` shipped as a live bypass.
-        This asserts it for the ESCAPES corpus only; the known gap is pinned above."""
-        spec = importlib.util.spec_from_file_location(
-            "gate", os.path.join(os.path.dirname(__file__), "..", "..", "..", "hooks",
-                                 "pr-self-review-gate.py"))
-        gate = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(gate)
-        for cmd in self.ESCAPES:
-            self.assertTrue(gate.MAYBE_GATED.search(cmd), f"pre-filter would skip: {cmd}")
+    def test_the_hook_denies_every_escape_however_it_is_spelled(self):
+        """The whole corpus through the real hook, including the shapes that used to be lost in
+        front of it: no spelling reaches the check by luck any more."""
+        corpus = (self.ESCAPES + self.READ_ESCAPES + self.IMPLICIT_READ_ESCAPES
+                  + [c for c, _ in self.OTHER_PROGRAM_ESCAPES]
+                  + ['gi"t" di"ff" --outp"ut"=/tmp/x',
+                     'gi"t" di"ff" /etc/passwd /dev/null',
+                     'gi"t" di"ff" --no-"index" a b'])
+        for cmd in corpus:
+            self.assertIsNotNone(self._gate(cmd), f"hook allowed: {cmd}")
+
+    def test_the_hook_allows_ordinary_commands(self):
+        for cmd in self.CLEAN + ["ls -la", "echo hi", "pnpm --dir server typecheck"]:
+            self.assertIsNone(self._gate(cmd), f"hook denied: {cmd}")
 
 
 class RepoFlowTest(unittest.TestCase):

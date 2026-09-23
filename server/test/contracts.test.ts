@@ -11,6 +11,8 @@ import {
   Onboarding,
   EvalRun,
   MemoryItem,
+  PrIntentRecord,
+  PrIntentResponse,
   RunTrace,
   Settings,
   Repo,
@@ -234,5 +236,59 @@ describe('platform DTOs', () => {
     expect(() =>
       PrMeta.parse({ ...base, findings_counts: { CRITICAL: -1, WARNING: 0, SUGGESTION: 0 } }),
     ).toThrow();
+  });
+
+  /**
+   * Spec 0008. `confidence` is a server-computed band, not a model number, so
+   * the schema takes a closed enum and not a float — a 0..1 field here would
+   * invite exactly the self-reported confidence decision D1 rules out.
+   */
+  it('PrIntentRecord parses a full record and rejects an unknown category', () => {
+    const full = {
+      pr_id: 'pr-1',
+      intent: 'Add a readiness probe so orchestrators stop routing to a booting instance.',
+      in_scope: ['server/src/app.ts'],
+      out_of_scope: ['the client'],
+      category: 'feature',
+      confidence: 'high',
+      rationale: 'The body links a spec that states the goal.',
+      sources: [
+        { kind: 'body', ref: 'pr#482', chars: 320, truncated: false, status: 'used' },
+        { kind: 'spec', ref: 'specs/0007.md', chars: 4000, truncated: true, status: 'used' },
+      ],
+      evidence: [
+        { source_kind: 'spec', ref: 'specs/0007.md', quote: 'readiness probe', valid: true },
+      ],
+      head_sha: 'abc123',
+      model: 'gpt-4.1-mini',
+      cost_usd: 0.0032,
+      derived_at: '2026-09-23T12:00:00.000Z',
+    };
+    const parsed = PrIntentRecord.parse(full);
+    expect(parsed.category).toBe('feature');
+    expect(parsed.sources).toHaveLength(2);
+
+    expect(() => PrIntentRecord.parse({ ...full, category: 'rewrite' })).toThrow();
+    expect(() => PrIntentRecord.parse({ ...full, confidence: 0.9 })).toThrow();
+  });
+
+  /** An unreadable linked spec must survive to the UI, not be dropped. */
+  it('IntentSource carries an unreadable spec, and the response allows null', () => {
+    const record = PrIntentRecord.parse({
+      pr_id: 'pr-2',
+      intent: 'Unclear from the description.',
+      in_scope: [],
+      out_of_scope: [],
+      category: 'unknown',
+      confidence: 'low',
+      sources: [{ kind: 'spec', ref: 'docs/plan.md', chars: 0, truncated: false, status: 'unreadable' }],
+      evidence: [],
+      derived_at: '2026-09-23T12:00:00.000Z',
+    });
+    expect(record.sources[0]?.status).toBe('unreadable');
+    expect(record.rationale ?? null).toBeNull();
+
+    expect(PrIntentResponse.parse({ intent: null }).intent).toBeNull();
+    expect(PrIntentResponse.parse({ intent: record }).intent?.category).toBe('unknown');
   });
 });

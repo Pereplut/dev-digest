@@ -6,8 +6,8 @@
  * vendor SDK live here; persistence goes through ConventionsRepository and
  * external systems through the container.
  */
-import { lstat, readFile, readdir, realpath } from 'node:fs/promises';
-import { join, relative, resolve, sep } from 'node:path';
+import { readdir } from 'node:fs/promises';
+import { join, relative } from 'node:path';
 import type {
   ConventionCandidate,
   ConventionPatch,
@@ -33,10 +33,10 @@ import {
 import {
   conventionFingerprint,
   dedupeByFingerprint,
-  isSafeRelativePath,
   toCandidateDto,
   toScanDto,
 } from './helpers.js';
+import { isSafeRelativePath, readTextFileInClone } from '../../platform/safe-read.js';
 import { buildSampleBlock, pickSamplePaths, walkFallbackPaths, type SampleFile } from './sampling.js';
 import { validateEvidence } from './proof.js';
 import {
@@ -285,48 +285,21 @@ export class ConventionsService {
 }
 
 /**
- * Read a repo file, returning null instead of throwing when it is missing.
- * `GitClient.readFile` throws on ENOENT, and probing for optional config files
- * is the common case here.
+ * Read a repo file for the extractor's sample, or null when it is missing,
+ * unsafe or too large. `GitClient.readFile` throws on ENOENT, and probing for
+ * optional config files is the common case here.
  *
- * SECURITY — "inside the clone root" is not a safety boundary:
- *  - `isSafeRelativePath` only vets the STRING (absolute, `..`, NUL). `readFile`
- *    follows symlinks, so a repository that commits `tsconfig.json` as a link to
- *    `../../../.env` or to another clone's `.git/config` would have that file
- *    read, put in the prompt sample, and shipped to the model provider. We probe
- *    those config names by name, so the attacker only has to commit the link.
- *  - `.git/` is excluded outright: it holds the credential the clone URL carried
- *    (see platform/redact.ts) and is never repository source.
- * `lstat` (not `stat`) is what makes the first check work — it does not follow
- * the link, so `isFile()` is false for one. The realpath check then also covers
- * a link *inside* a directory component of the path.
+ * The guards live in `platform/safe-read.ts` — see that file for why "inside
+ * the clone root" is not a boundary on its own. This wrapper only binds the
+ * extractor's own size cap: its sample caps (MAX_SAMPLE_LINES,
+ * SAMPLE_CHAR_BUDGET) are applied AFTER the read, so without a byte limit the
+ * whole file is resident in the API process first, and `CONFIG_CANDIDATES` are
+ * probed by fixed name at the clone root — a repo need only commit a huge
+ * `package.json` to exhaust the heap of the process serving every other
+ * request, well before the job's 120 s timeout.
  */
-export async function readTextFile(clonePath: string, relPath: string): Promise<string | null> {
-  if (!isSafeRelativePath(relPath)) return null;
-
-  const root = resolve(clonePath);
-  const full = resolve(root, relPath);
-  if (full === root || !full.startsWith(root + sep)) return null;
-
-  const stats = await lstat(full).catch(() => null);
-  if (!stats?.isFile()) return null;
-  // The sample caps (MAX_SAMPLE_LINES, SAMPLE_CHAR_BUDGET) are applied AFTER
-  // the read, so without this the whole file is resident in the API process
-  // first. `CONFIG_CANDIDATES` are probed by fixed name at the clone root, so a
-  // repo need only commit a huge `package.json` to exhaust the heap of the
-  // process serving every other request — well before the job's 120s timeout.
-  if (stats.size > MAX_SAMPLE_FILE_BYTES) return null;
-  // The sample caps (MAX_SAMPLE_LINES, SAMPLE_CHAR_BUDGET) are applied AFTER
-  // the read, so without this the whole file is resident in the API process
-  // first. `CONFIG_CANDIDATES` are probed by fixed name at the clone root, so a
-  // repo need only commit a huge `package.json` to exhaust the heap of the
-  // process serving every other request — well before the job's 120s timeout.
-
-  const real = await realpath(full).catch(() => null);
-  if (real === null || !real.startsWith(root + sep)) return null;
-  if (relative(root, real).split(sep)[0] === '.git') return null;
-
-  return readFile(full, 'utf8').catch(() => null);
+export function readTextFile(clonePath: string, relPath: string): Promise<string | null> {
+  return readTextFileInClone(clonePath, relPath, MAX_SAMPLE_FILE_BYTES);
 }
 
 /** Flat list of repo-relative file paths, bounded and excluding generated dirs. */

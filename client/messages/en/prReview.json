@@ -178,5 +178,48 @@
     "showComments": "Show comments ({count})",
     "hideComments": "Hide comments ({count})",
     "postError": "Couldn’t post the comment to GitHub."
+  },
+  "intent": {
+    "title": "Derived intent",
+    "confidenceLabel": "Confidence: {level}",
+    "confidence": {
+      "high": "high",
+      "medium": "medium",
+      "low": "low"
+    },
+    "lowConfidenceHint": "No documentation was available, so this was inferred from indirect signals and may be wrong.",
+    "category": {
+      "feature": "Feature",
+      "bugfix": "Bug fix",
+      "refactor": "Refactor",
+      "performance": "Performance",
+      "security": "Security",
+      "docs": "Docs",
+      "test": "Tests",
+      "chore": "Chore",
+      "dependency": "Dependency",
+      "revert": "Revert",
+      "unknown": "Purpose unknown"
+    },
+    "inScope": "In scope",
+    "outOfScope": "Out of scope",
+    "sources": {
+      "title": "Derived from",
+      "kind": {
+        "title": "title",
+        "body": "description",
+        "issue": "ticket",
+        "spec": "spec",
+        "commits": "commits",
+        "branch": "branch",
+        "paths": "changed paths"
+      },
+      "unreadable": "{ref} — could not be read"
+    },
+    "evidence": {
+      "title": "Quoted from the sources",
+      "unverified": "not found in the source"
+    },
+    "derivedWith": "Classified with {model}"
   }
 }

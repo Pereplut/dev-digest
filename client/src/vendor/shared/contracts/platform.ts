@@ -51,9 +51,13 @@ export const FEATURE_MODELS: FeatureModelDef[] = [
   {
     id: 'review_intent',
     label: 'PR Review · Intent',
-    description: 'Derives a PR’s intent and scope before review.',
+    description:
+      'Classifies why a PR was opened, before review. A small model is enough: the output is a closed category plus a few quoted spans.',
     defaultProvider: 'openai',
-    defaultModel: 'gpt-4.1',
+    // 5× cheaper in, 5× cheaper out than gpt-4.1 (adapters/llm/pricing.ts:30-31).
+    // One call serves every agent in a run, but it runs on every review, so the
+    // default should not cost as much as the review it precedes.
+    defaultModel: 'gpt-4.1-mini',
   },
   {
     id: 'risk_brief',

@@ -626,11 +626,117 @@ def is_gated_command(command):
 
 
 # A permission allowlist entry matches a command PREFIX, so `Bash(git diff:*)` approves every
-# flag that follows it — including `--output=<file>`, which git writes and TRUNCATES. A deny
-# entry cannot catch that: deny matching is prefix/word based, and the flag trails the
-# subcommand. So the check lives here, where the command is already tokenized.
-_GIT_WRITE_FLAG = "--output"
-_CONSERVATIVE_WRITE = re.compile(r"\bgit\b[^\n;|&]*--output\b")
+# flag that follows it — and several "read-only" commands then open a path the caller names:
+#   git  --output=<file>    writes and TRUNCATES that path
+#   git  --no-index         diffs two paths ANYWHERE on disk and PRINTS them
+#   git  --contents=<file>  `git blame` reads that file and prints every line of it
+#   git  --extcmd=<prog>    `git difftool` runs an arbitrary program
+#   wc   --files0-from=<f>  reads the file and echoes its bytes back in the error message
+# Every one of those reaches the paths the settings `deny` list exists to protect (`.env`,
+# `~/.ssh`, credentials). A deny entry cannot catch any of them: deny matching is prefix/word
+# based and the flag trails the program. So the check lives here, on tokens.
+#
+# Each entry below was reproduced on a throwaway file before being added. The list is a floor,
+# not an inventory: the lesson of five rounds is that the next one is already here unfound.
+_ESCAPE_FLAGS = {
+    "git": ("--output", "--no-index", "--contents", "--extcmd", "--ignore-revs-file", "-S"),
+    "wc": ("--files0-from",),
+}
+# git parses long options with parse-options, which accepts any UNAMBIGUOUS ABBREVIATION, so
+# `--cont=<file>` is `--contents=<file>` and printed a file straight past an exact-token match.
+# A token therefore matches when it is a prefix of a table flag, not only when it equals one.
+# `-S` is git-blame's revs-file flag (it dumps the file through `error: bad graft data:` lines)
+# and takes a glued or spaced value; it is also git-diff's pickaxe, so this DENIES
+# `git diff -S<string>` outright — the right direction to be wrong in, but it is a hard deny,
+# not a prompt: the hook has no 'ask' path, and saying otherwise is how the cost of this rule
+# got understated once already.
+_MIN_ABBREV = 3  # `--c` is ambiguous in git anyway; this keeps `-S` and `--` out of the prefix rule
+
+# ...but matching `--no-index` is NOT enough, and believing it was is how this shipped broken
+# once. git enables no-index mode ON ITS OWN as soon as a path operand points outside the working
+# tree (git-diff(1): "You can omit the --no-index option ... at least one of the paths points
+# outside the working tree"). Measured here, git 2.43.0, from the repo root, with the flag
+# nowhere in the command: `git diff /tmp/<a file holding a fake secret> /dev/null` printed the
+# secret. So the operands are checked too: an absolute path or a `..` segment reaches outside,
+# and pairing any in-tree path with `/dev/null` is the same trick.
+_GIT_PATH_OPTS = ("-C", "--git-dir", "--work-tree", "--exec-path", "--namespace")
+
+# The unlexable-command fallback is BUILT FROM the table, never hand-listed. It used to name
+# two of the five flags, so a command that shlex refused (a bash-valid `$'it\'s'` tail is
+# enough) fell through to a check narrower than the real one — the same "narrower layer becomes
+# the hole" shape as the deleted pre-filter. An absolute path near a `git` word counts too.
+_CONSERVATIVE_ESCAPE = re.compile(
+    r"\b(?:git|wc)\b[^\n;|&]*("
+    + "|".join(re.escape(f) for fs in _ESCAPE_FLAGS.values() for f in sorted(fs, key=len, reverse=True))
+    + r"|\s/[^\s]+)"
+)
+
+
+def _reaches_outside(tok):
+    """Does this operand leave the working tree — or refuse to say whether it does?
+
+    `$HOME/.ssh/id_rsa` is the third shape of this bug. shlex de-quotes but never EXPANDS, so
+    that is one token with no leading `/`, no `~` and no `..`, and the shell rewrites it into an
+    absolute path before git ever runs. A guard that cannot expand must treat an operand it
+    cannot evaluate as hostile: a repo-relative diff operand never needs expansion, and the cost
+    of being wrong is a hard DENY — this hook has no 'ask' verdict, so a legitimate operand
+    the guard cannot evaluate has to be re-spelled, not approved. `git diff -- ../client/x`
+    run from inside a package directory is the known casualty, and AGENTS.md tells you to run
+    package commands from inside package directories. Use a repo-root-relative path instead.
+    """
+    if tok.startswith("/") or tok.startswith("~"):
+        return True
+    if "$" in tok or "`" in tok:
+        return True
+    return any(seg == ".." for seg in tok.split(os.sep))
+
+
+def _outside_tree_operand(argv):
+    """The first `git diff` operand that reaches outside the working tree, or None.
+
+    Only for `diff`: every other subcommand on the allowlist takes revisions and repo-relative
+    pathspecs, and widening this to all of git would deny `git -C /abs/repo log`.
+
+    Two halves, because git has two places to escape from:
+
+    BEFORE the subcommand, `-C <dir>` / `--git-dir` / `--work-tree` relocate git. Relocate it to
+    `/` and every operand after it can look innocently relative while naming anything on disk
+    (`git -C / diff etc/hostname etc/hosts` printed both files here). So those arguments get the
+    same test — but only the test: a relative `-C server` stays inside the repo and is ordinary.
+
+    AFTER the subcommand, every non-option token is an operand and NOTHING is skipped. The
+    previous version skipped the argument of `-C`, reasoning that it names a directory — but
+    after `diff`, `-C` is `--find-copies` and takes no separate argument, so the skip swallowed
+    the real path: `git diff -C /etc/hostname .gitignore` printed /etc/hostname. A `git diff`
+    option that does take a separate argument (`-S`, `-G`, `-O`) gets its argument tested too;
+    that denies `git diff -S /some/string`, which is the right direction to err.
+    """
+    # `difftool` too: same operands, same implicit no-index, and it was invisible here while
+    # the check keyed on the literal token `diff` — which is the spelling-not-capability
+    # mistake this function exists to stop making.
+    cut = next((i for i, t in enumerate(argv) if t in ("diff", "difftool")), None)
+    if cut is None:
+        return None
+
+    head, i = argv[1:cut], 0
+    while i < len(head):
+        tok = head[i]
+        if tok in _GIT_PATH_OPTS:
+            if i + 1 < len(head) and _reaches_outside(head[i + 1]):
+                return head[i + 1]
+            i += 2
+            continue
+        for opt in _GIT_PATH_OPTS:
+            if tok.startswith(opt + "=") and _reaches_outside(tok[len(opt) + 1:]):
+                return tok
+        i += 1
+
+    for tok in argv[cut + 1:]:
+        if tok == "--" or tok.startswith("-"):
+            continue
+        if _reaches_outside(tok):
+            return tok
+    return None
 
 
 def _program_and_args(tokens):
@@ -642,41 +748,59 @@ def _program_and_args(tokens):
     return (os.path.basename(t[0]), t) if t else (None, [])
 
 
-def write_escape(command):
-    """Label of a file-writing escape hidden inside an otherwise read-only command, or None.
+def git_escape(command):
+    """Label of an escape hidden inside an otherwise read-only git command, or None.
 
-    Today that is `git ... --output=<file>`: `git diff`, `git log` and `git show` all accept it,
-    all three sit on the Bash allowlist as "read-only", and it writes an arbitrary path without
-    going through Write or Edit.
+    Two flags, one that writes and one that reads:
+      `git ... --output=<file>`  — `git diff`, `git log` and `git show` all accept it, all three
+      sit on the Bash allowlist as "read-only", and it writes an arbitrary path without going
+      through Write or Edit.
+      `git diff` in no-index mode — diffs two paths anywhere on disk and prints them, so it
+      reads any file the process can open. That is the settings `deny` list (`.env`, `~/.ssh`,
+      `~/.aws`, credentials) read straight through the `Bash(git diff:*)` allow entry. It has
+      shipped live TWICE: first because the commit that added the `--output` check hunted the
+      write side only, then because the fix matched the `--no-index` token and git turns the
+      mode on by itself for any operand outside the working tree. Hence `_outside_tree_operand`
+      — match what git DOES, not how the caller spelled it.
 
-    THE CEILING, so nobody mistakes this for a boundary: it catches the plain spelling of a
-    mistaken `--output`, and **anyone who wants to evade it can**. Indirection defeats it —
-    a wrapper it does not know, `eval`, a variable holding "git", a clustered `bash -lc` — and
-    so does simply using `git diff > file` or the `Write` tool, both of which are allowed and
-    reach the same paths. Do not read the absence of a named bypass here as coverage; assume
-    every shape not tested is uncovered, and do not add an "out of scope" list, which review
-    found incomplete twice. Quoting does NOT defeat this function — shlex de-quotes before the
-    program name is read, so `gi"t" diff --output=x` is caught here; it is the hook's raw-text
-    pre-filter that loses it, one layer up.
+    THE CEILING, so nobody mistakes this for a boundary: it catches the plain spelling of each
+    flag, and **anyone who wants to evade it can**. Indirection defeats it — a wrapper it does
+    not know, `eval`, a variable holding "git", a clustered `bash -lc`. For the write side,
+    `git diff > file` and the `Write` tool are allowed and reach the same paths anyway, so that
+    half really is only a surprise removed. The READ side is a real capability gate — `deny`
+    blocks the Read tool on exactly the paths these flags reach — so a gap here is an
+    arbitrary-file-read hole, not a cosmetic one.
 
-    What it does do: if any segment's program resolves to git, ANY `--output` token anywhere in
-    the command denies. Coarse on purpose, because the flag can belong to another segment
-    (`git diff $(echo --output=x)`); the cost is denying an unrelated `git log … && tool --output …`,
-    which the caller splits into two commands.
+    An earlier version of this paragraph claimed "no other allowlisted command prints the body
+    of a file outside the repo (`git status|log|show|blame|ls-files|rev-parse`, `ls`, `wc` do
+    not)". That was WRONG about two of the eight it named, and review found both by trying them:
+    `git blame --contents=<file>` prints every line of that file, and `wc --files0-from=<file>`
+    echoes its bytes back inside the error message. A sentence like that one is a claim of
+    coverage, and this module has no way to make such a claim — so it does not make one. Assume
+    every shape not tested is uncovered; do not add an "out of scope" list, which review found
+    incomplete twice. Quoting does NOT defeat this function — shlex de-quotes before the program
+    name is read, so `gi"t" diff --output=x` is caught here.
+
+    What it does do: if any segment's program is one this table knows, ANY token matching one of
+    that program's flags, anywhere in the command, denies. Coarse on purpose, because the flag
+    can belong to another segment (`git diff $(echo --output=x)`); the cost is denying an
+    unrelated `git log … && tool --output …`, which the caller splits into two commands.
 
     On an unlexable command the fallback is NARROWER than the rule above: it needs a literal
-    `--output` in the same segment as a literal `git`, **with `git` first** — so
+    flag in the same segment as a literal `git`, **with `git` first** — so
     `tool --output=x && git diff 'unterminated` returns None, where the token rule would deny.
 
-    A caller must not pre-filter on a raw-text pattern: this matches de-quoted tokens, no regex
-    over un-lexed text can be as wide, and the hook's own filter has now let two spellings
-    through that way."""
+    A caller's pre-filter must never be the narrower layer: this matches de-quoted tokens, no
+    regex over un-lexed text can be as wide, and the hook's filter has let spellings through
+    that way twice. It now also matches the flags themselves, so a command whose only literal
+    `git` is hidden by quoting still reaches this check."""
     try:
         segments = list(_segments(command))
     except ValueError:
-        return "git --output" if _CONSERVATIVE_WRITE.search(_strip_heredocs(command)) else None
+        m = _CONSERVATIVE_ESCAPE.search(_strip_heredocs(command))
+        return f"unlexable command containing {m.group(1).strip()}" if m else None
 
-    runs_git = False
+    programs = set()
     for segment in segments:
         prog, argv = _program_and_args(segment)
         if prog is None:
@@ -687,16 +811,36 @@ def write_escape(command):
             while k < len(argv) and argv[k] == "--":  # `sh -c -- "…"` shifts the script along
                 k += 1
             if k < len(argv):
-                nested = write_escape(argv[k])
+                nested = git_escape(argv[k])
                 if nested:
                     return nested
-        if prog == "git":
-            runs_git = True
+        if prog in _ESCAPE_FLAGS:
+            programs.add(prog)
 
-    if runs_git:
+    if programs:
         for tok in (tok for segment in segments for tok in segment):
-            if tok == _GIT_WRITE_FLAG or tok.startswith(_GIT_WRITE_FLAG + "="):
-                return f"git {_GIT_WRITE_FLAG}"
+            # An unevaluated brace is the same problem as an unevaluated `$`: the shell rewrites
+            # `{--cont,}ents=/etc/passwd` and `git diff {/etc/passwd,/dev/null}` into something
+            # this function never sees. It cannot expand, so it refuses.
+            if "{" in tok or "}" in tok:
+                return f"{sorted(programs)[0]} brace expansion"
+            opt = tok.split("=", 1)[0]
+            for prog in sorted(programs):
+                for flag in _ESCAPE_FLAGS[prog]:
+                    abbreviated = (
+                        flag.startswith("--")
+                        and len(opt) >= _MIN_ABBREV
+                        and flag.startswith(opt)
+                    )
+                    if opt == flag or abbreviated:
+                        return f"{prog} {flag}"
+                    if flag.startswith("-") and not flag.startswith("--") and tok.startswith(flag):
+                        return f"{prog} {flag}"  # `-S<file>` glued
+    if "git" in programs:
+        for segment in segments:
+            prog, argv = _program_and_args(segment)
+            if prog == "git" and _outside_tree_operand(argv):
+                return "git diff on a path outside the tree"
     return None
 
 

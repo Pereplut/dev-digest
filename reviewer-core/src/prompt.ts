@@ -36,6 +36,63 @@ export function wrapUntrusted(label: string, content: string): string {
 /** Cap the PR description so a huge author body can't blow the token budget. */
 const MAX_PR_DESCRIPTION_CHARS = 4000;
 
+/**
+ * Cap the derived-intent block. Much smaller than the description it summarises:
+ * it is a category, a sentence and two short lists, so anything longer means the
+ * classifier ran away and should be cut, not trusted.
+ */
+export const MAX_INTENT_CHARS = 1500;
+
+/**
+ * Why the PR was opened, as derived by a separate cheap model before the review
+ * (spec 0008). UNTRUSTED: every field was shaped by author-controlled text (the
+ * PR title, body, and any spec it links), so this is delimiter-wrapped like the
+ * description it came from — a summary of attacker-controlled input is still
+ * attacker-influenced.
+ *
+ * `confidence` is a band computed by the SERVER from which sources were actually
+ * available, never a number the model reported about itself.
+ */
+export interface PromptIntent {
+  category: string;
+  confidence: 'high' | 'medium' | 'low';
+  intent: string;
+  in_scope?: string[];
+  out_of_scope?: string[];
+  /** Human-readable source labels, e.g. `body`, `spec:specs/0007.md`. */
+  sources?: string[];
+}
+
+/** The caveat a `low` band adds. Fixed text, so its cost is known in advance. */
+const LOW_CONFIDENCE_NOTE =
+  'NOTE: no documentation was available — this was inferred from indirect signals and may be wrong.';
+
+/**
+ * Render the intent block. Pure and exported so the server can measure it and
+ * tests can assert its shape without building a whole prompt.
+ *
+ * The heading carries the caveat rather than a separate sentence, so the model
+ * cannot read the body of the block without having seen how much to trust it.
+ *
+ * The note is budgeted for and appended AFTER the cut, never pushed onto the
+ * lines and truncated with them. The classifier's own schema allows a body of
+ * roughly 1970 characters (a 300-char intent plus two lists of 5 × 160), which
+ * is more than MAX_INTENT_CHARS — so truncating last dropped the caveat exactly
+ * on the runaway classifications that most needed it, and a test asserting only
+ * the length passed while it vanished.
+ */
+export function formatIntentBlock(intent: PromptIntent): string {
+  const lines = [`Category: ${intent.category}`, `Purpose: ${intent.intent}`];
+  if (intent.in_scope?.length) lines.push(`In scope: ${intent.in_scope.join('; ')}`);
+  if (intent.out_of_scope?.length) lines.push(`Out of scope: ${intent.out_of_scope.join('; ')}`);
+  if (intent.sources?.length) lines.push(`Derived from: ${intent.sources.join(', ')}`);
+
+  const note = intent.confidence === 'low' ? LOW_CONFIDENCE_NOTE : '';
+  const room = Math.max(0, MAX_INTENT_CHARS - (note ? note.length + 1 : 0));
+  const body = lines.join('\n').slice(0, room);
+  return note ? `${body}\n${note}` : body;
+}
+
 export interface PromptParts {
   /** Agent's system prompt (trusted). */
   system: string;
@@ -66,6 +123,14 @@ export interface PromptParts {
    * undefined → section omitted.
    */
   prDescription?: string;
+  /**
+   * Derived intent (spec 0008). Untrusted — delimiter-wrapped. Rendered right
+   * after the description it summarises and before any code context, so the
+   * model reads "what this PR is for" before "what it changes". Undefined →
+   * section omitted, which is also the fail-open path when the classifier
+   * errors: the prompt is then byte-identical to one built without the feature.
+   */
+  intent?: PromptIntent;
   /** The unified diff / user task (untrusted content). */
   diff: string;
   /** Optional task framing line, e.g. "Review PR #482 '…'". */
@@ -111,10 +176,18 @@ export function assemblePrompt(parts: PromptParts): AssembledPrompt {
       ? parts.prDescription.slice(0, MAX_PR_DESCRIPTION_CHARS)
       : undefined;
 
+  const intentBlock = parts.intent ? formatIntentBlock(parts.intent) : undefined;
+
   const userSections: string[] = [];
   if (parts.task) userSections.push(parts.task);
   if (prDescription) {
     userSections.push(`## PR description\n${wrapUntrusted('pr-description', prDescription)}`);
+  }
+  if (intentBlock && parts.intent) {
+    userSections.push(
+      `## Derived intent (unverified, confidence: ${parts.intent.confidence})\n` +
+        wrapUntrusted('derived-intent', intentBlock),
+    );
   }
   if (memoryBlock) userSections.push(`## Relevant memory\n${memoryBlock}`);
   if (parts.repoMap && parts.repoMap.trim().length > 0) {
@@ -143,6 +216,7 @@ export function assemblePrompt(parts: PromptParts): AssembledPrompt {
     callers: parts.callers ?? null,
     repo_map: parts.repoMap ?? null,
     pr_description: prDescription ?? null,
+    intent: intentBlock ?? null,
     user,
   };
 

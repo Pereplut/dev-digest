@@ -57,4 +57,23 @@ describe('skills helpers', () => {
     );
     expect(counts).toEqual({ system: 4, skills: 11, user: 1 });
   });
+
+  /**
+   * Spec 0008. The slot has to be in PROMPT_TOKEN_SLOTS or its tokens are
+   * invisible in the trace while still being paid for in the request — the
+   * failure mode is silent, so it gets its own test.
+   */
+  it('countPromptTokens counts the intent slot, and skips it when absent', () => {
+    const withIntent = countPromptTokens(
+      { system: 'abcd', pr_description: 'body', intent: 'Category: feature', user: 'u' },
+      (s) => s.length,
+    );
+    expect(withIntent.intent).toBe('Category: feature'.length);
+
+    const withoutIntent = countPromptTokens(
+      { system: 'abcd', pr_description: 'body', intent: null, user: 'u' },
+      (s) => s.length,
+    );
+    expect(withoutIntent).not.toHaveProperty('intent');
+  });
 });

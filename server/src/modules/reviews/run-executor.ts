@@ -11,6 +11,7 @@ import { loadDiff } from './diff-loader.js';
 // Validates the document against RunTraceSchema before it is persisted, so a
 // malformed trace fails at write-time instead of being tolerated on every read.
 import { buildRunTrace, countPromptTokens } from '../../platform/trace-builder.js';
+import { deriveIntent, type DerivedIntent } from './intent.js';
 // Pure skill helpers (ring 1): the ONE `### Skill:` formatter and the log line.
 import { renderSkillBlock, skillsLogLine, type LoadedSkill } from '../skills/helpers.js';
 
@@ -109,6 +110,20 @@ export class ReviewRunExecutor {
     }
     runLog.info(`Diff ready — ${diff.files.length} changed file(s); starting ${jobs.length} agent run(s)`);
 
+    // Spec 0008. One classification for the whole request: it depends on the PR,
+    // not on the agent, so N agents share it. Unlike the diff above this NEVER
+    // fails the run — `deriveIntent` swallows its own errors and returns
+    // undefined, leaving a prompt identical to one built without the feature.
+    const intent = await deriveIntent(
+      this.container,
+      this.repo,
+      workspaceId,
+      pull,
+      repo,
+      diff.raw,
+      runLog,
+    );
+
     for (const { agent, runId } of jobs) {
       const agentStart = Date.now();
       logger?.info(
@@ -116,7 +131,7 @@ export class ReviewRunExecutor {
         `review: agent "${agent.name}" started (${agent.provider}/${agent.model})`,
       );
       try {
-        const outcome = await this.runOneAgent(workspaceId, pull, repo, diff, agent, runId, runLog);
+        const outcome = await this.runOneAgent(workspaceId, pull, repo, diff, agent, runId, runLog, intent);
         logger?.info(
           {
             runId,
@@ -148,6 +163,7 @@ export class ReviewRunExecutor {
     agent: AgentRow,
     runId: string,
     parentLog: RunLogger,
+    intent: DerivedIntent | undefined,
   ): Promise<RunOutcome> {
     const start = Date.now();
     // Narrow the fanned-out pre-work logger to THIS run; the shared diff/intent
@@ -217,6 +233,9 @@ export class ReviewRunExecutor {
         // PR author's description/body — untrusted; assemblePrompt wraps +
         // truncates it. Omitted when the PR has no body.
         ...(pull.body ? { prDescription: pull.body } : {}),
+        // Spec 0008 — derived intent. Omitted when the classifier was skipped
+        // or failed, which is what keeps the fail-open prompt byte-identical.
+        ...(intent ? { intent: intent.promptIntent } : {}),
         ...(skills.length > 0 ? { skills: skills.map((s) => s.block) } : {}),
         task,
         sessionId: `${repo.owner}/${repo.name}#${pull.number}:${agent.name}`,
@@ -316,7 +335,12 @@ export class ReviewRunExecutor {
           })),
           rawOutput: outcome.raw,
           memoryPulled: [],
-          specsRead: [],
+          // The specs the classifier actually read, so the trace says which
+          // document shaped the intent (spec 0008).
+          specsRead: intent?.specPaths ?? [],
+          // null (not undefined) when the classifier was skipped or failed:
+          // fail-open is otherwise invisible, and this is its only record.
+          intentCall: intent?.call ?? null,
           // Persisted log = the run's FULL event buffer (incl. shared pre-work:
           // diff load + intent), not just events recorded inside this method.
           log: runLog.logFor(runId),
@@ -354,7 +378,7 @@ export class ReviewRunExecutor {
       await this.repo
         .saveRunTrace(
           runId,
-          this.traceFromBuffer(runId, pull, agent, '0/0 passed', Date.now() - start, skills),
+          this.traceFromBuffer(runId, pull, agent, '0/0 passed', Date.now() - start, skills, intent),
         )
         .catch(() => undefined);
       this.container.runBus.complete(runId);
@@ -473,6 +497,7 @@ export class ReviewRunExecutor {
     grounding: string,
     durationMs = 0,
     skills: LoadedSkill[] = [],
+    intent?: DerivedIntent,
   ): RunTrace {
     // The engine never ran (or failed mid-way), so there is no assembly to
     // copy. Render the skills slot through the engine's own assemblePrompt so
@@ -496,7 +521,10 @@ export class ReviewRunExecutor {
       tool_calls: [],
       raw_output: '',
       memory_pulled: [],
-      specs_read: [],
+      specs_read: intent?.specPaths ?? [],
+      // A failed run still records whether the intent step ran: the review may
+      // have failed BECAUSE the prompt was missing it.
+      intent_call: intent?.call ?? null,
       log: this.container.runBus.buffer(runId).map((e) => ({ t: e.t, kind: e.kind, msg: e.msg })),
       ...(skills.length > 0
         ? {
