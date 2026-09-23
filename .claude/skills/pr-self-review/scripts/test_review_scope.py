@@ -3,6 +3,7 @@
     python3 -m unittest discover -s .claude/skills/pr-self-review/scripts -p 'test_*.py'
 """
 import contextlib
+import importlib.util
 import io
 import json
 import os
@@ -181,6 +182,89 @@ class GatedCommandTest(unittest.TestCase):
 
     def test_unparseable_lookalike_errs_closed(self):
         self.assertIsNotNone(rs.is_gated_command("git push 'unterminated"))
+
+
+class WriteEscapeTest(unittest.TestCase):
+    """`git diff|log|show --output=<file>` writes and truncates that path, while the permission
+    allowlist treats those three as read-only. See the hook's module docstring."""
+
+    ESCAPES = [
+        "git diff --output=/tmp/x --stat HEAD",
+        "git diff HEAD --output=/tmp/x",           # flag after the subcommand: a deny rule misses this
+        "git log --output /tmp/x -1",              # separated form
+        "git show --output=/tmp/x HEAD",
+        "git -C server diff --output=/tmp/x",      # global option before the subcommand
+        "env FOO=1 git diff --output=/tmp/x",      # wrapper
+        "ls && git diff --output=/tmp/x",          # second segment
+        "bash -c 'git diff --output=/tmp/x'",      # nested shell
+        # Shapes that shipped as live bypasses once, each reproduced on disk before the fix:
+        "git diff --out\\put=/tmp/x HEAD",         # escaped spelling — de-quotes to --output
+        'git diff --outp"ut"=/tmp/x HEAD',         # quoted mid-flag
+        "git diff $(echo --output=/tmp/x) HEAD",   # substitution puts the flag in another segment
+        "git diff `echo --output=/tmp/x` HEAD",    # backtick form of the same
+        "bash -c -- 'git diff --output=/tmp/x'",   # `--` shifts the script past the -c index
+        "dash -c 'git diff --output=/tmp/x'",      # a shell that is not bash/sh/zsh
+    ]
+
+    CLEAN = [
+        "git diff --stat HEAD",
+        "git diff > /tmp/x",                       # a redirect is the shell's, not git's
+        "git log --oneline -5",
+        "git show HEAD --stat",
+        "pnpm --dir server arch",
+        "ls -la",
+        "echo --output=/tmp/x",                    # not git
+        "git commit -F - <<'EOF'\nfix: stop git diff --output\nEOF",  # the flag named in a message
+    ]
+
+    def test_escapes_are_caught(self):
+        for cmd in self.ESCAPES:
+            self.assertEqual(rs.write_escape(cmd), "git --output", cmd)
+
+    def test_clean_commands_pass(self):
+        for cmd in self.CLEAN:
+            self.assertIsNone(rs.write_escape(cmd), cmd)
+
+    def test_command_after_a_heredoc_is_still_seen(self):
+        self.assertEqual(
+            rs.write_escape("git commit -F - <<'EOF'\nmsg\nEOF\ngit diff --output=/tmp/x"),
+            "git --output",
+        )
+
+    def test_unparseable_lookalike_errs_closed(self):
+        self.assertEqual(rs.write_escape("git diff --output=/tmp/x 'unterminated"), "git --output")
+
+    # Spellings write_escape catches that the hook's raw-text pre-filter loses, so the check
+    # never runs on them. Live, documented in the hook, and deliberately not in ESCAPES —
+    # putting them there would assert an invariant the code does not hold.
+    LOST_BEFORE_THE_CHECK = [
+        'gi"t" diff --output=/tmp/x HEAD',
+        'g"i"t diff --output=/tmp/x',
+    ]
+
+    def test_shapes_lost_before_the_check_are_the_known_ones(self):
+        """Pins the gap so it cannot widen silently: write_escape catches these, the pre-filter
+        does not. If one starts passing the filter, move it into ESCAPES."""
+        spec = importlib.util.spec_from_file_location(
+            "gate", os.path.join(os.path.dirname(__file__), "..", "..", "..", "hooks",
+                                 "pr-self-review-gate.py"))
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        for cmd in self.LOST_BEFORE_THE_CHECK:
+            self.assertEqual(rs.write_escape(cmd), "git --output", cmd)
+            self.assertIsNone(gate.MAYBE_GATED.search(cmd), f"pre-filter now catches: {cmd}")
+
+    def test_every_escape_in_the_corpus_survives_the_prefilter(self):
+        """The hook short-circuits on a regex before calling write_escape, so a command the
+        regex drops is never checked — that is how `--out\\put=` shipped as a live bypass.
+        This asserts it for the ESCAPES corpus only; the known gap is pinned above."""
+        spec = importlib.util.spec_from_file_location(
+            "gate", os.path.join(os.path.dirname(__file__), "..", "..", "..", "hooks",
+                                 "pr-self-review-gate.py"))
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        for cmd in self.ESCAPES:
+            self.assertTrue(gate.MAYBE_GATED.search(cmd), f"pre-filter would skip: {cmd}")
 
 
 class RepoFlowTest(unittest.TestCase):

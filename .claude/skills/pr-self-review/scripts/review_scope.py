@@ -595,26 +595,108 @@ def _strip_heredocs(command):
     return "\n".join(out)
 
 
-def is_gated_command(command):
-    """Label of the PR-publishing action in a shell command (e.g. 'gh pr create'), or None.
-    Unparseable commands that merely look like one are treated as gated — the gate errs closed."""
+def _segments(command):
+    """Yield each shell segment of a command as a token list, heredoc bodies dropped.
+    Raises ValueError when the command cannot be lexed, so callers can err closed."""
     command = _strip_heredocs(command)
     lexer = shlex.shlex(command.replace("\n", " ; "), posix=True, punctuation_chars=True)
     lexer.whitespace_split = True
-    try:
-        tokens = list(lexer)
-    except ValueError:
-        m = _CONSERVATIVE.search(command)
-        return m.group(0) if m else None
+    tokens = list(lexer)
     segment = []
     for tok in tokens + [";"]:
         if tok and set(tok) <= set("();<>|&"):
-            label = _gated_segment(segment)
-            if label:
-                return label
+            yield segment
             segment = []
         elif tok != "$":
             segment.append(tok)
+
+
+def is_gated_command(command):
+    """Label of the PR-publishing action in a shell command (e.g. 'gh pr create'), or None.
+    Unparseable commands that merely look like one are treated as gated — the gate errs closed."""
+    try:
+        for segment in _segments(command):
+            label = _gated_segment(segment)
+            if label:
+                return label
+    except ValueError:
+        m = _CONSERVATIVE.search(_strip_heredocs(command))
+        return m.group(0) if m else None
+    return None
+
+
+# A permission allowlist entry matches a command PREFIX, so `Bash(git diff:*)` approves every
+# flag that follows it — including `--output=<file>`, which git writes and TRUNCATES. A deny
+# entry cannot catch that: deny matching is prefix/word based, and the flag trails the
+# subcommand. So the check lives here, where the command is already tokenized.
+_GIT_WRITE_FLAG = "--output"
+_CONSERVATIVE_WRITE = re.compile(r"\bgit\b[^\n;|&]*--output\b")
+
+
+def _program_and_args(tokens):
+    """(basename of the program, its argv) for one segment, past env assignments and wrappers."""
+    i = 0
+    while i < len(tokens) and (tokens[i] in _WRAPPERS or re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tokens[i])):
+        i += 1
+    t = tokens[i:]
+    return (os.path.basename(t[0]), t) if t else (None, [])
+
+
+def write_escape(command):
+    """Label of a file-writing escape hidden inside an otherwise read-only command, or None.
+
+    Today that is `git ... --output=<file>`: `git diff`, `git log` and `git show` all accept it,
+    all three sit on the Bash allowlist as "read-only", and it writes an arbitrary path without
+    going through Write or Edit.
+
+    THE CEILING, so nobody mistakes this for a boundary: it catches the plain spelling of a
+    mistaken `--output`, and **anyone who wants to evade it can**. Indirection defeats it —
+    a wrapper it does not know, `eval`, a variable holding "git", a clustered `bash -lc` — and
+    so does simply using `git diff > file` or the `Write` tool, both of which are allowed and
+    reach the same paths. Do not read the absence of a named bypass here as coverage; assume
+    every shape not tested is uncovered, and do not add an "out of scope" list, which review
+    found incomplete twice. Quoting does NOT defeat this function — shlex de-quotes before the
+    program name is read, so `gi"t" diff --output=x` is caught here; it is the hook's raw-text
+    pre-filter that loses it, one layer up.
+
+    What it does do: if any segment's program resolves to git, ANY `--output` token anywhere in
+    the command denies. Coarse on purpose, because the flag can belong to another segment
+    (`git diff $(echo --output=x)`); the cost is denying an unrelated `git log … && tool --output …`,
+    which the caller splits into two commands.
+
+    On an unlexable command the fallback is NARROWER than the rule above: it needs a literal
+    `--output` in the same segment as a literal `git`, **with `git` first** — so
+    `tool --output=x && git diff 'unterminated` returns None, where the token rule would deny.
+
+    A caller must not pre-filter on a raw-text pattern: this matches de-quoted tokens, no regex
+    over un-lexed text can be as wide, and the hook's own filter has now let two spellings
+    through that way."""
+    try:
+        segments = list(_segments(command))
+    except ValueError:
+        return "git --output" if _CONSERVATIVE_WRITE.search(_strip_heredocs(command)) else None
+
+    runs_git = False
+    for segment in segments:
+        prog, argv = _program_and_args(segment)
+        if prog is None:
+            continue
+        # Any shell, not just bash/sh/zsh — dash and busybox sh take -c too.
+        if prog.endswith("sh") and "-c" in argv[1:]:
+            k = argv.index("-c", 1) + 1
+            while k < len(argv) and argv[k] == "--":  # `sh -c -- "…"` shifts the script along
+                k += 1
+            if k < len(argv):
+                nested = write_escape(argv[k])
+                if nested:
+                    return nested
+        if prog == "git":
+            runs_git = True
+
+    if runs_git:
+        for tok in (tok for segment in segments for tok in segment):
+            if tok == _GIT_WRITE_FLAG or tok.startswith(_GIT_WRITE_FLAG + "="):
+                return f"git {_GIT_WRITE_FLAG}"
     return None
 
 

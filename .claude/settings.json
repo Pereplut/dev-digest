@@ -1,4 +1,52 @@
 {
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:code.claude.com)",
+      "WebFetch(domain:docs.claude.com)",
+      "WebFetch(domain:platform.claude.com)",
+      "WebFetch(domain:support.claude.com)",
+      "WebFetch(domain:www.anthropic.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:fastify.dev)",
+      "WebFetch(domain:nextjs.org)",
+      "WebFetch(domain:react.dev)",
+      "WebFetch(domain:orm.drizzle.team)",
+      "WebFetch(domain:zod.dev)",
+      "WebFetch(domain:vitest.dev)",
+      "WebFetch(domain:testing-library.com)",
+      "WebFetch(domain:www.postgresql.org)",
+      "WebFetch(domain:nodejs.org)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git blame:*)",
+      "Bash(git ls-files:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(ls:*)",
+      "Bash(wc:*)",
+      "Bash(pnpm --dir server arch)"
+    ],
+    "deny": [
+      "Read(./**/.env)",
+      "Read(./**/.env.*)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.config/gh/**)",
+      "Read(~/.claude/.credentials.json)",
+      "Read(~/.claude.json)",
+      "Read(~/.npmrc)",
+      "Read(~/.git-credentials)",
+      "Read(~/.netrc)",
+      "Read(~/.docker/config.json)",
+      "Read(~/.kube/config)",
+      "Read(~/.config/gcloud/**)",
+      "Bash(find:*)",
+      "Bash(rg:*)"
+    ]
+  },
   "hooks": {
     "UserPromptSubmit": [
       {

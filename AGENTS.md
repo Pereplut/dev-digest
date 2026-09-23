@@ -27,7 +27,7 @@ All packages are TypeScript on Node ≥ 22.
 Also at the root:
 - `scripts/`: `dev.sh`, `e2e.sh`, `check-agent-docs.sh`, `check-claude-skills.sh`, `git-hooks/pre-push` (opt-in PR gate)
 - `.github/workflows/`: one CI workflow per suite
-- `.claude/`: skills, the insights hook and the pr-self-review gate
+- `.claude/`: skills, [agents](.claude/agents/README.md), the insights hook and the pr-self-review gate
 - `docs/`, `specs/`: cross-package docs and specs
 
 ## Run
