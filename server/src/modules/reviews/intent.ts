@@ -33,6 +33,7 @@ import {
   budget,
   extractSpecLinks,
   intentInputHash,
+  labelSources,
   sourceLabels,
   stripHtmlComments,
   verifyEvidence,
@@ -41,7 +42,6 @@ import {
   INTENT_CLASSIFICATION_SCHEMA_NAME,
   IntentClassification,
   buildIntentMessages,
-  type IntentPromptSource,
 } from './intent-prompt.js';
 
 /** What the executor needs back. `undefined` from `deriveIntent` means "carry on without". */
@@ -61,7 +61,16 @@ export interface DerivedIntent {
   };
 }
 
-interface GatheredSource extends IntentPromptSource {
+/**
+ * A source as gathered, named by its REAL ref — a spec path, `#123`, or the
+ * kind. Deliberately not an `IntentPromptSource`: that one is named by a label
+ * we generate, and the two must not be assignable to each other, or a spec path
+ * slips back into the prompt's trusted region.
+ */
+interface GatheredSource {
+  kind: IntentSource['kind'];
+  ref: string;
+  text: string;
   meta: IntentSource;
 }
 
@@ -103,7 +112,9 @@ async function gather(
 
   // The linked ticket contributes its REFERENCE only (decision D4): no extra
   // GitHub call, so "take the ticket into account" means its identifier.
-  const issue = (pull.body ?? '').match(/#(\d+)\b/)?.[0];
+  //
+  // Read from `cleaned`, like the spec links below: see the note there.
+  const issue = cleaned.match(/#(\d+)\b/)?.[0];
   if (issue) push('issue', issue, issue, 'used');
 
   const paths = diffText
@@ -113,7 +124,13 @@ async function gather(
     .slice(0, INTENT_MAX_PATHS);
   if (paths.length > 0) push('paths', 'paths', paths.join('\n'), 'used');
 
-  for (const rel of extractSpecLinks(pull.body, repoRow.fullName)) {
+  // `cleaned`, not `pull.body`: an HTML comment is invisible in GitHub's
+  // rendered view, so a link hidden in one would pull a file off disk and into
+  // the classifier while no human reviewer of the PR could see that it was
+  // asked for. Stripping comments only for the text we SHOW the model left that
+  // channel open for the text we ACT on. Not budgeted — the cap belongs to the
+  // body as a source, and a link past it is still a link the author wrote.
+  for (const rel of extractSpecLinks(cleaned, repoRow.fullName)) {
     const fromDiff = specFromDiff(diffText, rel);
     let content = fromDiff;
     if (content === null && repoRow.clonePath) {
@@ -187,7 +204,8 @@ export async function deriveIntent(
 
     const { provider, model } = await resolveFeatureModel(container, workspaceId, 'review_intent');
     const llm = await container.llm(provider);
-    const usable = sources.filter((s) => s.text.length > 0);
+    // The model names sources by OUR label, never by the author's spec path.
+    const labelled = labelSources(sources.filter((s) => s.text.length > 0));
 
     const result = await runLog.step(
       `Deriving PR intent (${provider}/${model})`,
@@ -196,7 +214,10 @@ export async function deriveIntent(
           model,
           schema: IntentClassification,
           schemaName: INTENT_CLASSIFICATION_SCHEMA_NAME,
-          messages: buildIntentMessages(repoRow.fullName, usable),
+          messages: buildIntentMessages(
+            repoRow.fullName,
+            labelled.map((l) => ({ kind: l.source.kind, label: l.label, text: l.source.text })),
+          ),
           temperature: 0,
           timeoutMs: INTENT_TIMEOUT_MS,
         }),
@@ -206,8 +227,13 @@ export async function deriveIntent(
     // The model's quotes are claims, not grounding, until checked against the
     // exact text that was sent. Citations cannot be combined with structured
     // outputs in one request, so this is ours to do.
-    const textByRef = new Map(usable.map((s) => [s.ref, s.text]));
-    const evidence: IntentEvidence[] = verifyEvidence(result.data.evidence, textByRef);
+    // Keyed by label, because that is what the model was given. The real path
+    // goes back on afterwards, so what is stored and shown is still the path.
+    const textByLabel = new Map(labelled.map((l) => [l.label, l.source.text]));
+    const refByLabel = new Map(labelled.map((l) => [l.label, l.source.ref]));
+    const evidence: IntentEvidence[] = verifyEvidence(result.data.evidence, textByLabel).map(
+      (e) => ({ ...e, ref: refByLabel.get(e.ref) ?? e.ref }),
+    );
     const metas = sources.map((s) => s.meta);
     const confidence = bandConfidence(metas, evidence);
 

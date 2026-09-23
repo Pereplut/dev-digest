@@ -195,8 +195,9 @@ describe('deriveIntent', () => {
     const { repo, container, upsert } = stubs({
       data: {
         ...classification,
+        // The model answers with the LABEL it was shown, not the path.
         evidence: [
-          { source_kind: 'spec', ref: 'specs/0008.md', quote: 'returns 503 when the database' },
+          { source_kind: 'spec', ref: 'spec-1', quote: 'returns 503 when the database' },
         ],
       },
     });
@@ -212,7 +213,28 @@ describe('deriveIntent', () => {
     const row = upsert.mock.calls[0]?.[1];
     expect(row.sources.find((s: { kind: string }) => s.kind === 'spec').status).toBe('used');
     expect(row.evidence[0].valid).toBe(true);
+    // ...and the real path is put back, so what is stored and shown is the path.
+    expect(row.evidence[0].ref).toBe('specs/0008.md');
     expect(row.confidence).toBe('high');
+  });
+
+  it('does not act on a spec link hidden in an HTML comment', async () => {
+    const diff =
+      'diff --git a/specs/0008.md b/specs/0008.md\n+++ b/specs/0008.md\n' +
+      '+The probe returns 503 when the database is unreachable.\n';
+    const { repo, container, upsert } = stubs({ data: classification });
+    await deriveIntent(
+      container,
+      repo,
+      'ws',
+      // Invisible in GitHub's rendered view — so it must not choose what we read.
+      pull({ body: 'Small fix.\n<!-- [x](specs/0008.md) -->' }),
+      repoRow({ clonePath: null }),
+      diff,
+      runLog,
+    );
+    const row = upsert.mock.calls[0]?.[1];
+    expect(row.sources.some((s: { kind: string }) => s.kind === 'spec')).toBe(false);
   });
 
   it('marks a symlinked spec unreadable and caps the band at medium', async () => {

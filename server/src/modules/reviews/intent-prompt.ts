@@ -84,8 +84,15 @@ const SYSTEM = [
 /** One labelled, wrapped source block. */
 export interface IntentPromptSource {
   kind: z.infer<typeof IntentSourceKind>;
-  /** What `evidence[].ref` must name to point at this block. */
-  ref: string;
+  /**
+   * What `evidence[].ref` must name to point at this block.
+   *
+   * OURS, not the author's: it is rendered into the header and the closing line,
+   * both outside every `<untrusted>` block. `labelSources` generates it; the
+   * caller maps it back to the real path after the answer comes in. Never pass a
+   * spec path here — see the note on `labelSources`.
+   */
+  label: string;
   text: string;
 }
 
@@ -103,10 +110,10 @@ export function buildIntentMessages(
 
   const blocks = sources.map(
     (s) =>
-      `## Source: ${s.kind} (${s.ref})\n${wrapUntrusted(`intent-${s.kind}`, s.text)}`,
+      `## Source: ${s.kind} (${s.label})\n${wrapUntrusted(`intent-${s.kind}`, s.text)}`,
   );
 
-  const refs = sources.map((s) => s.ref).join(', ');
+  const refs = sources.map((s) => s.label).join(', ');
   const closing =
     `\nWhen quoting, \`ref\` must be exactly one of: ${refs || '(no sources available)'}.` +
     (sources.length === 0
