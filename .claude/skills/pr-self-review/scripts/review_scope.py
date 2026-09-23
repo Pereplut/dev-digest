@@ -348,25 +348,49 @@ def _load_plan(root):
         return json.load(fh)
 
 
-def touched_since(root, ref, paths):
-    """Which of `paths` differ between `ref` and the working tree right now.
+def resolve_commit(root, ref):
+    """REF as a commit sha, or exit. The ONLY way a caller-supplied ref may enter a git call.
+
+    `--` fences pathspecs, not refs, so a ref sitting where git still parses options IS an
+    option: `--since=--output=<path>` made `git diff` truncate that path and exit 0, with the
+    wrapper's `CalledProcessError` handler never firing. That is the same `git --output` escape
+    this repo closed on the Bash side; this is its argv-side twin.
+
+    Two layers. `--end-of-options` stops rev-parse itself being steered, and resolving to a sha
+    means what reaches `git diff` downstream is 40 hex characters, which cannot be an option at
+    all. The second layer is what actually holds: do not remove it in favour of the first.
+    """
+    try:
+        return git(root, "rev-parse", "--verify", "--quiet", "--end-of-options",
+                   f"{ref}^{{commit}}").strip()
+    except subprocess.CalledProcessError:
+        raise SystemExit(f"--since {ref!r}: not a commit in this repository")
+
+
+def touched_since(root, commit, paths):
+    """Which of `paths` differ between `commit` and the working tree right now.
+
+    `commit` must already have been through `resolve_commit`.
 
     Untracked files count as touched: `git diff` cannot see them, and a reviewer that has
     never been shown one has not reviewed it.
     """
     if not paths:
         return set()
-    try:
-        out = git(root, "diff", "--name-only", ref, "--", *paths)
-    except subprocess.CalledProcessError as exc:
-        raise SystemExit(f"--since {ref}: {exc.stderr.decode('utf-8', 'replace').strip()}")
+    out = git(root, "diff", "--name-only", "--end-of-options", commit, "--", *paths)
     return {p for p in out.split("\n") if p} | (set(paths) & set(untracked(root)))
 
 
 # How much inline diff `show --since` prints before handing back the command instead. A
 # re-review is meant to be cheap; a shard that blows this budget is not a delta any more,
 # and pasting it into a subagent defeats the point.
+#
+# Lines AND bytes, because a line count is not a size bound: a 5-line file of 400k-character
+# lines diffs to 15 lines and 4 MB, which would sail under a line-only budget and put four
+# megabytes of author-controlled text into a reviewer's context. Minified bundles, single-line
+# JSON fixtures and base64 assets all have that shape.
 MAX_INLINE_DIFF_LINES = 400
+MAX_INLINE_DIFF_BYTES = 256 * 1024
 
 
 def cmd_show(args):
@@ -377,16 +401,17 @@ def cmd_show(args):
         raise SystemExit(f"no agent {args.agent_id!r} in plan.json")
     skill_md = os.path.join(".claude", "skills", agent["skill"], "SKILL.md")
     files, unchanged = agent["files"], []
+    since = resolve_commit(root, args.since) if args.since else None
 
-    if args.since:
-        touched = touched_since(root, args.since, [f["path"] for f in files])
+    if since:
+        touched = touched_since(root, since, [f["path"] for f in files])
         unchanged = [f for f in files if f["path"] not in touched]
         files = [f for f in files if f["path"] in touched]
 
     print(f"skill: {agent['skill']}  ({skill_md})")
     print(f"base:  {plan['base']}")
-    if args.since:
-        print(f"since: {args.since}  (delta re-review)")
+    if since:
+        print(f"since: {since}  (delta re-review)")
     if not files:
         print("\nNothing in this shard changed since that point. Your previous findings on it "
               "still describe the current code; re-report them as they were.")
@@ -398,23 +423,27 @@ def cmd_show(args):
         print(f"  [{f['status']}] {f['path']}  :: {spans}")
 
     if unchanged:
-        print(f"\nunchanged since {args.since} — your previous findings on these still stand, "
+        print(f"\nunchanged since {since} — your previous findings on these still stand, "
               "and nothing on them needs re-deriving:")
         for f in unchanged:
             print(f"  {f['path']}")
 
     tracked = [f["path"] for f in files if f["status"] != "U"]
-    if args.since and tracked:
+    if since and tracked:
         # Hand over the hunks instead of a command, so the reviewer neither runs git nor
-        # pastes its output into its own context. Diffed from `--since`, not the plan base:
-        # what moved since it last looked is the whole point.
-        body = git(root, "diff", "--no-color", "--no-ext-diff", args.since, "--", *tracked)
-        if len(body.split("\n")) <= MAX_INLINE_DIFF_LINES:
-            print(f"\ndiff since {args.since} (inline — do not re-run git for it):\n")
+        # pastes its output into its own context. Diffed from the resolved commit, not the
+        # plan base: what moved since it last looked is the whole point. `--no-textconv` so a
+        # configured filter cannot expand what gets inlined.
+        body = git(root, "diff", "--no-color", "--no-ext-diff", "--no-textconv",
+                   "--end-of-options", since, "--", *tracked)
+        lines = len(body.split("\n"))
+        if lines <= MAX_INLINE_DIFF_LINES and len(body.encode()) <= MAX_INLINE_DIFF_BYTES:
+            print(f"\ndiff since {since} (inline — do not re-run git for it):\n")
             print(body.rstrip("\n"))
         else:
-            print(f"\ndiff is {len(body.split(chr(10)))} lines, over the {MAX_INLINE_DIFF_LINES}-line "
-                  f"inline budget — run it yourself:\n  git diff {args.since} -- "
+            print(f"\ndiff is {lines} lines / {len(body.encode())} bytes, over the inline budget "
+                  f"({MAX_INLINE_DIFF_LINES} lines, {MAX_INLINE_DIFF_BYTES} bytes) — run it "
+                  f"yourself:\n  git diff {since} -- "
                   f"{' '.join(shlex.quote(p) for p in tracked)}")
     elif tracked:
         print(f"\ndiff: git diff {plan['base']} -- "

@@ -322,6 +322,36 @@ class RepoFlowTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.show("security#1", "--since", "no-such-ref")
 
+    def test_since_cannot_smuggle_a_git_option_as_the_ref(self):
+        """`--` fences pathspecs, NOT refs, so a ref where git still parses options IS one.
+        `--since=--output=<path>` truncated that path and exited 0 before this was fixed —
+        the argv-side twin of the `git --output` escape closed on the Bash side. argparse
+        rejects the space form and not the `=` form, so the guard has to be here."""
+        self.write("server/src/app.ts", "export const a = 2\n")
+        self.assertEqual(self.run_cli("plan", "--base", "main"), 0)
+        victim = os.path.join(self.root, "server", "src", "app.ts")
+        with open(victim) as fh:
+            before = fh.read()
+
+        for payload in (f"--output={victim}", "--ext-diff", "--no-such-flag"):
+            with self.assertRaises(SystemExit, msg=payload):
+                self.show("security#1", f"--since={payload}")
+        with open(victim) as fh:
+            self.assertEqual(fh.read(), before, "a payload ref wrote to disk")
+
+    def test_since_falls_back_when_the_diff_is_huge_but_few_lines(self):
+        """A line count is not a size bound: a handful of very long lines is megabytes."""
+        self.write("server/src/app.ts", "export const a = 2\n")
+        self.git("commit", "-qam", "round 1")
+        round1 = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.root,
+                                capture_output=True, text=True, check=True).stdout.strip()
+        self.write("server/src/app.ts", "x" * (rs.MAX_INLINE_DIFF_BYTES + 1000) + "\n")
+        self.assertEqual(self.run_cli("plan", "--base", "main"), 0)
+
+        delta = self.show("security#1", "--since", round1)
+        self.assertIn("over the inline budget", delta)
+        self.assertNotIn("inline — do not re-run git", delta)
+
     def test_no_changes_passes_without_a_review(self):
         self.assertEqual(rs.check(self.root)[0], 0)
         self.assertEqual(self.gate("gh pr create"), "allow")
