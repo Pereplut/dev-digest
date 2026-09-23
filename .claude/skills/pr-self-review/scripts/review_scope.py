@@ -626,11 +626,15 @@ def is_gated_command(command):
 
 
 # A permission allowlist entry matches a command PREFIX, so `Bash(git diff:*)` approves every
-# flag that follows it — including `--output=<file>`, which git writes and TRUNCATES. A deny
-# entry cannot catch that: deny matching is prefix/word based, and the flag trails the
+# flag that follows it. Two of those flags leave the repository entirely:
+#   --output=<file>   git writes and TRUNCATES that path
+#   --no-index        git diffs two paths ANYWHERE on disk and prints them, which is a read of
+#                     any file the process can open — including every path the settings `deny`
+#                     list exists to protect (`.env`, `~/.ssh`, credentials)
+# A deny entry cannot catch either: deny matching is prefix/word based, and the flag trails the
 # subcommand. So the check lives here, where the command is already tokenized.
-_GIT_WRITE_FLAG = "--output"
-_CONSERVATIVE_WRITE = re.compile(r"\bgit\b[^\n;|&]*--output\b")
+_GIT_ESCAPE_FLAGS = ("--output", "--no-index")
+_CONSERVATIVE_ESCAPE = re.compile(r"\bgit\b[^\n;|&]*(--output|--no-index)\b")
 
 
 def _program_and_args(tokens):
@@ -642,39 +646,47 @@ def _program_and_args(tokens):
     return (os.path.basename(t[0]), t) if t else (None, [])
 
 
-def write_escape(command):
-    """Label of a file-writing escape hidden inside an otherwise read-only command, or None.
+def git_escape(command):
+    """Label of an escape hidden inside an otherwise read-only git command, or None.
 
-    Today that is `git ... --output=<file>`: `git diff`, `git log` and `git show` all accept it,
-    all three sit on the Bash allowlist as "read-only", and it writes an arbitrary path without
-    going through Write or Edit.
+    Two flags, one that writes and one that reads:
+      `git ... --output=<file>`  — `git diff`, `git log` and `git show` all accept it, all three
+      sit on the Bash allowlist as "read-only", and it writes an arbitrary path without going
+      through Write or Edit.
+      `git diff --no-index <a> <b>` — diffs two paths anywhere on disk and prints them, so it
+      reads any file the process can open. That is the settings `deny` list (`.env`, `~/.ssh`,
+      `~/.aws`, credentials) read straight through the `Bash(git diff:*)` allow entry. This one
+      shipped live: the commit that added the `--output` check hunted the write side and left
+      the read side open, and review caught it.
 
-    THE CEILING, so nobody mistakes this for a boundary: it catches the plain spelling of a
-    mistaken `--output`, and **anyone who wants to evade it can**. Indirection defeats it —
-    a wrapper it does not know, `eval`, a variable holding "git", a clustered `bash -lc` — and
-    so does simply using `git diff > file` or the `Write` tool, both of which are allowed and
-    reach the same paths. Do not read the absence of a named bypass here as coverage; assume
-    every shape not tested is uncovered, and do not add an "out of scope" list, which review
-    found incomplete twice. Quoting does NOT defeat this function — shlex de-quotes before the
-    program name is read, so `gi"t" diff --output=x` is caught here; it is the hook's raw-text
-    pre-filter that loses it, one layer up.
+    THE CEILING, so nobody mistakes this for a boundary: it catches the plain spelling of each
+    flag, and **anyone who wants to evade it can**. Indirection defeats it — a wrapper it does
+    not know, `eval`, a variable holding "git", a clustered `bash -lc`. For the write side,
+    `git diff > file` and the `Write` tool are allowed and reach the same paths anyway; the read
+    side is likewise reachable through any allowed reader, so denying `--no-index` removes a
+    surprise, not a capability. Do not read the absence of a named bypass here as coverage;
+    assume every shape not tested is uncovered, and do not add an "out of scope" list, which
+    review found incomplete twice. Quoting does NOT defeat this function — shlex de-quotes
+    before the program name is read, so `gi"t" diff --output=x` is caught here.
 
-    What it does do: if any segment's program resolves to git, ANY `--output` token anywhere in
-    the command denies. Coarse on purpose, because the flag can belong to another segment
-    (`git diff $(echo --output=x)`); the cost is denying an unrelated `git log … && tool --output …`,
-    which the caller splits into two commands.
+    What it does do: if any segment's program resolves to git, ANY token matching one of the
+    flags, anywhere in the command, denies. Coarse on purpose, because the flag can belong to
+    another segment (`git diff $(echo --output=x)`); the cost is denying an unrelated
+    `git log … && tool --output …`, which the caller splits into two commands.
 
     On an unlexable command the fallback is NARROWER than the rule above: it needs a literal
-    `--output` in the same segment as a literal `git`, **with `git` first** — so
+    flag in the same segment as a literal `git`, **with `git` first** — so
     `tool --output=x && git diff 'unterminated` returns None, where the token rule would deny.
 
-    A caller must not pre-filter on a raw-text pattern: this matches de-quoted tokens, no regex
-    over un-lexed text can be as wide, and the hook's own filter has now let two spellings
-    through that way."""
+    A caller's pre-filter must never be the narrower layer: this matches de-quoted tokens, no
+    regex over un-lexed text can be as wide, and the hook's filter has let spellings through
+    that way twice. It now also matches the flags themselves, so a command whose only literal
+    `git` is hidden by quoting still reaches this check."""
     try:
         segments = list(_segments(command))
     except ValueError:
-        return "git --output" if _CONSERVATIVE_WRITE.search(_strip_heredocs(command)) else None
+        m = _CONSERVATIVE_ESCAPE.search(_strip_heredocs(command))
+        return f"git {m.group(1)}" if m else None
 
     runs_git = False
     for segment in segments:
@@ -687,7 +699,7 @@ def write_escape(command):
             while k < len(argv) and argv[k] == "--":  # `sh -c -- "…"` shifts the script along
                 k += 1
             if k < len(argv):
-                nested = write_escape(argv[k])
+                nested = git_escape(argv[k])
                 if nested:
                     return nested
         if prog == "git":
@@ -695,8 +707,9 @@ def write_escape(command):
 
     if runs_git:
         for tok in (tok for segment in segments for tok in segment):
-            if tok == _GIT_WRITE_FLAG or tok.startswith(_GIT_WRITE_FLAG + "="):
-                return f"git {_GIT_WRITE_FLAG}"
+            for flag in _GIT_ESCAPE_FLAGS:
+                if tok == flag or tok.startswith(flag + "="):
+                    return f"git {flag}"
     return None
 
 

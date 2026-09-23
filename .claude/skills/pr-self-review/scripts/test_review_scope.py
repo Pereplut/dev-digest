@@ -206,6 +206,18 @@ class WriteEscapeTest(unittest.TestCase):
         "dash -c 'git diff --output=/tmp/x'",      # a shell that is not bash/sh/zsh
     ]
 
+    # The read-side escape. `--no-index` makes git diff two paths ANYWHERE on disk and print
+    # them, so `Bash(git diff:*)` reads straight past the settings `deny` list. Verified on
+    # disk before this check existed: `git diff --no-index <a file with a secret> /dev/null`
+    # printed its contents with no approval prompt.
+    READ_ESCAPES = [
+        "git diff --no-index /home/u/.ssh/id_rsa /dev/null",
+        "git diff --no-index=x a b",               # the `=` spelling
+        "ls && git diff --no-index a b",           # second segment
+        "bash -c 'git diff --no-index a b'",       # nested shell
+        "git diff HEAD --no-index a b",            # flag after the subcommand
+    ]
+
     CLEAN = [
         "git diff --stat HEAD",
         "git diff > /tmp/x",                       # a redirect is the shell's, not git's
@@ -219,31 +231,41 @@ class WriteEscapeTest(unittest.TestCase):
 
     def test_escapes_are_caught(self):
         for cmd in self.ESCAPES:
-            self.assertEqual(rs.write_escape(cmd), "git --output", cmd)
+            self.assertEqual(rs.git_escape(cmd), "git --output", cmd)
+
+    def test_read_escapes_are_caught(self):
+        for cmd in self.READ_ESCAPES:
+            self.assertEqual(rs.git_escape(cmd), "git --no-index", cmd)
 
     def test_clean_commands_pass(self):
         for cmd in self.CLEAN:
-            self.assertIsNone(rs.write_escape(cmd), cmd)
+            self.assertIsNone(rs.git_escape(cmd), cmd)
 
     def test_command_after_a_heredoc_is_still_seen(self):
         self.assertEqual(
-            rs.write_escape("git commit -F - <<'EOF'\nmsg\nEOF\ngit diff --output=/tmp/x"),
+            rs.git_escape("git commit -F - <<'EOF'\nmsg\nEOF\ngit diff --output=/tmp/x"),
             "git --output",
         )
 
     def test_unparseable_lookalike_errs_closed(self):
-        self.assertEqual(rs.write_escape("git diff --output=/tmp/x 'unterminated"), "git --output")
+        self.assertEqual(rs.git_escape("git diff --output=/tmp/x 'unterminated"), "git --output")
+        self.assertEqual(rs.git_escape("git diff --no-index a b 'unterminated"), "git --no-index")
 
-    # Spellings write_escape catches that the hook's raw-text pre-filter loses, so the check
+    # Spellings git_escape catches that the hook's raw-text pre-filter loses, so the check
     # never runs on them. Live, documented in the hook, and deliberately not in ESCAPES —
     # putting them there would assert an invariant the code does not hold.
+    #
+    # The filter now matches the flags as well as the program names, so what is left needs
+    # BOTH quoted: `gi"t" diff --output=x` used to live here and is caught today. Each line
+    # below was run through both layers before being written down.
     LOST_BEFORE_THE_CHECK = [
-        'gi"t" diff --output=/tmp/x HEAD',
-        'g"i"t diff --output=/tmp/x',
+        'gi"t" diff --outp"ut"=/tmp/x',
+        'gi"t" diff --no-"index" a b',
+        'gi"t" diff --no\\-index a b',
     ]
 
     def test_shapes_lost_before_the_check_are_the_known_ones(self):
-        """Pins the gap so it cannot widen silently: write_escape catches these, the pre-filter
+        """Pins the gap so it cannot widen silently: git_escape catches these, the pre-filter
         does not. If one starts passing the filter, move it into ESCAPES."""
         spec = importlib.util.spec_from_file_location(
             "gate", os.path.join(os.path.dirname(__file__), "..", "..", "..", "hooks",
@@ -251,19 +273,19 @@ class WriteEscapeTest(unittest.TestCase):
         gate = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(gate)
         for cmd in self.LOST_BEFORE_THE_CHECK:
-            self.assertEqual(rs.write_escape(cmd), "git --output", cmd)
+            self.assertIsNotNone(rs.git_escape(cmd), cmd)
             self.assertIsNone(gate.MAYBE_GATED.search(cmd), f"pre-filter now catches: {cmd}")
 
     def test_every_escape_in_the_corpus_survives_the_prefilter(self):
-        """The hook short-circuits on a regex before calling write_escape, so a command the
+        """The hook short-circuits on a regex before calling git_escape, so a command the
         regex drops is never checked — that is how `--out\\put=` shipped as a live bypass.
-        This asserts it for the ESCAPES corpus only; the known gap is pinned above."""
+        This asserts it for both escape corpora; the known gap is pinned above."""
         spec = importlib.util.spec_from_file_location(
             "gate", os.path.join(os.path.dirname(__file__), "..", "..", "..", "hooks",
                                  "pr-self-review-gate.py"))
         gate = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(gate)
-        for cmd in self.ESCAPES:
+        for cmd in self.ESCAPES + self.READ_ESCAPES:
             self.assertTrue(gate.MAYBE_GATED.search(cmd), f"pre-filter would skip: {cmd}")
 
 
