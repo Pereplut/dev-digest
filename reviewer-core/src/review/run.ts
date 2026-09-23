@@ -7,7 +7,7 @@ import type {
   UnifiedDiff,
 } from '@devdigest/shared';
 import { Review as ReviewSchema } from '@devdigest/shared';
-import { assemblePrompt, type PromptIntent } from '../prompt.js';
+import { assemblePrompt, type PromptIntent, type PromptSectionInfo } from '../prompt.js';
 import { groundFindings, groundingSummary } from '../grounding.js';
 import { reduceReviews, scoreFromFindings, sliceDiff } from './reduce.js';
 
@@ -39,6 +39,32 @@ export interface ReviewEvent {
   kind: RunEventKind;
   msg: string;
   data?: unknown;
+}
+
+/**
+ * What one assembled prompt was made of — emitted once per LLM call.
+ *
+ * Deliberately per CALL, not per run: in map-reduce every file gets its own
+ * assembled prompt, and `ReviewOutcome.assembly` cannot represent them (it holds
+ * a whole-diff assembly that was never sent — see the comment at its
+ * declaration). A consumer that wants to know what was actually sent must read
+ * this, not the outcome.
+ *
+ * Carries metadata only — see `PromptSectionInfo`.
+ */
+export interface PromptAssembledInfo {
+  mode: ReviewMode;
+  /** 1-based position of this chunk, its total, and the file it covers. */
+  chunk: { index: number; of: number; label: string };
+  /** Per-section content sizes, in render order. */
+  sections: PromptSectionInfo[];
+  /**
+   * Size of the messages actually handed to the model. Larger than the sum of
+   * `sections` by the assembly framing (headers, `<untrusted>` delimiters and
+   * the injection guard) — that difference IS the framing overhead.
+   * `tokens` is present only when `countTokens` was injected.
+   */
+  totals: { chars: number; tokens?: number };
 }
 
 export interface ReviewInput {
@@ -80,6 +106,16 @@ export interface ReviewInput {
   intent?: PromptIntent;
   /** Task framing line, e.g. "Review PR #482 …". */
   task?: string;
+  /**
+   * Injected token counter (the engine ships no tokenizer). Supplied only when
+   * the numbers are actually consumed — see `PromptParts.countTokens`.
+   */
+  countTokens?: (text: string) => number;
+  /**
+   * Injected content digest for prompt sections — see `PromptParts.digestText`.
+   * Supplied only when the fingerprints are actually consumed.
+   */
+  digestText?: (text: string) => string;
   /** Override the structured-output retry budget. */
   maxRetries?: number;
   /** Override the map-reduce line threshold. */
@@ -91,6 +127,12 @@ export interface ReviewInput {
   sessionId?: string;
   /** Progress sink. */
   onEvent?: (e: ReviewEvent) => void;
+  /**
+   * Prompt-composition sink, called once per LLM call with metadata only (the
+   * engine never hands out section text). Injected like `onEvent` so the engine
+   * keeps its no-logger contract.
+   */
+  onPromptAssembled?: (info: PromptAssembledInfo) => void;
   /**
    * Cancellation checkpoint, called before each (expensive) chunk LLM call.
    * Supply a function that THROWS to abort mid-run (the caller owns the error
@@ -108,7 +150,12 @@ export interface ReviewOutcome {
   dropped: { finding: Finding; reason: string }[];
   /** Which path ran. */
   mode: ReviewMode;
-  /** Prompt assembly (for the run trace). Single-pass: the one call; map-reduce: the whole-diff assembly. */
+  /**
+   * Prompt assembly, for the run trace. Single-pass: the prompt that was sent.
+   * Map-reduce: a whole-diff assembly that was **never sent to any model** — the
+   * real prompts are per file. Don't read this to learn what the model saw on a
+   * map-reduce run; use the `onPromptAssembled` sink, which fires per call.
+   */
   assembly: PromptAssembly;
   /** Per-chunk labels (for the run trace's tool_calls). */
   chunks: { label: string }[];
@@ -144,6 +191,8 @@ export async function reviewPullRequest(input: ReviewInput): Promise<ReviewOutco
     prDescription: input.prDescription,
     intent: input.intent,
     task: input.task,
+    countTokens: input.countTokens,
+    digestText: input.digestText,
   };
 
   // Whole-diff assembly is the trace default; overwritten below for single-pass.
@@ -167,7 +216,7 @@ export async function reviewPullRequest(input: ReviewInput): Promise<ReviewOutco
   let costUsd: number | null = 0;
   const raws: string[] = [];
 
-  for (const chunk of chunks) {
+  for (const [chunkIndex, chunk] of chunks.entries()) {
     // Cancellation checkpoint — stop before the next (expensive) LLM call.
     input.checkCancelled?.();
     // 'map:' prefix only for the map-reduce path (one call per file). In
@@ -179,6 +228,17 @@ export async function reviewPullRequest(input: ReviewInput): Promise<ReviewOutco
     );
     const a = assemblePrompt({ ...promptParts, diff: chunk.diffText });
     if (mode === 'single-pass') assembly = a.assembly;
+    input.onPromptAssembled?.({
+      mode,
+      chunk: { index: chunkIndex + 1, of: chunks.length, label: chunk.label },
+      sections: a.sections,
+      totals: {
+        chars: a.messages.reduce((n, m) => n + m.content.length, 0),
+        ...(input.countTokens
+          ? { tokens: a.messages.reduce((n, m) => n + input.countTokens!(m.content), 0) }
+          : {}),
+      },
+    });
     const res = await input.llm.completeStructured<Review>({
       model: input.model,
       schema: ReviewSchema,

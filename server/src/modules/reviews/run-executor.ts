@@ -14,6 +14,8 @@ import { buildRunTrace, countPromptTokens } from '../../platform/trace-builder.j
 import { deriveIntent, type DerivedIntent } from './intent.js';
 // Pure skill helpers (ring 1): the ONE `### Skill:` formatter and the log line.
 import { renderSkillBlock, skillsLogLine, type LoadedSkill } from '../skills/helpers.js';
+// Prompt-composition records (spec 0008): stdout only, metadata only.
+import { logPromptAssembled, digestText, memoizeCount } from '../../platform/prompt-log.js';
 
 /** Thrown by a run when the user cancels it mid-flight (between map files). */
 export class RunCancelledError extends Error {
@@ -131,7 +133,9 @@ export class ReviewRunExecutor {
         `review: agent "${agent.name}" started (${agent.provider}/${agent.model})`,
       );
       try {
-        const outcome = await this.runOneAgent(workspaceId, pull, repo, diff, agent, runId, runLog, intent);
+        const outcome = await this.runOneAgent(
+          workspaceId, pull, repo, diff, agent, runId, runLog, intent, logger,
+        );
         logger?.info(
           {
             runId,
@@ -164,6 +168,10 @@ export class ReviewRunExecutor {
     runId: string,
     parentLog: RunLogger,
     intent: DerivedIntent | undefined,
+    // The raw pino logger, for records that belong in stdout ONLY. Prompt
+    // composition goes here rather than through RunLogger, which also fans out
+    // to every subscribed browser and into the persisted run trace.
+    logger?: Logger,
   ): Promise<RunOutcome> {
     const start = Date.now();
     // Narrow the fanned-out pre-work logger to THIS run; the shared diff/intent
@@ -213,6 +221,26 @@ export class ReviewRunExecutor {
       skills = await this.loadSkills(workspaceId, agent.id);
       runLog.info(skillsLogLine(skills));
 
+      // Prompt-composition logging (spec 0008). Built ONLY when the configured
+      // level admits debug, so at the default `info` neither the records nor the
+      // per-section tokenizing happen at all. The counter is memoized because
+      // map-reduce re-assembles every static section once per file.
+      const promptLog =
+        logger && this.container.config.promptLogEnabled
+          ? {
+              log: logger,
+              verbose: this.container.config.promptLogVerbose,
+              countTokens: memoizeCount((t: string) => this.container.tokenizer.count(t)),
+              ctx: {
+                runId,
+                prId: pull.id,
+                agent: agent.name,
+                provider: agent.provider,
+                model: agent.model,
+              },
+            }
+          : undefined;
+
       // ---- Engine: assemble → single-pass → grounding -----------------------
       // The pure review pipeline lives in @devdigest/reviewer-core (shared with
       // the CI runner). The service owns only I/O: repo-intel context resolution
@@ -240,6 +268,22 @@ export class ReviewRunExecutor {
         task,
         sessionId: `${repo.owner}/${repo.name}#${pull.number}:${agent.name}`,
         onEvent: (e) => runLog.event(e.kind, e.msg, e.data),
+        ...(promptLog
+          ? {
+              countTokens: promptLog.countTokens,
+              // Hashes are a verbose-only cost; without this the engine skips them.
+              ...(promptLog.verbose ? { digestText } : {}),
+              onPromptAssembled: (info) =>
+                logPromptAssembled(promptLog.log, promptLog.ctx, info, {
+                  verbose: promptLog.verbose,
+                  skills: skills.map((s) => ({
+                    name: s.name,
+                    chars: s.block.length,
+                    tokens: s.tokens,
+                  })),
+                }),
+            }
+          : {}),
         checkCancelled: () => {
           if (this.container.runBus.isCancelled(runId)) throw new RunCancelledError();
         },
