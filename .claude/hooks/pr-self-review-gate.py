@@ -7,17 +7,19 @@ POST .../pulls, .../merges, PUT .../pulls/N/merge, GraphQL PR mutations) unless
 local changes, and it found no CRITICAL. The deny reason tells the agent to ask the user to
 run /pr-self-review: the skill has `disable-model-invocation: true`, so only a person starts it.
 
-Bash, ahead of any review state: denies `git ... --output=<file>` and `git diff --no-index`.
-`git diff|log|show` sit on the permission allowlist as "read-only", but an allowlist entry
-matches a command PREFIX, so it approves every flag that follows — and `--output` writes and
-truncates an arbitrary path, while `--no-index` diffs two paths anywhere on disk and prints
-them, which reads any file the process can open, `deny`-listed ones included. A `deny` entry
-cannot close either (deny matching is prefix/word based; the flag trails the subcommand), so
-the check happens here, on tokens.
+Bash, ahead of any review state: denies `git ... --output=<file>`, and `git diff` given an
+operand outside the working tree. `git diff|log|show` sit on the permission allowlist as
+"read-only", but an allowlist entry matches a command PREFIX, so it approves every flag and
+path that follows — `--output` writes and truncates an arbitrary path, and a diff operand
+outside the tree puts git in no-index mode, where it PRINTS both files. git enters that mode on
+its own, with no `--no-index` anywhere in the command, which is why the check matches operands
+and not just flag spellings. A `deny` entry cannot close either (deny matching is prefix/word
+based; the flag and the path trail the subcommand), so the check happens here, on tokens.
 
-That check corrects a mistaken belief; it is NOT a barrier, and anyone who wants to evade it
-can — `git diff > file` and the Write tool are allowed and reach the same paths, other allowed
-readers reach the same files, and any indirection (an unknown wrapper, eval, a variable holding
+The write half corrects a mistaken belief and is NOT a barrier: `git diff > file` and the Write
+tool are allowed and reach the same paths. The read half IS a capability gate — no other
+allowlisted command prints a file outside the repo, and `deny` blocks Read on those paths — but
+it is still not a boundary: any indirection (an unknown wrapper, eval, a variable holding
 "git", a quote inside the word) defeats it. Treat every shape not covered by a test as
 uncovered.
 
@@ -81,14 +83,15 @@ def main():
         # never passes on a green verdict.
         escape = rs.git_escape(command)
         if escape:
-            deny(f"A git command and the token `{escape.split()[1]}` appear in the same Bash "
-                 "call. Neither is the read-only git the permission allowlist takes it for: "
-                 "`--output=<file>` writes and truncates that path, and `--no-index` diffs two "
-                 "paths anywhere on disk, which reads files the settings `deny` list covers. "
-                 "Redirect instead (`git diff > file`), or use Write, or read the file with "
-                 "Read. If the flag belongs to a DIFFERENT program in the same call, this check "
-                 "cannot tell them apart: run the two commands separately. Either way, do not "
-                 "re-spell the flag to get past this.")
+            deny(f"Denied: {escape}. This is not the read-only git the permission allowlist "
+                 "takes it for. `--output=<file>` writes and TRUNCATES that path. A `git diff` "
+                 "operand outside the working tree — an absolute path, a `..` segment, or "
+                 "anything paired with `/dev/null` — puts git in no-index mode, where it prints "
+                 "both files: that reads paths the settings `deny` list covers, and git enters "
+                 "that mode with or without `--no-index`. Write with Write, read with Read, and "
+                 "keep diff operands repo-relative. If the flag or path belongs to a DIFFERENT "
+                 "program in the same call, this check cannot tell them apart: run the two "
+                 "commands separately. Do not re-spell it to get past this.")
 
         action = rs.is_gated_command(command)
         if not action:

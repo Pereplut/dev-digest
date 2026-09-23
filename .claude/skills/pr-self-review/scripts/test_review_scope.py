@@ -218,6 +218,18 @@ class WriteEscapeTest(unittest.TestCase):
         "git diff HEAD --no-index a b",            # flag after the subcommand
     ]
 
+    # The flag is NOT required: git enters no-index mode by itself for an operand outside the
+    # working tree. Matching the spelling alone shipped as a live hole — `git diff <tmpfile>
+    # /dev/null` printed a fake secret with no prompt, reproduced on disk before this was added.
+    IMPLICIT_READ_ESCAPES = [
+        "git diff /etc/hostname /dev/null",
+        "git diff .gitignore /dev/null",           # in-tree path paired with one outside
+        "git diff ../sibling/x y",                 # `..` reaches out just as well
+        "git diff -- /home/u/.netrc",              # after `--` it is a pathspec, still absolute
+        "git -C server diff /etc/hostname",        # -C takes a path; the OPERAND is the escape
+        "ls && git diff ~/.aws/credentials /dev/null",
+    ]
+
     CLEAN = [
         "git diff --stat HEAD",
         "git diff > /tmp/x",                       # a redirect is the shell's, not git's
@@ -236,6 +248,10 @@ class WriteEscapeTest(unittest.TestCase):
     def test_read_escapes_are_caught(self):
         for cmd in self.READ_ESCAPES:
             self.assertEqual(rs.git_escape(cmd), "git --no-index", cmd)
+
+    def test_implicit_no_index_is_caught_without_the_flag(self):
+        for cmd in self.IMPLICIT_READ_ESCAPES:
+            self.assertEqual(rs.git_escape(cmd), "git diff on a path outside the tree", cmd)
 
     def test_clean_commands_pass(self):
         for cmd in self.CLEAN:
@@ -285,7 +301,7 @@ class WriteEscapeTest(unittest.TestCase):
                                  "pr-self-review-gate.py"))
         gate = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(gate)
-        for cmd in self.ESCAPES + self.READ_ESCAPES:
+        for cmd in self.ESCAPES + self.READ_ESCAPES + self.IMPLICIT_READ_ESCAPES:
             self.assertTrue(gate.MAYBE_GATED.search(cmd), f"pre-filter would skip: {cmd}")
 
 

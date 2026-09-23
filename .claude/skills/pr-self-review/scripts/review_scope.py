@@ -626,15 +626,55 @@ def is_gated_command(command):
 
 
 # A permission allowlist entry matches a command PREFIX, so `Bash(git diff:*)` approves every
-# flag that follows it. Two of those flags leave the repository entirely:
+# flag that follows it, and two things git does then leave the repository entirely:
 #   --output=<file>   git writes and TRUNCATES that path
-#   --no-index        git diffs two paths ANYWHERE on disk and prints them, which is a read of
+#   no-index mode     git diffs two paths ANYWHERE on disk and PRINTS them, which is a read of
 #                     any file the process can open — including every path the settings `deny`
 #                     list exists to protect (`.env`, `~/.ssh`, credentials)
 # A deny entry cannot catch either: deny matching is prefix/word based, and the flag trails the
 # subcommand. So the check lives here, where the command is already tokenized.
 _GIT_ESCAPE_FLAGS = ("--output", "--no-index")
+
+# ...but matching `--no-index` is NOT enough, and believing it was is how this shipped broken
+# once. git enables no-index mode ON ITS OWN as soon as a path operand points outside the working
+# tree (git-diff(1): "You can omit the --no-index option ... at least one of the paths points
+# outside the working tree"). Measured here, git 2.43.0, from the repo root, with the flag
+# nowhere in the command: `git diff /tmp/<a file holding a fake secret> /dev/null` printed the
+# secret. So the operands are checked too: an absolute path or a `..` segment reaches outside,
+# and pairing any in-tree path with `/dev/null` is the same trick.
+_GIT_PATH_OPTS = ("-C", "--git-dir", "--work-tree", "--exec-path", "--namespace")
 _CONSERVATIVE_ESCAPE = re.compile(r"\bgit\b[^\n;|&]*(--output|--no-index)\b")
+
+
+def _outside_tree_operand(argv):
+    """The first `git diff` operand that reaches outside the working tree, or None.
+
+    Only for `diff`: every other subcommand on the allowlist takes revisions and repo-relative
+    pathspecs, and widening this to all of git would deny `git -C /abs/repo log`.
+
+    Options are skipped, and so is the argument of an option that legitimately names a path
+    (`-C /abs/repo`), which is why those are listed rather than inferred. Everything after `--`
+    is a pathspec and is repo-relative by definition — but it is checked all the same, because
+    an absolute pathspec there is still worth a prompt and the cost of being wrong is a prompt.
+    """
+    if "diff" not in argv:
+        return None
+    rest = argv[argv.index("diff") + 1:]
+    i = 0
+    while i < len(rest):
+        tok = rest[i]
+        if tok in _GIT_PATH_OPTS:
+            i += 2
+            continue
+        if tok == "--" or tok.startswith("-"):
+            i += 1
+            continue
+        if tok.startswith("/") or tok.startswith("~") or tok.split(os.sep)[0] == "..":
+            return tok
+        if any(seg == ".." for seg in tok.split(os.sep)):
+            return tok
+        i += 1
+    return None
 
 
 def _program_and_args(tokens):
@@ -653,18 +693,24 @@ def git_escape(command):
       `git ... --output=<file>`  — `git diff`, `git log` and `git show` all accept it, all three
       sit on the Bash allowlist as "read-only", and it writes an arbitrary path without going
       through Write or Edit.
-      `git diff --no-index <a> <b>` — diffs two paths anywhere on disk and prints them, so it
+      `git diff` in no-index mode — diffs two paths anywhere on disk and prints them, so it
       reads any file the process can open. That is the settings `deny` list (`.env`, `~/.ssh`,
-      `~/.aws`, credentials) read straight through the `Bash(git diff:*)` allow entry. This one
-      shipped live: the commit that added the `--output` check hunted the write side and left
-      the read side open, and review caught it.
+      `~/.aws`, credentials) read straight through the `Bash(git diff:*)` allow entry. It has
+      shipped live TWICE: first because the commit that added the `--output` check hunted the
+      write side only, then because the fix matched the `--no-index` token and git turns the
+      mode on by itself for any operand outside the working tree. Hence `_outside_tree_operand`
+      — match what git DOES, not how the caller spelled it.
 
     THE CEILING, so nobody mistakes this for a boundary: it catches the plain spelling of each
     flag, and **anyone who wants to evade it can**. Indirection defeats it — a wrapper it does
     not know, `eval`, a variable holding "git", a clustered `bash -lc`. For the write side,
-    `git diff > file` and the `Write` tool are allowed and reach the same paths anyway; the read
-    side is likewise reachable through any allowed reader, so denying `--no-index` removes a
-    surprise, not a capability. Do not read the absence of a named bypass here as coverage;
+    `git diff > file` and the `Write` tool are allowed and reach the same paths anyway, so that
+    half really is only a surprise removed. The READ side is not: no other allowlisted command
+    prints the body of a file outside the repo (`git status|log|show|blame|ls-files|rev-parse`,
+    `ls`, `wc` do not), and `deny` blocks the Read tool on exactly those paths — so a gap here
+    is an arbitrary-file-read hole, not a cosmetic one. Treat it that way; calling it cosmetic
+    is what made a spelling-only guard look sufficient the first time.
+    Do not read the absence of a named bypass here as coverage;
     assume every shape not tested is uncovered, and do not add an "out of scope" list, which
     review found incomplete twice. Quoting does NOT defeat this function — shlex de-quotes
     before the program name is read, so `gi"t" diff --output=x` is caught here.
@@ -710,6 +756,10 @@ def git_escape(command):
             for flag in _GIT_ESCAPE_FLAGS:
                 if tok == flag or tok.startswith(flag + "="):
                     return f"git {flag}"
+        for segment in segments:
+            prog, argv = _program_and_args(segment)
+            if prog == "git" and _outside_tree_operand(argv):
+                return "git diff on a path outside the tree"
     return None
 
 
