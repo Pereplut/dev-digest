@@ -274,8 +274,31 @@ class WriteEscapeTest(unittest.TestCase):
             self.assertEqual(rs.git_escape(cmd), "git --no-index", cmd)
 
     def test_implicit_no_index_is_caught_without_the_flag(self):
+        # `${HOME}/…` trips the brace rule before the operand rule; either label is a deny, and
+        # asserting the exact one would pin which guard happened to fire first.
         for cmd in self.IMPLICIT_READ_ESCAPES:
-            self.assertEqual(rs.git_escape(cmd), "git diff on a path outside the tree", cmd)
+            self.assertIsNotNone(rs.git_escape(cmd), cmd)
+
+    def test_brace_expansion_is_refused_rather_than_guessed_at(self):
+        for cmd in ["git diff {/etc/hosts,/dev/null}",
+                    "git diff {/etc,/dev}{/hosts,/null}",
+                    "git blame --cont{ents,}=/tmp/x .gitignore"]:
+            self.assertEqual(rs.git_escape(cmd), "git brace expansion", cmd)
+
+    def test_an_abbreviated_long_option_is_the_same_option(self):
+        # git's parse-options takes any unambiguous abbreviation, so an exact-token match let
+        # `--cont=<file>` print a file. Every prefix down to _MIN_ABBREV must deny.
+        for opt in ["--contents", "--conten", "--conte", "--cont", "--con"]:
+            cmd = f"git blame {opt}=/tmp/x .gitignore"
+            self.assertEqual(rs.git_escape(cmd), "git --contents", cmd)
+
+    def test_blame_revs_file_flags_that_echo_the_file(self):
+        self.assertEqual(rs.git_escape("git blame -S /tmp/x .gitignore"), "git -S")
+        self.assertEqual(rs.git_escape("git blame -S/tmp/x .gitignore"), "git -S")
+        self.assertEqual(
+            rs.git_escape("git blame --ignore-revs-file=/tmp/x .gitignore"),
+            "git --ignore-revs-file",
+        )
 
     def test_clean_commands_pass(self):
         for cmd in self.CLEAN:
@@ -288,8 +311,15 @@ class WriteEscapeTest(unittest.TestCase):
         )
 
     def test_unparseable_lookalike_errs_closed(self):
-        self.assertEqual(rs.git_escape("git diff --output=/tmp/x 'unterminated"), "git --output")
-        self.assertEqual(rs.git_escape("git diff --no-index a b 'unterminated"), "git --no-index")
+        for cmd, flag in [
+            ("git diff --output=/tmp/x 'unterminated", "--output"),
+            ("git diff --no-index a b 'unterminated", "--no-index"),
+            # The fallback is built from the table now, so the flags added after it was first
+            # written are covered too. A bash-valid ANSI-C tail is enough to reach it.
+            ("git blame --contents=/tmp/x .gitignore; echo $'it\\'s'", "--contents"),
+            ("wc --files0-from=/tmp/x 'unterminated", "--files0-from"),
+        ]:
+            self.assertEqual(rs.git_escape(cmd), f"unlexable command containing {flag}", cmd)
 
     # There used to be a LOST_BEFORE_THE_CHECK corpus here: spellings this function caught but
     # the hook's raw-text pre-filter dropped before the check could run. It was emptied and

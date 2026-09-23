@@ -639,9 +639,18 @@ def is_gated_command(command):
 # Each entry below was reproduced on a throwaway file before being added. The list is a floor,
 # not an inventory: the lesson of five rounds is that the next one is already here unfound.
 _ESCAPE_FLAGS = {
-    "git": ("--output", "--no-index", "--contents", "--extcmd"),
+    "git": ("--output", "--no-index", "--contents", "--extcmd", "--ignore-revs-file", "-S"),
     "wc": ("--files0-from",),
 }
+# git parses long options with parse-options, which accepts any UNAMBIGUOUS ABBREVIATION, so
+# `--cont=<file>` is `--contents=<file>` and printed a file straight past an exact-token match.
+# A token therefore matches when it is a prefix of a table flag, not only when it equals one.
+# `-S` is git-blame's revs-file flag (it dumps the file through `error: bad graft data:` lines)
+# and takes a glued or spaced value; it is also git-diff's pickaxe, so this DENIES
+# `git diff -S<string>` outright — the right direction to be wrong in, but it is a hard deny,
+# not a prompt: the hook has no 'ask' path, and saying otherwise is how the cost of this rule
+# got understated once already.
+_MIN_ABBREV = 3  # `--c` is ambiguous in git anyway; this keeps `-S` and `--` out of the prefix rule
 
 # ...but matching `--no-index` is NOT enough, and believing it was is how this shipped broken
 # once. git enables no-index mode ON ITS OWN as soon as a path operand points outside the working
@@ -651,7 +660,16 @@ _ESCAPE_FLAGS = {
 # secret. So the operands are checked too: an absolute path or a `..` segment reaches outside,
 # and pairing any in-tree path with `/dev/null` is the same trick.
 _GIT_PATH_OPTS = ("-C", "--git-dir", "--work-tree", "--exec-path", "--namespace")
-_CONSERVATIVE_ESCAPE = re.compile(r"\bgit\b[^\n;|&]*(--output|--no-index)\b")
+
+# The unlexable-command fallback is BUILT FROM the table, never hand-listed. It used to name
+# two of the five flags, so a command that shlex refused (a bash-valid `$'it\'s'` tail is
+# enough) fell through to a check narrower than the real one — the same "narrower layer becomes
+# the hole" shape as the deleted pre-filter. An absolute path near a `git` word counts too.
+_CONSERVATIVE_ESCAPE = re.compile(
+    r"\b(?:git|wc)\b[^\n;|&]*("
+    + "|".join(re.escape(f) for fs in _ESCAPE_FLAGS.values() for f in sorted(fs, key=len, reverse=True))
+    + r"|\s/[^\s]+)"
+)
 
 
 def _reaches_outside(tok):
@@ -661,7 +679,10 @@ def _reaches_outside(tok):
     that is one token with no leading `/`, no `~` and no `..`, and the shell rewrites it into an
     absolute path before git ever runs. A guard that cannot expand must treat an operand it
     cannot evaluate as hostile: a repo-relative diff operand never needs expansion, and the cost
-    of being wrong is one permission prompt.
+    of being wrong is a hard DENY — this hook has no 'ask' verdict, so a legitimate operand
+    the guard cannot evaluate has to be re-spelled, not approved. `git diff -- ../client/x`
+    run from inside a package directory is the known casualty, and AGENTS.md tells you to run
+    package commands from inside package directories. Use a repo-root-relative path instead.
     """
     if tok.startswith("/") or tok.startswith("~"):
         return True
@@ -688,7 +709,7 @@ def _outside_tree_operand(argv):
     after `diff`, `-C` is `--find-copies` and takes no separate argument, so the skip swallowed
     the real path: `git diff -C /etc/hostname .gitignore` printed /etc/hostname. A `git diff`
     option that does take a separate argument (`-S`, `-G`, `-O`) gets its argument tested too;
-    that can cost a prompt on `git diff -S /some/string`, which is the right direction to err.
+    that denies `git diff -S /some/string`, which is the right direction to err.
     """
     # `difftool` too: same operands, same implicit no-index, and it was invisible here while
     # the check keyed on the literal token `diff` — which is the spelling-not-capability
@@ -777,7 +798,7 @@ def git_escape(command):
         segments = list(_segments(command))
     except ValueError:
         m = _CONSERVATIVE_ESCAPE.search(_strip_heredocs(command))
-        return f"git {m.group(1)}" if m else None
+        return f"unlexable command containing {m.group(1).strip()}" if m else None
 
     programs = set()
     for segment in segments:
@@ -798,10 +819,23 @@ def git_escape(command):
 
     if programs:
         for tok in (tok for segment in segments for tok in segment):
+            # An unevaluated brace is the same problem as an unevaluated `$`: the shell rewrites
+            # `{--cont,}ents=/etc/passwd` and `git diff {/etc/passwd,/dev/null}` into something
+            # this function never sees. It cannot expand, so it refuses.
+            if "{" in tok or "}" in tok:
+                return f"{sorted(programs)[0]} brace expansion"
+            opt = tok.split("=", 1)[0]
             for prog in sorted(programs):
                 for flag in _ESCAPE_FLAGS[prog]:
-                    if tok == flag or tok.startswith(flag + "="):
+                    abbreviated = (
+                        flag.startswith("--")
+                        and len(opt) >= _MIN_ABBREV
+                        and flag.startswith(opt)
+                    )
+                    if opt == flag or abbreviated:
                         return f"{prog} {flag}"
+                    if flag.startswith("-") and not flag.startswith("--") and tok.startswith(flag):
+                        return f"{prog} {flag}"  # `-S<file>` glued
     if "git" in programs:
         for segment in segments:
             prog, argv = _program_and_args(segment)

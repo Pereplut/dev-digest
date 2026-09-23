@@ -95,6 +95,16 @@ def main():
                 "git --extcmd": "`git difftool --extcmd=<prog>` runs an arbitrary program.",
                 "wc --files0-from": "`wc --files0-from=<file>` reads that file and echoes its "
                                     "bytes back in the error message.",
+                "git -S": "`git blame -S <file>` reads that file and prints every line of it "
+                          "back through `error: bad graft data:`.",
+                "git --ignore-revs-file": "`git blame --ignore-revs-file=<file>` reads that file "
+                                          "and reports its first line back.",
+                "git brace expansion": "the command contains a brace the shell will expand, and "
+                                       "this check cannot expand it — `git diff "
+                                       "{/etc/passwd,/dev/null}` is one token here and two "
+                                       "paths by the time git runs. Write the paths out.",
+                "wc brace expansion": "the command contains a brace the shell will expand, and "
+                                      "this check cannot expand it. Write the path out.",
                 "git diff on a path outside the tree": "a diff operand outside the working tree "
                                                        "— absolute, `..`, `/dev/null`, or one "
                                                        "the shell still has to expand — puts "
