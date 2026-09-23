@@ -24,11 +24,13 @@ it is still not a boundary: any indirection (an unknown wrapper, eval, a variabl
 uncovered.
 
 MAYBE_GATED below is a raw-text regex while `git_escape` matches de-quoted tokens, so it can
-never be as wide, and the deny above is conditional on it. It therefore matches the escape
-flags as well as the program names: `gi"t" diff --output=x`, whose only literal `git` is broken
-by quoting, used to be a live bypass because the filter dropped it before the check ran.
-`--out\\put=` escaped the same way earlier still. Treat this regex as a cost filter, never as
-part of the guard: when in doubt, widen it.
+never be as wide, and the deny above is conditional on it — which has made it the weakest link
+three times. It now matches the escape flags and the `diff` subcommand as well as the program
+names, because each earlier version was narrower than the check behind it: `--out\\put=` escaped
+first, then `gi"t" diff --output=x` (no literal `git` once quoted), then `gi"t" diff /etc/passwd
+/dev/null` once the operand rule existed but only the flags were in the regex. Treat this as a
+cost filter, never as part of the guard: when in doubt, widen it — the import is lazy, so the
+saving it buys is small next to a silent arbitrary-file read.
 
 Write/Edit: denies hand-writing the verdict file; only `review_scope.py write-verdict` may.
 
@@ -42,7 +44,7 @@ import sys
 
 SCRIPTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "skills", "pr-self-review", "scripts")
 # Cheap pre-filter so ordinary Bash calls never pay for the import or a git call.
-MAYBE_GATED = re.compile(r"\bpush\b|\bgh\b|\bgit\b|--output|--no-index")
+MAYBE_GATED = re.compile(r"\bpush\b|\bgh\b|\bgit\b|\bdiff\b|--output|--no-index")
 
 
 def deny(reason):

@@ -646,34 +646,64 @@ _GIT_PATH_OPTS = ("-C", "--git-dir", "--work-tree", "--exec-path", "--namespace"
 _CONSERVATIVE_ESCAPE = re.compile(r"\bgit\b[^\n;|&]*(--output|--no-index)\b")
 
 
+def _reaches_outside(tok):
+    """Does this operand leave the working tree — or refuse to say whether it does?
+
+    `$HOME/.ssh/id_rsa` is the third shape of this bug. shlex de-quotes but never EXPANDS, so
+    that is one token with no leading `/`, no `~` and no `..`, and the shell rewrites it into an
+    absolute path before git ever runs. A guard that cannot expand must treat an operand it
+    cannot evaluate as hostile: a repo-relative diff operand never needs expansion, and the cost
+    of being wrong is one permission prompt.
+    """
+    if tok.startswith("/") or tok.startswith("~"):
+        return True
+    if "$" in tok or "`" in tok:
+        return True
+    return any(seg == ".." for seg in tok.split(os.sep))
+
+
 def _outside_tree_operand(argv):
     """The first `git diff` operand that reaches outside the working tree, or None.
 
     Only for `diff`: every other subcommand on the allowlist takes revisions and repo-relative
     pathspecs, and widening this to all of git would deny `git -C /abs/repo log`.
 
-    Options are skipped, and so is the argument of an option that legitimately names a path
-    (`-C /abs/repo`), which is why those are listed rather than inferred. Everything after `--`
-    is a pathspec and is repo-relative by definition — but it is checked all the same, because
-    an absolute pathspec there is still worth a prompt and the cost of being wrong is a prompt.
+    Two halves, because git has two places to escape from:
+
+    BEFORE the subcommand, `-C <dir>` / `--git-dir` / `--work-tree` relocate git. Relocate it to
+    `/` and every operand after it can look innocently relative while naming anything on disk
+    (`git -C / diff etc/hostname etc/hosts` printed both files here). So those arguments get the
+    same test — but only the test: a relative `-C server` stays inside the repo and is ordinary.
+
+    AFTER the subcommand, every non-option token is an operand and NOTHING is skipped. The
+    previous version skipped the argument of `-C`, reasoning that it names a directory — but
+    after `diff`, `-C` is `--find-copies` and takes no separate argument, so the skip swallowed
+    the real path: `git diff -C /etc/hostname .gitignore` printed /etc/hostname. A `git diff`
+    option that does take a separate argument (`-S`, `-G`, `-O`) gets its argument tested too;
+    that can cost a prompt on `git diff -S /some/string`, which is the right direction to err.
     """
     if "diff" not in argv:
         return None
-    rest = argv[argv.index("diff") + 1:]
-    i = 0
-    while i < len(rest):
-        tok = rest[i]
+    cut = argv.index("diff")
+
+    head, i = argv[1:cut], 0
+    while i < len(head):
+        tok = head[i]
         if tok in _GIT_PATH_OPTS:
+            if i + 1 < len(head) and _reaches_outside(head[i + 1]):
+                return head[i + 1]
             i += 2
             continue
-        if tok == "--" or tok.startswith("-"):
-            i += 1
-            continue
-        if tok.startswith("/") or tok.startswith("~") or tok.split(os.sep)[0] == "..":
-            return tok
-        if any(seg == ".." for seg in tok.split(os.sep)):
-            return tok
+        for opt in _GIT_PATH_OPTS:
+            if tok.startswith(opt + "=") and _reaches_outside(tok[len(opt) + 1:]):
+                return tok
         i += 1
+
+    for tok in argv[cut + 1:]:
+        if tok == "--" or tok.startswith("-"):
+            continue
+        if _reaches_outside(tok):
+            return tok
     return None
 
 

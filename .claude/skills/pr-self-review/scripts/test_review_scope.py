@@ -228,6 +228,14 @@ class WriteEscapeTest(unittest.TestCase):
         "git diff -- /home/u/.netrc",              # after `--` it is a pathspec, still absolute
         "git -C server diff /etc/hostname",        # -C takes a path; the OPERAND is the escape
         "ls && git diff ~/.aws/credentials /dev/null",
+        # Each of these was a live bypass of the operand rule's first version, and each was
+        # executed on disk — they printed ~/.bashrc, /etc/hostname and /etc/hosts respectively.
+        "git diff $HOME/.ssh/id_rsa .gitignore",   # shlex de-quotes but does not EXPAND
+        "git diff ${HOME}/.aws/credentials README.md",
+        "git diff -C /etc/hostname .gitignore",    # after `diff`, -C is --find-copies: no argument
+        "git -C / diff etc/hostname etc/hosts",    # relocated, so the operands look relative
+        "git -C $HOME diff .ssh/id_rsa .bashrc",
+        "git --git-dir=/other/.git diff a b",
     ]
 
     CLEAN = [
@@ -271,13 +279,15 @@ class WriteEscapeTest(unittest.TestCase):
     # never runs on them. Live, documented in the hook, and deliberately not in ESCAPES —
     # putting them there would assert an invariant the code does not hold.
     #
-    # The filter now matches the flags as well as the program names, so what is left needs
-    # BOTH quoted: `gi"t" diff --output=x` used to live here and is caught today. Each line
-    # below was run through both layers before being written down.
+    # The filter matches the program names, the subcommand and the flags, so what is left has
+    # to quote its way past ALL of them — both `git` and `diff`. Each earlier corpus was
+    # emptied by widening the filter (`gi"t" diff --output=x` lived here and is caught today),
+    # which is the point of pinning it. Every line below was run through both layers before
+    # being written down.
     LOST_BEFORE_THE_CHECK = [
-        'gi"t" diff --outp"ut"=/tmp/x',
-        'gi"t" diff --no-"index" a b',
-        'gi"t" diff --no\\-index a b',
+        'gi"t" di"ff" --outp"ut"=/tmp/x',
+        'gi"t" di"ff" /etc/passwd /dev/null',
+        'gi"t" di"ff" --no-"index" a b',
     ]
 
     def test_shapes_lost_before_the_check_are_the_known_ones(self):
