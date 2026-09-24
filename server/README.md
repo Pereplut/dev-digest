@@ -96,6 +96,7 @@ flowchart TB
 | `GITHUB_TOKEN` | — | optional; PAT with repo scope (`GITHUB_PAT` accepted as a fallback) |
 | `EMBEDDINGS_ENABLED` | `false` | memory/RAG embeddings (OpenAI); off → **zero** OpenAI calls |
 | `REPO_INTEL_ENABLED` | `true` | repo skeleton + callers in the prompt; `false` → ripgrep-only |
+| `PROMPT_LOG_VERBOSE` | `false` | extra detail in the `prompt assembled` debug record ([docs](docs/prompt-logging.md)); **development only**, never logs section text |
 | `DEVDIGEST_CLONE_DIR` | `./clones` | imported-repo checkouts (git-ignored) |
 | `LOG_LEVEL` | `info` (`silent` in test) | pino level |
 | `NODE_ENV` | `development` | `test` → silent logs + global rate-limit disabled |

@@ -135,11 +135,78 @@ export interface PromptParts {
   diff: string;
   /** Optional task framing line, e.g. "Review PR #482 '…'". */
   task?: string;
+  /**
+   * Optional token counter. The engine ships no tokenizer (js-tiktoken is a
+   * consumer-side adapter), so counting is injected the same way the server's
+   * `countPromptTokens` injects it. When supplied, every `PromptSectionInfo`
+   * carries `tokens` alongside `chars`; when absent, only `chars`.
+   *
+   * Callers should pass this ONLY when the numbers will be used — tokenizing
+   * every section of every chunk is not free on a large map-reduce run.
+   */
+  countTokens?: (text: string) => number;
+  /**
+   * Optional content digest (e.g. a truncated sha256). Injected for the same
+   * reason as `countTokens`: the engine must not decide how — or whether — a
+   * consumer fingerprints prompt content. When supplied, every
+   * `PromptSectionInfo` carries `digest`.
+   *
+   * A digest lets two runs be compared ("did the repo map change between these
+   * reviews?") without any section text leaving the process.
+   */
+  digestText?: (text: string) => string;
+}
+
+/** Prompt section identifiers, in render order. */
+export type PromptSectionName =
+  | 'system'
+  | 'skills'
+  | 'task'
+  | 'pr_description'
+  | 'intent'
+  | 'memory'
+  | 'repo_map'
+  | 'specs'
+  | 'callers'
+  | 'diff';
+
+/**
+ * Metadata about ONE rendered prompt section — for observability.
+ *
+ * By construction this carries NO section text: only a fixed-enum name and
+ * numbers. That is the property that lets a caller log prompt composition
+ * without ever putting a diff, a spec or someone's PR body into a log.
+ *
+ * `chars` measures the CONTENT the caller supplied, not the rendered block, so
+ * it answers "how much did this input contribute". The framing a section is
+ * rendered with (`## ` headers, `<untrusted>` delimiters, the injection guard)
+ * is therefore NOT included here — it shows up as the difference between the
+ * sum of `chars` and the assembled message sizes.
+ *
+ * Provenance (which DB table / API / file a section came from) is deliberately
+ * absent: the engine is shared by the studio server (skills from Postgres) and
+ * the CI runner (skills from the filesystem), so only the caller can label it
+ * truthfully. Callers attach their own source labels.
+ */
+export interface PromptSectionInfo {
+  name: PromptSectionName;
+  /** Length in characters of the supplied content. */
+  chars: number;
+  /** Token count — present only when `PromptParts.countTokens` was supplied. */
+  tokens?: number;
+  /** Content fingerprint — present only when `PromptParts.digestText` was supplied. */
+  digest?: string;
+  /** Items behind an aggregate section (skills / memory / specs). */
+  count?: number;
+  /** The content was capped before rendering (pr_description). */
+  truncated?: boolean;
 }
 
 export interface AssembledPrompt {
   messages: ChatMessage[];
   assembly: PromptAssembly;
+  /** Per-section metadata, in render order. Omitted sections are absent. */
+  sections: PromptSectionInfo[];
 }
 
 /**
@@ -178,28 +245,70 @@ export function assemblePrompt(parts: PromptParts): AssembledPrompt {
 
   const intentBlock = parts.intent ? formatIntentBlock(parts.intent) : undefined;
 
+  // Section metadata is collected on the SAME conditions that render each block,
+  // so "no entry" always means "not sent" — never "sent but unmeasured".
+  const measure = (
+    name: PromptSectionName,
+    text: string,
+    extra: { count?: number; truncated?: boolean } = {},
+  ): PromptSectionInfo => ({
+    name,
+    chars: text.length,
+    ...(parts.countTokens ? { tokens: parts.countTokens(text) } : {}),
+    ...(parts.digestText ? { digest: parts.digestText(text) } : {}),
+    ...extra,
+  });
+
+  const sections: PromptSectionInfo[] = [measure('system', parts.system)];
+  if (parts.skills && parts.skills.length > 0) {
+    sections.push(measure('skills', parts.skills.join('\n\n'), { count: parts.skills.length }));
+  }
+
   const userSections: string[] = [];
-  if (parts.task) userSections.push(parts.task);
+  if (parts.task) {
+    userSections.push(parts.task);
+    sections.push(measure('task', parts.task));
+  }
   if (prDescription) {
     userSections.push(`## PR description\n${wrapUntrusted('pr-description', prDescription)}`);
+    sections.push(
+      measure('pr_description', prDescription, {
+        // Compare against the ORIGINAL, not the slice: `prDescription` is already capped.
+        ...((parts.prDescription?.length ?? 0) > MAX_PR_DESCRIPTION_CHARS
+          ? { truncated: true }
+          : {}),
+      }),
+    );
   }
+  // Order matters and is main's: the derived intent sits right after the
+  // description it summarises, before any code context and before memory.
   if (intentBlock && parts.intent) {
     userSections.push(
       `## Derived intent (unverified, confidence: ${parts.intent.confidence})\n` +
         wrapUntrusted('derived-intent', intentBlock),
     );
+    sections.push(measure('intent', intentBlock));
   }
-  if (memoryBlock) userSections.push(`## Relevant memory\n${memoryBlock}`);
+  if (memoryBlock) {
+    userSections.push(`## Relevant memory\n${memoryBlock}`);
+    sections.push(measure('memory', memoryBlock, { count: parts.memory?.length ?? 0 }));
+  }
   if (parts.repoMap && parts.repoMap.trim().length > 0) {
     userSections.push(`## Repo skeleton\n${wrapUntrusted('repo-map', parts.repoMap)}`);
+    sections.push(measure('repo_map', parts.repoMap));
   }
-  if (specsBlock) userSections.push(`## Project context\n${specsBlock}`);
+  if (specsBlock) {
+    userSections.push(`## Project context\n${specsBlock}`);
+    sections.push(measure('specs', specsBlock, { count: parts.specs?.length ?? 0 }));
+  }
   if (parts.callers && parts.callers.trim().length > 0) {
     userSections.push(
       `## Callers of changed symbols\n${wrapUntrusted('callers', parts.callers)}`,
     );
+    sections.push(measure('callers', parts.callers));
   }
   userSections.push(`## Diff to review\n${wrapUntrusted('diff', parts.diff)}`);
+  sections.push(measure('diff', parts.diff));
 
   const user = userSections.join('\n\n');
 
@@ -220,5 +329,5 @@ export function assemblePrompt(parts: PromptParts): AssembledPrompt {
     user,
   };
 
-  return { messages, assembly };
+  return { messages, assembly, sections };
 }

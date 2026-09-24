@@ -67,6 +67,16 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   const container = new Container(config, db, opts.overrides);
   app.decorate('container', container);
 
+  // Say out loud when PROMPT_LOG_VERBOSE was asked for and refused, so nobody
+  // is left believing verbose prompt logging is on when it deliberately is not
+  // (it is development-only by construction — see loadConfig).
+  if (config.promptLogVerboseIgnored) {
+    app.log.warn(
+      { nodeEnv: config.nodeEnv },
+      'PROMPT_LOG_VERBOSE ignored: verbose prompt logging is only available when NODE_ENV=development',
+    );
+  }
+
   // Reap runs left 'running' by a previous (now-dead) process — otherwise they
   // show as perpetually "running" in the UI and can't be cancelled (no runner).
   //
