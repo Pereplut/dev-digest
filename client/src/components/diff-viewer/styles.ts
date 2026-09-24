@@ -76,9 +76,43 @@ export function chevronFor(open: boolean): CSSProperties {
 }
 
 /** Row background per line kind (add/del tinted, others transparent). */
-export function lineRowFor(kind: Line["kind"]): CSSProperties {
+export function lineRowFor(kind: Line["kind"], findingColor?: string | null): CSSProperties {
   const background = kind === "add" ? "var(--code-add)" : kind === "del" ? "var(--code-del)" : "transparent";
-  return { display: "flex", alignItems: "stretch", fontSize: 13, lineHeight: "20px", background };
+  const row: CSSProperties = {
+    display: "flex",
+    alignItems: "stretch",
+    fontSize: 13,
+    lineHeight: "20px",
+    background,
+  };
+  // Longhand only, never the `border` shorthand: React warns when a shorthand and
+  // a longhand for the same property update in one rerender (see FindingCard's
+  // styles.ts, which records the same trap).
+  if (findingColor) {
+    row.borderLeftWidth = 3;
+    row.borderLeftStyle = "solid";
+    row.borderLeftColor = findingColor;
+    row.marginLeft = -3; // keep the gutter aligned with unmarked lines
+  }
+  return row;
+}
+
+/** The dot marking a file whose diff carries findings, in the worst severity's colour. */
+export function findingDotFor(color: string): CSSProperties {
+  return { width: 6, height: 6, borderRadius: "50%", background: color, flexShrink: 0 };
+}
+
+/** The severity word shown at the right of a line that carries a finding. */
+export function findingLineLabelFor(color: string): CSSProperties {
+  return {
+    alignSelf: "center",
+    flexShrink: 0,
+    padding: "0 10px",
+    fontSize: 11,
+    fontWeight: 600,
+    letterSpacing: "0.04em",
+    color,
+  };
 }
 
 /** Gutter sign colour per line kind. */

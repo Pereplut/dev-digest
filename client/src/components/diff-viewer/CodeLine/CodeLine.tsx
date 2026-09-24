@@ -1,11 +1,15 @@
 /* CodeLine — one rendered diff line: gutter number, +/- sign, text, plus the
-   hover "+" affordance, any anchored comment threads, and an inline composer. */
+   hover "+" affordance, any anchored comment threads, review findings, and an
+   inline composer. */
 "use client";
 
 import React from "react";
+import { useTranslations } from "next-intl";
+import { SEV_COLOR, SEV_COLOR_FALLBACK } from "@/components/findings-summary";
 import { commentTargetFor, type CommentThread, type DiffCommentApi, cs } from "../comments";
+import { worstSeverity, type DiffFindingApi, type DiffFindingLike } from "../findings";
 import { type Line } from "../helpers";
-import { s, lineRowFor, lineSignFor } from "../styles";
+import { s, lineRowFor, lineSignFor, findingLineLabelFor } from "../styles";
 import { CommentThreadView } from "../CommentThreadView";
 import { InlineComposer } from "../InlineComposer";
 
@@ -14,12 +18,18 @@ export function CodeLine({
   path,
   threads,
   commenting,
+  lineFindings,
+  findings,
 }: {
   ln: Line;
   path: string;
   threads: CommentThread[];
   commenting?: DiffCommentApi;
+  /** Findings anchored to THIS line (already partitioned by FileCard). */
+  lineFindings?: DiffFindingLike[];
+  findings?: DiffFindingApi;
 }) {
+  const t = useTranslations("shell");
   const [hover, setHover] = React.useState(false);
   const [composing, setComposing] = React.useState(false);
 
@@ -35,13 +45,19 @@ export function CodeLine({
   const target = commenting?.canComment ? commentTargetFor(ln) : null;
   const showAdd = hover && !!target && !composing;
 
+  // The stripe and the label mark the line even when the cards are hidden — a
+  // marker that vanished with the toggle would look like the findings were lost.
+  const onLine = lineFindings ?? [];
+  const worst = worstSeverity(onLine);
+  const sevColor = worst ? (SEV_COLOR[worst] ?? SEV_COLOR_FALLBACK) : null;
+
   return (
     <div
       style={cs.rowWrap}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >
-      <div style={lineRowFor(ln.kind)}>
+      <div style={lineRowFor(ln.kind, sevColor)}>
         <span className="mono tnum" style={{ ...s.lineNo, position: "relative" }}>
           {showAdd && target && (
             <button
@@ -62,7 +78,23 @@ export function CodeLine({
         <span className="mono" style={s.lineText}>
           {ln.text || " "}
         </span>
+        {worst && sevColor && (
+          <span style={findingLineLabelFor(sevColor)}>
+            {/* blocker / warning / suggestion — deliberately not SEV[].label,
+                which reads "Critical". */}
+            {t(`diffViewer.findingLabel.${worst}`)}
+          </span>
+        )}
       </div>
+
+      {findings &&
+        findings.showFindings &&
+        onLine.length > 0 &&
+        onLine.map((f) => (
+          <div key={f.id} style={cs.thread}>
+            {findings.render(f)}
+          </div>
+        ))}
 
       {commenting &&
         commenting.showComments &&

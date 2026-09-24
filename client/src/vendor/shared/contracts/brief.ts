@@ -78,7 +78,9 @@ export const PrHistory = z.object({
 export type PrHistory = z.infer<typeof PrHistory>;
 
 // ---- Smart Diff ----
-export const SmartDiffRole = z.enum(['core', 'wiring', 'boilerplate']);
+/** Listed in DISPLAY order. The ORDER RULES ARE MATCHED IN is different and lives,
+ *  with the patterns, in server/src/modules/smart-diff/constants.ts. */
+export const SmartDiffRole = z.enum(['core', 'tests', 'wiring', 'docs', 'boilerplate']);
 export type SmartDiffRole = z.infer<typeof SmartDiffRole>;
 
 export const SmartDiffFile = z.object({
