@@ -18,12 +18,15 @@ import { DiffTab } from "./DiffTab";
  * FindingCard render, so a break in the render-prop seam fails here.
  */
 
-const smartDiffData = vi.hoisted(() => ({ current: undefined as SmartDiff | undefined }));
+const smartDiffData = vi.hoisted(() => ({
+  current: undefined as SmartDiff | undefined,
+  loading: false,
+}));
 const commentsData = vi.hoisted(() => ({ current: [] as PrReviewComment[] }));
 const findingAction = vi.hoisted(() => ({ mutate: vi.fn(), isPending: false }));
 
 vi.mock("@/lib/hooks/core", () => ({
-  useSmartDiff: () => ({ data: smartDiffData.current }),
+  useSmartDiff: () => ({ data: smartDiffData.current, isLoading: smartDiffData.loading }),
 }));
 
 vi.mock("@/lib/hooks/reviews", () => ({
@@ -36,6 +39,10 @@ afterEach(cleanup);
 beforeEach(() => {
   findingAction.mutate.mockClear();
   commentsData.current = [];
+  // Reset BOTH fields: leaving `current` to whatever the last block set is one
+  // reordered describe away from a test passing on another's leftovers.
+  smartDiffData.current = undefined;
+  smartDiffData.loading = false;
 });
 
 function comment(over: Partial<PrReviewComment> = {}): PrReviewComment {
@@ -202,6 +209,37 @@ describe("DiffTab — Original order", () => {
     renderTab();
     expect(screen.queryByText("Core logic")).not.toBeInTheDocument();
     expect(screen.getByText("src/ratelimit.ts")).toBeInTheDocument();
+  });
+});
+
+describe("DiffTab — while the grouping is still loading", () => {
+  it("shows a placeholder instead of GitHub order, so no card remounts on arrival", () => {
+    // The regression: rendering the flat list first and swapping to the grouped
+    // branch changes the element type at that position, remounting every
+    // FileCard and snapping shut whatever the reviewer had expanded.
+    smartDiffData.loading = true;
+    renderTab();
+
+    expect(screen.getByRole("status", { name: "Ordering the changed files…" })).toBeInTheDocument();
+    // Neither branch of the real diff is on screen yet.
+    expect(screen.queryByText("src/ratelimit.ts")).not.toBeInTheDocument();
+    expect(screen.queryByText("Core logic")).not.toBeInTheDocument();
+  });
+
+  it("does not wait for the query in Original order, which needs nothing from it", () => {
+    smartDiffData.loading = true;
+    renderTab({ order: "original" });
+
+    expect(screen.queryByRole("status", { name: "Ordering the changed files…" })).not.toBeInTheDocument();
+    expect(screen.getByText("src/ratelimit.ts")).toBeInTheDocument();
+  });
+
+  it("renders the groups once the query settles", () => {
+    smartDiffData.current = SMART;
+    smartDiffData.loading = false;
+    renderTab();
+    expect(screen.queryByRole("status", { name: "Ordering the changed files…" })).not.toBeInTheDocument();
+    expect(screen.getByText("Core logic")).toBeInTheDocument();
   });
 });
 

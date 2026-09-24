@@ -150,6 +150,13 @@ review.
 matters: `prId` exists only once the PR-detail query resolved, and that call is what populates
 `pr_files`.
 
+While the grouping is still in flight, the tab shows a **placeholder** rather than GitHub's order.
+Rendering the flat list first and swapping when the query lands puts a different element type at
+that position, which remounts every `FileCard` and snaps shut whatever the reviewer had expanded —
+`open` is uncontrolled by design (see the risks). Only smart order waits; Original order needs
+nothing from the query, and a query that never runs (no `prId`) reports `isLoading: false`, so
+neither case can stall.
+
 The order choice lives in the **URL** as `?order=original`, written through the page's existing
 `setParam` alongside `?tab=` and `?trace=`. Smart order is the default and writes no param. The tab
 is unmounted on every tab switch, so React state could not hold the choice anyway, and a URL makes
@@ -259,7 +266,8 @@ comes from `SEV[severity].c` and no new palette is introduced.
    off-patch block honour it, so hiding annotations cannot look like it deleted data.
 4. **`FileCard.open` stays uncontrolled**, so `defaultOpen` applies at mount only and switching
    Smart ↔ Original resets manual expansions. Making it controlled is a larger refactor than this
-   feature justifies.
+   feature justifies. The same property is why the tab holds a placeholder until the grouping
+   arrives instead of swapping branches under the reviewer.
 5. **Open vs. all findings** for the dot and counter: open (`dismissed_at IS NULL`) is chosen so
    dismissing the last finding clears the dot, matching the PR list's counts. The brief says only
    "files with findings"; this is a one-line change if the grader reads it the other way.

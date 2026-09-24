@@ -63,7 +63,7 @@ export function CodeLine({
           stopped matching" the day this becomes a class or a shorthand. */}
       <div
         data-testid="code-row"
-        {...(worst ? { "data-severity": worst } : {})}
+        data-severity={worst ?? undefined}
         style={lineRowFor(ln.kind, sevColor)}
       >
         <span className="mono tnum" style={{ ...s.lineNo, position: "relative" }}>

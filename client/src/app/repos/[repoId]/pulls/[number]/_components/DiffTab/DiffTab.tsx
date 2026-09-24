@@ -2,7 +2,7 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { SectionLabel, Button } from "@/components/ui-client";
+import { SectionLabel, Button, Skeleton } from "@/components/ui-client";
 import {
   DiffViewer,
   type DiffCommentApi,
@@ -59,7 +59,7 @@ export function DiffTab({
   const t = useTranslations("prReview");
   const { data: comments } = usePrComments(prId);
   const create = useCreatePrComment(prId);
-  const { data: smart } = useSmartDiff(prId);
+  const { data: smart, isLoading: smartLoading } = useSmartDiff(prId);
   const action = useFindingAction();
 
   const commentCount = comments?.length ?? 0;
@@ -130,6 +130,18 @@ export function DiffTab({
 
   const toggle = annotationToggle(commentCount, findingCount, annotationsShown);
   const { groups, leftovers } = React.useMemo(() => orderedGroups(files, smart), [files, smart]);
+
+  /**
+   * Hold the diff back until the grouping is known, rather than rendering
+   * GitHub's order and swapping when the query lands: the two branches put a
+   * different element type at this position, so the swap remounts every
+   * FileCard and snaps shut any the reviewer had expanded in that window.
+   *
+   * Only smart order waits — Original order needs nothing from the query, and a
+   * query that never runs (no `prId`) reports `isLoading: false`, so neither
+   * case can stall here.
+   */
+  const awaitingGroups = order === "smart" && smartLoading;
   // Falls back to GitHub's order whenever the route gave us nothing to group by,
   // so a smart-diff failure can never break the Files changed tab.
   const grouped = order === "smart" && groups.length > 0;
@@ -167,7 +179,17 @@ export function DiffTab({
         {t("diff.filesChanged", { count: filesCount })}
       </SectionLabel>
 
-      {grouped ? (
+      {awaitingGroups ? (
+        // role="status", not a bare div: ARIA prohibits aria-label on the
+        // implicit `generic` role, so the name would be dropped by assistive
+        // technology even though jsdom still reports it. `status` also carries an
+        // implicit aria-live="polite", announcing the swap to the grouped list.
+        <div style={s.loading} role="status" aria-busy="true" aria-label={t("diff.loadingOrder")}>
+          <Skeleton height={64} />
+          <Skeleton height={64} />
+          <Skeleton height={64} />
+        </div>
+      ) : grouped ? (
         <>
           {groups.map((g) => (
             <DiffGroup

@@ -187,6 +187,7 @@
     "filesChanged": "Files changed · {count} files",
     "showComments": "Show comments ({count})",
     "hideComments": "Hide comments ({count})",
+    "loadingOrder": "Ordering the changed files…",
     "showAnnotations": "Show comments & findings ({count})",
     "hideAnnotations": "Hide comments & findings ({count})",
     "postError": "Couldn’t post the comment to GitHub."
