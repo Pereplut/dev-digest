@@ -86,6 +86,14 @@ export class ReviewRepository {
     return reviewRepo.getReview(this.db, reviewId);
   }
 
+  /** Open findings of the PR's latest review, as file + start line (Smart Diff). */
+  latestReviewFindings(
+    workspaceId: string,
+    prId: string,
+  ): Promise<{ file: string; startLine: number }[]> {
+    return reviewRepo.latestReviewFindings(this.db, workspaceId, prId);
+  }
+
   /** In-flight runs for a PR (status='running') — the server-side source of
    *  truth for "which agents are running now". Joined with the agent name. */
   activeRunsForPull(

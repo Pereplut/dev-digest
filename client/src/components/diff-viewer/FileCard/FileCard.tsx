@@ -1,10 +1,12 @@
-/* FileCard — one collapsible file in the diff: header (path, +/- stat, comment
-   count) and, when open, its parsed lines plus any outdated comments. */
+/* FileCard — one collapsible file in the diff: header (path, findings dot, +/-
+   stat, comment count) and, when open, its parsed lines plus any outdated
+   comments and off-patch findings. */
 "use client";
 
 import React from "react";
 import { useTranslations } from "next-intl";
 import { Icon } from "@/components/ui-client";
+import { SEV_COLOR, SEV_COLOR_FALLBACK } from "@/components/findings-summary";
 import type { PrFile } from "@/lib/types";
 import { AUTO_EXPAND_MAX_LINES } from "../constants";
 import { parsePatch, type Line } from "../helpers";
@@ -15,9 +17,18 @@ import {
   type CommentThread,
   type DiffCommentApi,
 } from "../comments";
-import { s, chevronFor } from "../styles";
+import {
+  findingKeyForLine,
+  findingsForFile,
+  partitionFindings,
+  worstSeverity,
+  type DiffFindingApi,
+  type DiffFindingLike,
+} from "../findings";
+import { s, chevronFor, findingDotFor } from "../styles";
 import { CodeLine } from "../CodeLine";
 import { OutdatedComments } from "../OutdatedComments";
+import { OffPatchFindings } from "../OffPatchFindings";
 
 /** Threads anchored to a given parsed line (RIGHT=new, LEFT=old). */
 function threadsForLine(ln: Line, matched: Map<string, CommentThread[]>): CommentThread[] {
@@ -30,10 +41,35 @@ function threadsForLine(ln: Line, matched: Map<string, CommentThread[]>): Commen
   return out;
 }
 
-export function FileCard({ file, commenting }: { file: PrFile; commenting?: DiffCommentApi }) {
+/** Findings anchored to a given parsed line (new-line side only). */
+function findingsForLine(
+  ln: Line,
+  matched: Map<string, DiffFindingLike[]>,
+): DiffFindingLike[] {
+  if (matched.size === 0) return [];
+  const key = findingKeyForLine(ln);
+  return (key && matched.get(key)) || [];
+}
+
+export function FileCard({
+  file,
+  commenting,
+  defaultOpen,
+  findings,
+}: {
+  file: PrFile;
+  commenting?: DiffCommentApi;
+  /**
+   * Overrides the auto-expand heuristic for this card. Smart Diff passes `false`
+   * for docs and boilerplate. Applies at mount only — `open` stays uncontrolled,
+   * so a manual expand survives a rerender but not a remount.
+   */
+  defaultOpen?: boolean;
+  findings?: DiffFindingApi;
+}) {
   const t = useTranslations("shell");
   const [open, setOpen] = React.useState(
-    (file.additions ?? 0) + (file.deletions ?? 0) <= AUTO_EXPAND_MAX_LINES
+    defaultOpen ?? (file.additions ?? 0) + (file.deletions ?? 0) <= AUTO_EXPAND_MAX_LINES
   );
   const lines = React.useMemo(() => parsePatch(file.patch), [file.patch]);
 
@@ -48,9 +84,34 @@ export function FileCard({ file, commenting }: { file: PrFile; commenting?: Diff
     return partitionThreads(fileThreads, renderedKeys);
   }, [comments, file.path, lines]);
 
+  // The same split for findings: on a rendered line, or listed at the foot.
+  const allFindings = findings?.findings;
+  const { fileFindings, matchedFindings, offPatchFindings } = React.useMemo(() => {
+    const mine = findingsForFile(allFindings, file.path);
+    if (mine.length === 0) {
+      return {
+        fileFindings: mine,
+        matchedFindings: new Map<string, DiffFindingLike[]>(),
+        offPatchFindings: [] as DiffFindingLike[],
+      };
+    }
+    const renderedKeys = new Set<string>();
+    for (const ln of lines) {
+      const k = findingKeyForLine(ln);
+      if (k) renderedKeys.add(k);
+    }
+    const { matched: m, offPatch } = partitionFindings(mine, renderedKeys);
+    return { fileFindings: mine, matchedFindings: m, offPatchFindings: offPatch };
+  }, [allFindings, file.path, lines]);
+
   const commentCount = commenting
     ? commenting.comments.filter((c) => c.path === file.path).length
     : 0;
+
+  // The dot ignores the visibility toggle on purpose: a marker that disappeared
+  // with the cards would read as "the findings are gone".
+  const worst = worstSeverity(fileFindings);
+  const dotColor = worst ? (SEV_COLOR[worst] ?? SEV_COLOR_FALLBACK) : null;
 
   return (
     <div style={s.fileCard}>
@@ -67,6 +128,13 @@ export function FileCard({ file, commenting }: { file: PrFile; commenting?: Diff
         <span className="mono" style={s.filePath}>
           {file.path}
         </span>
+        {dotColor && (
+          <span
+            role="img"
+            aria-label={t("diffViewer.hasFindings", { count: fileFindings.length })}
+            style={findingDotFor(dotColor)}
+          />
+        )}
         <span className="mono tnum" style={s.fileStat}>
           <span style={s.addText}>+{file.additions}</span>{" "}
           <span style={s.delText}>−{file.deletions}</span>
@@ -92,10 +160,15 @@ export function FileCard({ file, commenting }: { file: PrFile; commenting?: Diff
                 path={file.path}
                 threads={threadsForLine(ln, matched)}
                 commenting={commenting}
+                lineFindings={findingsForLine(ln, matchedFindings)}
+                findings={findings}
               />
             ))
           )}
           {commenting && commenting.showComments && <OutdatedComments threads={outdated} />}
+          {findings && findings.showFindings && (
+            <OffPatchFindings findings={offPatchFindings} api={findings} />
+          )}
         </div>
       )}
     </div>

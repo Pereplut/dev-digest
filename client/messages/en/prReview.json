@@ -57,14 +57,24 @@
     "blockers": " · {count} blockers"
   },
   "smartDiff": {
-    "coreLabel": "Core",
+    "coreLabel": "Core logic",
+    "testsLabel": "Tests",
     "wiringLabel": "Wiring",
+    "docsLabel": "Docs",
     "boilerplateLabel": "Boilerplate",
+    "coreDesc": "The substance of the change — review closely",
+    "testsDesc": "What proves the change works",
+    "wiringDesc": "Hooks the core into the app",
+    "docsDesc": "Prose — read if the behaviour changed",
+    "boilerplateDesc": "Generated / mechanical — skim",
     "largeTitle": "This PR is large ({lines} changed lines)",
     "largeBody": "Consider splitting it into smaller, focused PRs for easier review:",
     "filesCount": "{count} files",
     "findingLines": "{count} finding-lines",
-    "groupedByRole": "Smart Diff · grouped by role"
+    "filesWithFindings": "{count} file(s) with findings",
+    "groupedByRole": "Smart Diff · grouped by role",
+    "orderSmart": "Smart order",
+    "orderOriginal": "Original order"
   },
   "list": {
     "breadcrumb": "Pull Requests",
@@ -177,6 +187,9 @@
     "filesChanged": "Files changed · {count} files",
     "showComments": "Show comments ({count})",
     "hideComments": "Hide comments ({count})",
+    "loadingOrder": "Ordering the changed files…",
+    "showAnnotations": "Show comments & findings ({count})",
+    "hideAnnotations": "Hide comments & findings ({count})",
     "postError": "Couldn’t post the comment to GitHub."
   },
   "intent": {
