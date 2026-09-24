@@ -61,9 +61,24 @@ contract copies beyond the one file this spec touches. Any new model call — se
    `finding_lines` is served for contract compliance and for L08; the dot, the group counter and the
    cards all come from `usePrReviews`, which the page already loads. Mixing the two would let the
    header disagree with the cards below it — see risk 2.
-5. **One button, two booleans, for visibility.** `showComments` keeps its documented `false`
-   default (`DiffTab.tsx:23`) and `showFindings` defaults to `true`; the button sets both to
-   `!(showComments || showFindings)`.
+5. **One button, one flag, for visibility.** *(Amended 2026-09-24 after implementation — the
+   original decision said "two booleans", and that turned out to be wrong.)*
+
+   Two booleans behind one button are duplicate state: the button both reads and writes them, so
+   they disagree only on first paint. With comments present and no findings, `showComments || showFindings`
+   was already `true`, so the button read "Hide comments" over a hidden comment and the first click
+   was a visible no-op — two clicks to reveal what used to take one. Caught by `/pr-self-review`
+   (react-best-practices) and pinned by a regression test.
+
+   What ships is one flag: `shownOverride: boolean | null`, with
+   `annotationsShown = shownOverride ?? findingCount > 0` feeding both `commenting.showComments`
+   and `findingApi.showFindings`. `null` means "the reviewer has not chosen", so the default still
+   applies once findings arrive from the query rather than being frozen by a `useState` initialiser.
+
+   **The consequence, stated plainly:** on a PR that has findings, GitHub comments are now shown by
+   default too. That reverses the "comments start hidden so the diff is clean" default for exactly
+   those PRs. It is the price of one honest toggle, and it is what AC 13 asks for; a PR with no
+   findings keeps the old behaviour untouched.
 6. **Empty groups are omitted.** A PR with no docs showing an empty "Docs" header reads as a bug.
 
 ## Design
@@ -135,6 +150,11 @@ review.
 matters: `prId` exists only once the PR-detail query resolved, and that call is what populates
 `pr_files`.
 
+The order choice lives in the **URL** as `?order=original`, written through the page's existing
+`setParam` alongside `?tab=` and `?trace=`. Smart order is the default and writes no param. The tab
+is unmounted on every tab switch, so React state could not hold the choice anyway, and a URL makes
+it survive a reload and be linkable.
+
 **The diff viewer stays generic.** `components/diff-viewer/` is shared and must not import a
 route-local component, so findings arrive through a render prop mirroring the existing
 `DiffCommentApi`: a new pure `diff-viewer/findings.ts` exports `DiffFindingApi
@@ -205,12 +225,20 @@ comes from `SEV[severity].c` and no new palette is introduced.
   `boilerplate`, `finding_lines` on the core file, a dismissed finding excluded, a PR with no review
   returning the same groups with empty `finding_lines` (AC 9), and 404 across workspaces (AC 14).
 - **client** — `diff-viewer/findings.test.ts` (pure: key building, off-patch partitioning, path
-  normalisation, two findings on one line); `FileCard.test.tsx` (`defaultOpen={false}` beats the
-  auto-expand heuristic, the dot, the off-patch block); `CodeLine.test.tsx` (stripe, label, gated
-  rendering); `DiffGroupHeader.test.tsx` (labels, file count, `2` for two files with five findings);
-  `DiffTab.test.tsx` (group order, collapsed roles, Original order restores the incoming order,
-  fallback when the query returns nothing, the single visibility button); `DiffTab/helpers.test.ts`
-  (the path join, leftovers, files-not-findings counting).
+  normalisation, two findings on one line); `DiffTab/helpers.test.ts` (the path join, leftovers,
+  files-not-findings counting, the toggle's label and count); `DiffTab.test.tsx` (group order,
+  collapsed roles, the lock file under boilerplate, both counters, the inline card, the off-patch
+  block, Accept, the single visibility button, Original order, and the fallback when the query
+  returns nothing).
+
+  Two behaviours need their own files because `DiffTab.test.tsx` cannot reach them: `FileCard.test.tsx`
+  for `defaultOpen` **beating** the auto-expand heuristic in both directions (a collapsed group's
+  card must stay shut even when it is small, which an assertion on the group's contents cannot
+  distinguish), and `CodeLine.test.tsx` for the severity **stripe** — a border is not queryable by
+  role or text, and it must survive the visibility toggle even though the card does not.
+
+  No separate `DiffGroupHeader.test.tsx`: its labels, file count and files-with-findings counter are
+  asserted through `DiffTab.test.tsx`, which renders the real header.
 - **e2e** — no new flow; the existing `05-pr-diff` and `10-pr-finding-actions` must stay green, and
   the three tab labels must not change since flows click them by accessible name.
 - **manual** — the dev app: the five groups, the collapsed roles, Run review, the counter, the dot,
@@ -246,5 +274,6 @@ comes from `SEV[severity].c` and no new palette is introduced.
 | Initiation | 2026-09-24 | brief + screenshots read; specs and INSIGHTS checked; found the contract, the i18n and the anchoring machinery already present and unwired |
 | Planning | 2026-09-24 | Explore ×3, Plan ×1; 6 decisions; module placement revised to `modules/smart-diff/` once `container.reviewRepo` was confirmed as the sanctioned seam |
 | Implementation | 2026-09-24 | contract widened in both copies; `modules/smart-diff/` (constants, classify, helpers, service, routes) + `latestReviewFindings` on the shared review repo; client `useSmartDiff`, `diff-viewer/findings.ts`, DiffViewer/FileCard/CodeLine, OffPatchFindings, DiffGroupHeader, DiffTab; `docs/smart-diff.md` |
-| Validation | 2026-09-24 | server typecheck · lint (incl. `pnpm arch`) · 368 unit · 8 integration; reviewer-core 63; client typecheck · lint · 229 · `pnpm build`; e2e and the dev-app check still owed |
+| Validation | 2026-09-24 | server typecheck · lint (incl. `pnpm arch`) · 368 unit · 8 integration; reviewer-core 63; client typecheck · lint · 239 · `pnpm build`; e2e **9/9 flows** (the mutating 10th skipped by design); `/pr-self-review` 0 critical 0 warning over two rounds; **the manual dev-app check is still owed** |
+| Review | 2026-09-24 | `plan-verifier`: 26 of 31 items met. Decision 5 was contradicted by the code and has been amended above; the test plan named three files, two of which now exist for the behaviours nothing else reached, and the third is explicitly subsumed; three unused i18n keys removed |
 | Completion | | status done, docs, insights wrap-up |

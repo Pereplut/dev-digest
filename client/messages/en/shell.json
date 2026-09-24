@@ -46,8 +46,7 @@
     "findingLabel": {
       "CRITICAL": "blocker",
       "WARNING": "warning",
-      "SUGGESTION": "suggestion",
-      "INFO": "note"
+      "SUGGESTION": "suggestion"
     }
   }
 }

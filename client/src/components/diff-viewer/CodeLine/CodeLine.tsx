@@ -57,7 +57,15 @@ export function CodeLine({
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >
-      <div style={lineRowFor(ln.kind, sevColor)}>
+      {/* `data-severity` is the row's semantic handle for the stripe: the stripe
+          itself is a CSS border with no accessible role, and keying a test on the
+          style string would make "no stripe" indistinguishable from "the selector
+          stopped matching" the day this becomes a class or a shorthand. */}
+      <div
+        data-testid="code-row"
+        {...(worst ? { "data-severity": worst } : {})}
+        style={lineRowFor(ln.kind, sevColor)}
+      >
         <span className="mono tnum" style={{ ...s.lineNo, position: "relative" }}>
           {showAdd && target && (
             <button
