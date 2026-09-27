@@ -69,6 +69,17 @@ describe('adapters/http/index — path segments are encoded', () => {
     expect(new URL(url).pathname.startsWith('/runs/')).toBe(true);
   });
 
+  // `encodeURIComponent('..') === '..'`, so encoding alone cannot stop a
+  // dot-segment collapsing a path level — the one case the helper's own
+  // invariant claimed to cover and the first round of tests did not pin.
+  it.each(['..', '.', ''])('refuses the dot-segment %j that encoding cannot fix', async (bad) => {
+    const fetchImpl = vi.fn();
+    const api = new HttpDevDigestApi({ baseUrl: 'http://localhost:3001', fetchImpl });
+
+    await expect(api.listReviews(bad)).rejects.toThrow(/Refusing to build a URL/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it('encodes a slash inside a pull id too, so the rule is not run-id-specific', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]));
     const api = new HttpDevDigestApi({ baseUrl: 'http://localhost:3001', fetchImpl });

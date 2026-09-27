@@ -147,12 +147,24 @@ function mapFinding(w: FindingWire): FindingItem {
  * of `../settings?x=` builds `/runs/../settings?x=/findings`, which WHATWG URL
  * normalisation collapses to `GET /settings`: the tool argument, not this code,
  * would choose the endpoint. `encodeURIComponent` escapes `/`, `?` and `#`, so
- * a segment can no longer break out of its position.
+ * a segment can no longer introduce a separator or start a query string, and
+ * the dot-segments encoding cannot fix are rejected outright.
  *
  * Query parameters need no equivalent — `query()` below builds them with
  * `URLSearchParams`, which escapes them already.
  */
 function seg(value: string): string {
+  // `encodeURIComponent('..') === '..'` — encoding cannot neutralise a
+  // dot-segment, because there is nothing in it to escape. WHATWG normalisation
+  // still removes the preceding path level, so `/repos/../pulls/42` resolves to
+  // the real `GET /pulls/:id`. Encoding alone would leave the invariant above
+  // false for exactly the input it is meant to stop, so reject what encoding
+  // cannot fix. Unreachable today (`run_id` is a uuid and every other segment is
+  // an id the API returned), which is why this throws rather than threading a
+  // result type through six call sites: it is an assertion, not a control path.
+  if (value === '' || value === '.' || value === '..') {
+    throw new Error(`Refusing to build a URL with the path segment "${value}".`);
+  }
   return encodeURIComponent(value);
 }
 

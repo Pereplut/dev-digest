@@ -330,3 +330,59 @@ describe('get_findings — a bad cursor is an error, not page one', () => {
     await server.close();
   });
 });
+
+/**
+ * Every advertised example must satisfy the schema that publishes it.
+ *
+ * Regression, and a class-level guard rather than a fix to one string: round 2
+ * tightened `run_id` to a uuid and left the example `run_abc123` in place, so
+ * the single example the model is shown for that branch was rejected by its own
+ * schema — the exact self-baited trap mcp/INSIGHTS.md records for `severity`.
+ * Pinning one value would not stop the next tightening from doing it again, so
+ * this drives every example through the real wire instead.
+ */
+describe('input examples are valid against their own schemas', () => {
+  it('no advertised example is rejected by the tool that advertises it', async () => {
+    const { client, server } = await connect();
+    const { tools } = await client.listTools();
+
+    const checked: string[] = [];
+    for (const tool of tools) {
+      const examples = (tool.inputSchema as { examples?: unknown[] }).examples ?? [];
+      for (const example of examples) {
+        const result = await client.callTool({
+          name: tool.name,
+          arguments: example as Record<string, unknown>,
+        });
+        // A domain error ("no such run", "not implemented") is fine — the example
+        // is well-formed. A *schema* rejection is not: it means the tool is
+        // advertising an argument shape it refuses.
+        expect(textOf(result), `${tool.name} example ${JSON.stringify(example)}`).not.toMatch(
+          /Input validation error/i,
+        );
+        checked.push(tool.name);
+      }
+    }
+
+    // Guard the guard: if `.meta({ examples })` ever stops reaching the wire,
+    // this suite would pass by checking nothing at all. Zod 4 drops ROOT
+    // examples from a schema containing a transform without erroring, which is
+    // how `get_findings` came to advertise none — so assert per tool, at either
+    // level, rather than trusting a total.
+    expect(checked.length).toBeGreaterThanOrEqual(1);
+    for (const name of ['review_pull_request', 'get_findings']) {
+      const tool = tools.find((t) => t.name === name)!;
+      const schema = tool.inputSchema as {
+        examples?: unknown[];
+        properties?: Record<string, { examples?: unknown[] }>;
+      };
+      const published =
+        (schema.examples?.length ?? 0) > 0 ||
+        Object.values(schema.properties ?? {}).some((p) => (p.examples?.length ?? 0) > 0);
+      expect(published, `${name} publishes no example at root or field level`).toBe(true);
+    }
+
+    await client.close();
+    await server.close();
+  });
+});

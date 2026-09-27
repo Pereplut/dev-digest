@@ -79,7 +79,7 @@ const RESPONSE_FORMAT = ['concise', 'detailed'] as const;
  * validation error and a wasted turn. It also matches what the stub's own error
  * text shows (`severity: ["CRITICAL"]`) without punishing the shorter spelling.
  */
-function oneOrMany<T extends z.ZodTypeAny>(inner: T) {
+function oneOrMany<T extends z.ZodType>(inner: T) {
   return z.union([inner, z.array(inner)]).transform((v) => (Array.isArray(v) ? v : [v]));
 }
 
@@ -140,10 +140,15 @@ const GetFindingsInput = z
     // (2026-09-27, "array-only enum param") sets. Unconstrained, this string
     // reached the URL path directly and could re-address the request.
     run_id: z
-      .string()
       .uuid()
       .optional()
-      .describe('Run id from `review_pull_request`. Use this OR repo+pull_number, not both.'),
+      .describe('Run id from `review_pull_request`. Use this OR repo+pull_number, not both.')
+      // Field-level, not on the object: `z.toJSONSchema(..., {io:'input'})`
+      // SILENTLY DROPS root `examples` from any schema containing a transform,
+      // and `oneOrMany` below is one. The object-level `.meta({examples})` this
+      // tool used to carry therefore never reached a client at all. Field
+      // metadata survives, and `.describe()` before `.meta()` keeps both.
+      .meta({ examples: ['9e865e64-2f1b-4c3a-a0d7-1e0670f4b8c2'] }),
     repo: z.string().optional().describe('Repository slug as `owner/name`, e.g. `acme/web`.'),
     // Deliberately undescribed — the name carries it (spec 0011).
     pull_number: z.number().int().positive().optional(),
@@ -156,11 +161,12 @@ const GetFindingsInput = z
       .default('concise')
       .describe('concise: file, line, severity, title. detailed adds rationale and suggestion.'),
   })
-  .strict()
-  // The second of the two tools with an optional parameter to demonstrate:
-  // the run_id-vs-repo+pull_number choice this tool's whole description is
-  // about is exactly the "complex parameter handling" case worth an example.
-  .meta({ examples: [{ run_id: 'run_abc123' }, { repo: 'acme/web', pull_number: 42 }] });
+  .strict();
+// No object-level `.meta({examples})` here, deliberately: this schema contains a
+// transform (`oneOrMany`), and Zod 4 drops root examples from such a schema
+// without erroring — the examples this tool appeared to advertise were never
+// published. The run_id-vs-repo+pull_number choice lives in the tool
+// description, and the concrete uuid shape is a field-level example above.
 
 const GetRepoConventionsInput = z
   .object({
