@@ -42,3 +42,4 @@ packages: [server, client]
 | [0008-intent-layer](0008-intent-layer.md) | in-progress | server, client, reviewer-core |
 | [0009-prompt-assembly-logging](0009-prompt-assembly-logging.md) | done | server, reviewer-core |
 | [0010-smart-diff](0010-smart-diff.md) | in-progress | server, client |
+| [0011-mcp-server](0011-mcp-server.md) | draft | mcp, server |
