@@ -162,7 +162,12 @@ function seg(value: string): string {
   // cannot fix. Unreachable today (`run_id` is a uuid and every other segment is
   // an id the API returned), which is why this throws rather than threading a
   // result type through six call sites: it is an assertion, not a control path.
-  if (value === '' || value === '.' || value === '..') {
+  // `typeof` is the load-bearing clause, not belt-and-braces: two call sites pass
+  // `repo.id`, which comes from `(await res.json()) as T` — a blind cast. A
+  // `/repos` row without an `id` is `undefined` at runtime while still typed
+  // `string`, and `encodeURIComponent(undefined)` returns the literal
+  // "undefined", so the request would become `GET /repos/undefined/pulls/42`.
+  if (typeof value !== 'string' || value === '' || value === '.' || value === '..') {
     throw new Error(`Refusing to build a URL with the path segment "${value}".`);
   }
   return encodeURIComponent(value);

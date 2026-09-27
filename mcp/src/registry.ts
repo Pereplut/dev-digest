@@ -143,11 +143,15 @@ const GetFindingsInput = z
       .uuid()
       .optional()
       .describe('Run id from `review_pull_request`. Use this OR repo+pull_number, not both.')
-      // Field-level, not on the object: `z.toJSONSchema(..., {io:'input'})`
-      // SILENTLY DROPS root `examples` from any schema containing a transform,
-      // and `oneOrMany` below is one. The object-level `.meta({examples})` this
-      // tool used to carry therefore never reached a client at all. Field
-      // metadata survives, and `.describe()` before `.meta()` keeps both.
+      // Field-level, not on the object. The SDK converts via
+      // `schema['~standard'].jsonSchema.input()` (zod >= 4.2; `z.toJSONSchema`
+      // is only a warned fallback), and that conversion SILENTLY DROPS
+      // `examples` from every object with a transform anywhere below it —
+      // `oneOrMany` is one. So the object-level `.meta({examples})` this tool
+      // used to carry never reached a client. Only `examples` is affected:
+      // `title` and `description` survive. `.describe()` before `.meta()` keeps
+      // both here. An example on the `oneOrMany` field itself would vanish too,
+      // so the scalar-or-array spelling can only be shown in `.describe()` text.
       .meta({ examples: ['9e865e64-2f1b-4c3a-a0d7-1e0670f4b8c2'] }),
     repo: z.string().optional().describe('Repository slug as `owner/name`, e.g. `acme/web`.'),
     // Deliberately undescribed — the name carries it (spec 0011).
@@ -163,10 +167,12 @@ const GetFindingsInput = z
   })
   .strict();
 // No object-level `.meta({examples})` here, deliberately: this schema contains a
-// transform (`oneOrMany`), and Zod 4 drops root examples from such a schema
-// without erroring — the examples this tool appeared to advertise were never
-// published. The run_id-vs-repo+pull_number choice lives in the tool
-// description, and the concrete uuid shape is a field-level example above.
+// transform (`oneOrMany`), and the conversion drops an object's `examples` when
+// a transform sits anywhere below it — so the examples this tool appeared to
+// advertise were never published. Nesting the transform deeper would not help
+// (every ancestor loses them) and `{io:'output'}` would erase the enum from
+// every transform field. The run_id-vs-repo+pull_number choice lives in the
+// tool description; the concrete uuid shape is the field-level example above.
 
 const GetRepoConventionsInput = z
   .object({
