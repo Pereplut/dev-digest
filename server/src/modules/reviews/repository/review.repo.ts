@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import type { DbOrTx } from '../../../db/client.js';
 import * as t from '../../../db/schema.js';
 import type { Finding } from '@devdigest/shared';
@@ -75,6 +75,47 @@ export async function reviewsForPull(
     review,
     findings: findings.filter((f) => f.reviewId === review.id),
   }));
+}
+
+/**
+ * Open findings of the PR's LATEST review, as `file` + `start_line` only — what
+ * Smart Diff needs to mark which files carry findings.
+ *
+ * "Latest" is the same rule the PR list uses (`pulls/repository/pull.repo.ts`
+ * `latestReviewedRunByPr`): the newest run that is `done` AND actually carries a
+ * `kind='review'` review, so a newer failed or review-less run cannot hide it.
+ * Re-deriving that in JS from `reviewsForPull` would fork the definition, which
+ * is why this lives here. Open = `dismissed_at IS NULL`.
+ */
+export async function latestReviewFindings(
+  db: DbOrTx,
+  workspaceId: string,
+  prId: string,
+): Promise<{ file: string; startLine: number }[]> {
+  // One PR, so `.limit(1)` — NOT the `selectDistinctOn` of `latestReviewedRunByPr`,
+  // which only earns its keep there because it batches many PRs at once.
+  const latest = db
+    .select({ id: t.reviews.id })
+    .from(t.reviews)
+    .innerJoin(t.agentRuns, eq(t.agentRuns.id, t.reviews.runId))
+    .where(
+      and(
+        eq(t.reviews.workspaceId, workspaceId),
+        eq(t.reviews.prId, prId),
+        eq(t.reviews.kind, 'review'),
+        eq(t.agentRuns.status, 'done'),
+      ),
+    )
+    .orderBy(desc(t.agentRuns.ranAt), desc(t.reviews.createdAt))
+    .limit(1);
+
+  // As a subquery, not a second round trip: one statement is one snapshot, so a
+  // run finishing mid-read cannot pair a stale review id with current findings.
+  // An empty subquery matches nothing, which is the "no review yet" case.
+  return db
+    .select({ file: t.findings.file, startLine: t.findings.startLine })
+    .from(t.findings)
+    .where(and(inArray(t.findings.reviewId, latest), isNull(t.findings.dismissedAt)));
 }
 
 export async function getReview(db: DbOrTx, reviewId: string): Promise<ReviewRow | undefined> {

@@ -59,6 +59,8 @@ export default function PRDetailPage() {
 
   const tab = search.get("tab") ?? "overview";
   const traceRunId = search.get("trace");
+  // Smart Diff is the default, so only the opt-out is written to the URL.
+  const diffOrder = search.get("order") === "original" ? "original" : "smart";
   const setParam = (key: string, val: string | null) => {
     const sp = new URLSearchParams(search.toString());
     if (val == null) sp.delete(key);
@@ -166,6 +168,11 @@ export default function PRDetailPage() {
             filesCount={pr.files_count}
             files={pr.files}
             canComment={pr.status === "open"}
+            findings={allFindings}
+            repoFullName={repoFullName}
+            headSha={pr.head_sha}
+            order={diffOrder}
+            onSetOrder={(o) => setParam("order", o === "smart" ? null : o)}
           />
         )}
       </div>

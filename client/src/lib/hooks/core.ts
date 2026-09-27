@@ -18,6 +18,7 @@ import type {
   PrDetail,
   SpecFile,
   IndexStatus,
+  SmartDiff,
 } from "../types";
 
 // ---- Settings (F1: GET/PUT /settings, POST /settings/test-connection) ----
@@ -166,6 +167,24 @@ export function usePullByNumber(
     queryKey: ["pull-by-number", repoId, number],
     queryFn: () => api.get<PrDetail>(`/repos/${repoId}/pulls/${number}`),
     enabled: !!repoId && number != null,
+  });
+}
+
+/**
+ * Smart Diff: the PR's files grouped by role, for the Files changed tab.
+ *
+ * `enabled: !!prId` is load-bearing beyond the usual guard — `prId` only exists
+ * once the PR-detail query resolved, and that request is what persists `pr_files`
+ * server-side. Waiting for it is what keeps this from racing an empty table.
+ *
+ * Costs nothing to call before a review: grouping is pure path classification and
+ * the route makes no model call.
+ */
+export function useSmartDiff(prId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["smart-diff", prId],
+    queryFn: () => api.get<SmartDiff>(`/pulls/${prId}/smart-diff`),
+    enabled: !!prId,
   });
 }
 
