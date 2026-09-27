@@ -1,12 +1,23 @@
 import type { Container } from '../../platform/container.js';
-import type { FindingActionKind, PrIntentRecord, RunEventKind, RunTrace } from '@devdigest/shared';
+import type {
+  FindingActionKind,
+  PrIntentRecord,
+  RunEventKind,
+  RunFindingsPage,
+  RunTrace,
+} from '@devdigest/shared';
 import { AppError, NotFoundError } from '../../platform/errors.js';
 import type { AgentRow } from '../../db/rows.js';
 import { ReviewRepository } from './repository.js';
 import { type ReviewDto, type ReviewDtoFinding } from './helpers.js';
 import { ReviewRunExecutor, type Logger } from './run-executor.js';
 import { actOnFinding as actOnFindingImpl } from './findings.js';
-import { reviewToDto } from './helpers.js';
+import {
+  decodeRunFindingsCursor,
+  encodeRunFindingsCursor,
+  findingRowToDto,
+  reviewToDto,
+} from './helpers.js';
 
 // Re-export DTO types + converters for backward-compatible imports from
 // './service.js' (these previously lived here; logic now in ./helpers.ts).
@@ -198,5 +209,41 @@ export class ReviewService {
 
   async getRunTrace(runId: string): Promise<RunTrace | undefined> {
     return this.repo.getRunTrace(runId);
+  }
+
+  /**
+   * Findings for one run, filtered/paginated in SQL, plus the run's own
+   * status — so a caller polling a still-running run (no findings persisted
+   * yet: `insertReview` happens only on completion) needs one call, not a
+   * findings fetch and a separate run-status fetch.
+   */
+  async getRunFindings(
+    workspaceId: string,
+    runId: string,
+    query: { severity?: string[]; category?: string[]; limit: number; cursor?: string },
+  ): Promise<RunFindingsPage> {
+    // A cursor that does not decode is the caller's mistake, not a server
+    // fault: fail it as a 400 rather than silently serving page one (mirrors
+    // pulls/service.ts's handling of decodePullCursor).
+    const cursor = query.cursor ? decodeRunFindingsCursor(query.cursor) : undefined;
+    if (query.cursor && !cursor) {
+      throw new AppError('invalid_cursor', 'Malformed pagination cursor.', 400);
+    }
+
+    const page = await this.repo.getRunFindingsPage(workspaceId, runId, {
+      ...(query.severity ? { severity: query.severity } : {}),
+      ...(query.category ? { category: query.category } : {}),
+      limit: query.limit,
+      ...(cursor ? { cursor } : {}),
+    });
+    if (!page) throw new NotFoundError('Run not found');
+
+    const last = page.rows.at(-1);
+    return {
+      findings: page.rows.map(findingRowToDto),
+      status: page.status,
+      grounding: page.grounding,
+      next_cursor: page.hasMore && last ? encodeRunFindingsCursor(last) : null,
+    };
   }
 }
