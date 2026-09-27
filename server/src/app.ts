@@ -87,16 +87,28 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   // between listening and an async reaper finishing.
   // NOTE: assumes a SINGLE API instance per DB. With multiple replicas this
   // would need per-instance scoping / heartbeats (not this app's deployment).
-  try {
-    const reaped = await new ReviewService(container).reapStaleRuns();
-    if (reaped > 0) app.log.info({ reaped }, 'reaped stale running agent_runs on boot');
-    // Same reasoning for the job queue, which is also in-process: a 'queued' or
-    // 'running' row from a dead process is abandoned, not pending, and nothing
-    // ever reads the table to discover otherwise.
-    const reapedJobs = await container.jobs.reapOrphanedJobs();
-    if (reapedJobs > 0) app.log.info({ reapedJobs }, 'reaped abandoned jobs on boot');
-  } catch (err) {
-    app.log.warn({ err: (err as Error).message }, 'stale-run reaping failed (non-fatal)');
+  //
+  // SKIPPED under NODE_ENV=test, and that is not a nicety. `buildApp()` is what
+  // the test suite boots, and `loadConfig` takes `databaseUrl` straight from the
+  // ambient environment with no test override — so a test boot reaps the
+  // DEVELOPER'S database. `test/routes-smoke.test.ts` alone boots six times, and
+  // `LOG_LEVEL` is forced to 'silent' under test, so a live review died as
+  // `failed` with no error, no grounding, no duration and no log line anywhere.
+  // A test process has no orphans of its own to collect: the whole point of the
+  // reap is to clean up after a previous instance of THIS server, and a test is
+  // not that. See server/INSIGHTS.md (2026-09-27).
+  if (config.nodeEnv !== 'test') {
+    try {
+      const reaped = await new ReviewService(container).reapStaleRuns();
+      if (reaped > 0) app.log.info({ reaped }, 'reaped stale running agent_runs on boot');
+      // Same reasoning for the job queue, which is also in-process: a 'queued' or
+      // 'running' row from a dead process is abandoned, not pending, and nothing
+      // ever reads the table to discover otherwise.
+      const reapedJobs = await container.jobs.reapOrphanedJobs();
+      if (reapedJobs > 0) app.log.info({ reapedJobs }, 'reaped abandoned jobs on boot');
+    } catch (err) {
+      app.log.warn({ err: (err as Error).message }, 'stale-run reaping failed (non-fatal)');
+    }
   }
 
   // Security headers (X-Content-Type-Options, X-Frame-Options, …). The API
