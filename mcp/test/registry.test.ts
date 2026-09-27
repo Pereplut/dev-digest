@@ -1,7 +1,7 @@
 import { Client } from '@modelcontextprotocol/client';
 import { InMemoryTransport } from '@modelcontextprotocol/server';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { MockDevDigestApi } from '../src/adapters/mocks.js';
+import { MOCK_RUN_ID, MockDevDigestApi } from '../src/adapters/mocks.js';
 import { createDevDigestServer } from '../src/registry.js';
 
 /**
@@ -139,7 +139,7 @@ describe('registry — the five tools end to end (MCP wire protocol, MockDevDige
   });
 
   it('get_findings: defaults to concise projection and limit 20', async () => {
-    const result = await client.callTool({ name: 'get_findings', arguments: { run_id: 'run-1' } });
+    const result = await client.callTool({ name: 'get_findings', arguments: { run_id: MOCK_RUN_ID } });
     const body = JSON.parse(textOf(result));
     expect(body.findings).toHaveLength(2);
     expect(body.findings[0]).toEqual({
@@ -157,11 +157,11 @@ describe('registry — the five tools end to end (MCP wire protocol, MockDevDige
   it('get_findings: a scalar severity filters the same as a one-element array', async () => {
     const scalar = await client.callTool({
       name: 'get_findings',
-      arguments: { run_id: 'run-1', severity: 'CRITICAL' },
+      arguments: { run_id: MOCK_RUN_ID, severity: 'CRITICAL' },
     });
     const array = await client.callTool({
       name: 'get_findings',
-      arguments: { run_id: 'run-1', severity: ['CRITICAL'] },
+      arguments: { run_id: MOCK_RUN_ID, severity: ['CRITICAL'] },
     });
     expect(scalar.isError).toBeFalsy();
     expect(textOf(scalar)).toBe(textOf(array));
@@ -198,7 +198,7 @@ describe('registry — the five tools end to end (MCP wire protocol, MockDevDige
   it('get_findings: both run_id and repo is a tool error naming the choice', async () => {
     const result = await client.callTool({
       name: 'get_findings',
-      arguments: { run_id: 'run-1', repo: 'acme/web', pull_number: 42 },
+      arguments: { run_id: MOCK_RUN_ID, repo: 'acme/web', pull_number: 42 },
     });
     expect(result.isError).toBe(true);
     expect(textOf(result)).toContain('Pass either run_id or repo+pull_number, not both.');
@@ -256,7 +256,7 @@ describe('registry — the five tools end to end (MCP wire protocol, MockDevDige
 describe('get_findings — grounding disambiguates an empty result', () => {
   it('surfaces the run grounding tally in run_id mode', async () => {
     const { client, server } = await connect();
-    const result = await client.callTool({ name: 'get_findings', arguments: { run_id: 'run-1' } });
+    const result = await client.callTool({ name: 'get_findings', arguments: { run_id: MOCK_RUN_ID } });
     const body = JSON.parse(textOf(result));
     expect(body.grounding).toBe('2/2 passed');
     expect(body.run_status).toBe('done');
@@ -272,6 +272,60 @@ describe('get_findings — grounding disambiguates an empty result', () => {
     });
     expect(result.isError).toBeFalsy();
     expect(JSON.parse(textOf(result))).not.toHaveProperty('grounding');
+    await client.close();
+    await server.close();
+  });
+});
+
+/**
+ * Regression, found by two reviewers independently: `run_id` was an
+ * unconstrained `z.string()` and reached the URL path directly, so the tool
+ * argument could re-address the request. `.uuid()` matches the wrapped route's
+ * own `IdParams`, so the tool is exactly as strict as the endpoint — no
+ * stricter, which is the bar mcp/INSIGHTS.md sets.
+ */
+describe('get_findings — run_id is constrained to a uuid', () => {
+  it('rejects a path-traversal run id as a validation error', async () => {
+    const { client, server } = await connect();
+    const result = await client.callTool({
+      name: 'get_findings',
+      arguments: { run_id: '../settings?x=' },
+    });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toMatch(/uuid|Invalid/i);
+    await client.close();
+    await server.close();
+  });
+
+  it('still accepts a real uuid', async () => {
+    const { client, server } = await connect();
+    const result = await client.callTool({
+      name: 'get_findings',
+      arguments: { run_id: '00000000-0000-4000-8000-000000000001' },
+    });
+    // Unknown-but-well-formed id: the mock has no such run, so this is a tool
+    // error about the run, not about the argument shape.
+    expect(textOf(result)).not.toMatch(/uuid/i);
+    await client.close();
+    await server.close();
+  });
+});
+
+/**
+ * Regression: a cursor that does not decode used to collapse to offset 0, so the
+ * caller was handed page one again as if it were the next page. The route this
+ * wraps answers the same input with a 400.
+ */
+describe('get_findings — a bad cursor is an error, not page one', () => {
+  it('names the two cursor formats instead of re-serving the first page', async () => {
+    const { client, server } = await connect();
+    const result = await client.callTool({
+      name: 'get_findings',
+      arguments: { repo: 'acme/web', pull_number: 42, cursor: 'not-a-real-cursor' },
+    });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('Invalid cursor');
+    expect(textOf(result)).toContain('not interchangeable');
     await client.close();
     await server.close();
   });

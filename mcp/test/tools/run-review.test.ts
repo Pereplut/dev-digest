@@ -17,7 +17,7 @@ describe('tools/run-review — ring 3, MockDevDigestApi, no network', () => {
     const result = await runReview(api, { repo: 'acme/web', pullNumber: 42, agentId: 'agent-1' });
     expect(result.kind).toBe('ok');
     if (result.kind !== 'ok') throw new Error('unreachable');
-    expect(result.runs).toEqual([{ runId: expect.stringContaining('run-'), agentId: 'agent-1', agentName: 'Strict Reviewer' }]);
+    expect(result.runs).toEqual([{ runId: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/), agentId: 'agent-1', agentName: 'Strict Reviewer' }]);
   });
 
   it('errors when the repo slug is unknown', async () => {

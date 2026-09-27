@@ -143,24 +143,48 @@ describe('core/project — ring 1 (no network, no SDK)', () => {
   it('paginate slices by an opaque cursor and reports the next one', () => {
     const items = Array.from({ length: 5 }, (_, i) => i);
     const first = paginate(items, { limit: 2 });
-    expect(first.items).toEqual([0, 1]);
-    expect(first.nextCursor).not.toBeNull();
+    if (!first.ok) throw new Error('expected a page');
+    expect(first.page.items).toEqual([0, 1]);
+    expect(first.page.nextCursor).not.toBeNull();
 
-    const second = paginate(items, { limit: 2, cursor: first.nextCursor! });
-    expect(second.items).toEqual([2, 3]);
+    const second = paginate(items, { limit: 2, cursor: first.page.nextCursor! });
+    if (!second.ok) throw new Error('expected a page');
+    expect(second.page.items).toEqual([2, 3]);
 
-    const third = paginate(items, { limit: 2, cursor: second.nextCursor! });
-    expect(third.items).toEqual([4]);
-    expect(third.nextCursor).toBeNull();
+    const third = paginate(items, { limit: 2, cursor: second.page.nextCursor! });
+    if (!third.ok) throw new Error('expected a page');
+    expect(third.page.items).toEqual([4]);
+    expect(third.page.nextCursor).toBeNull();
   });
 
   it('cursor round-trips through encode/decode', () => {
-    expect(decodeCursor(encodeCursor(7))).toBe(7);
+    expect(decodeCursor(encodeCursor(7))).toEqual({ ok: true, offset: 7 });
   });
 
-  it('decodeCursor tolerates a garbage cursor by treating it as offset 0', () => {
-    expect(decodeCursor('not-a-real-cursor')).toBe(0);
-    expect(decodeCursor(undefined)).toBe(0);
+  /**
+   * This used to assert the opposite — that a garbage cursor "tolerantly"
+   * decoded to offset 0. That is the defect: offset 0 is indistinguishable from
+   * no cursor, so a bad cursor silently re-served page one as the next page,
+   * while the route this wraps answers the same input with a 400. The test
+   * encoded the bug, so it had to change with the fix.
+   */
+  it('decodeCursor reports failure instead of collapsing a bad cursor to offset 0', () => {
+    expect(decodeCursor('not-a-real-cursor')).toEqual({ ok: false });
+    expect(decodeCursor(Buffer.from('{"offset":-1}', 'utf8').toString('base64url'))).toEqual({ ok: false });
+    expect(decodeCursor(Buffer.from('{"offset":1.5}', 'utf8').toString('base64url'))).toEqual({ ok: false });
+    expect(decodeCursor(Buffer.from('{}', 'utf8').toString('base64url'))).toEqual({ ok: false });
+    // The server's own cursor format — base64 of "<rank>|<uuid>" — is the
+    // realistic wrong value: a caller moving next_cursor between the two modes.
+    expect(
+      decodeCursor(Buffer.from('0|970fd9e4-8fb9-422a-a513-d483', 'utf8').toString('base64url')),
+    ).toEqual({ ok: false });
+    // No cursor is not a failure.
+    expect(decodeCursor(undefined)).toEqual({ ok: true, offset: 0 });
+  });
+
+  it('paginate refuses a bad cursor rather than returning page one', () => {
+    const items = Array.from({ length: 5 }, (_, i) => i);
+    expect(paginate(items, { limit: 2, cursor: 'not-a-real-cursor' })).toEqual({ ok: false });
   });
 });
 

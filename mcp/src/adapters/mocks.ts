@@ -21,6 +21,9 @@ import type {
   StartedRun,
 } from '../ports.js';
 
+/** Uuid-shaped so the mock is usable through tools that validate ids. */
+export const MOCK_RUN_ID = '11111111-1111-4111-8111-111111111111';
+
 export interface MockRun {
   runId: string;
   agentId: string;
@@ -79,9 +82,9 @@ export class MockDevDigestApi implements DevDigestApi {
 
   runs = new Map<string, MockRun>([
     [
-      'run-1',
+      MOCK_RUN_ID,
       {
-        runId: 'run-1',
+        runId: MOCK_RUN_ID,
         agentId: 'agent-1',
         agentName: 'Strict Reviewer',
         pullId: 'pull-1',
@@ -152,7 +155,11 @@ export class MockDevDigestApi implements DevDigestApi {
         : this.agents.filter((a) => a.id === target.agentId);
     const started: StartedRun[] = [];
     for (const agent of targets) {
-      const runId = `run-${this.nextRunId++}`;
+      // Uuid-shaped, like the real API's ids: `get_findings` constrains `run_id`
+      // to `z.string().uuid()` to match the wrapped route, so a mock that
+      // minted `run-2` would be unusable through the tool surface — and that
+      // unfaithfulness is what hid an unencoded-path-segment defect.
+      const runId = `22222222-2222-4222-8222-${String(this.nextRunId++).padStart(12, '0')}`;
       this.runs.set(runId, {
         runId,
         agentId: agent.id,

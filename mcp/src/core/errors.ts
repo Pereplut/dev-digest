@@ -155,3 +155,21 @@ function recoveryHint(status: number): string | null {
         : null;
   }
 }
+
+/**
+ * A cursor that does not decode. Not one of spec 0011's six texts, but it obeys
+ * the same rule: name the next action, not just the failure.
+ *
+ * It names the likely cause too, because the likely cause is not corruption.
+ * The `run_id` path's `next_cursor` is the server's base64 `"<rank>|<uuid>"`
+ * and this path's is a base64 `{offset}` — two formats, so moving a cursor
+ * between the two modes is the ordinary mistake, and a caller told only
+ * "invalid" would reasonably retry the same value.
+ */
+export function invalidCursorText(): string {
+  return (
+    'Invalid cursor. Pass back the exact next_cursor from this tool\'s previous response — cursors ' +
+    'are not interchangeable between the run_id and repo+pull_number modes. Omit cursor to start ' +
+    'from the first page.'
+  );
+}

@@ -138,6 +138,24 @@ function mapFinding(w: FindingWire): FindingItem {
   };
 }
 
+/**
+ * Encode one path segment.
+ *
+ * Every id that reaches a URL path goes through this, including the ones that
+ * came back from the API itself — the rule has to hold as methods are added,
+ * not just where today's input happens to be untrusted. Without it a `run_id`
+ * of `../settings?x=` builds `/runs/../settings?x=/findings`, which WHATWG URL
+ * normalisation collapses to `GET /settings`: the tool argument, not this code,
+ * would choose the endpoint. `encodeURIComponent` escapes `/`, `?` and `#`, so
+ * a segment can no longer break out of its position.
+ *
+ * Query parameters need no equivalent — `query()` below builds them with
+ * `URLSearchParams`, which escapes them already.
+ */
+function seg(value: string): string {
+  return encodeURIComponent(value);
+}
+
 function query(params: Record<string, string | number | string[] | undefined>): string {
   const usp = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
@@ -181,7 +199,7 @@ export class HttpDevDigestApi implements DevDigestApi {
 
   async getPullByNumber(repoId: string, number: number): Promise<PullDetail | null> {
     try {
-      const pr = await this.http.get<PrDetailWire>(`/repos/${repoId}/pulls/${number}`);
+      const pr = await this.http.get<PrDetailWire>(`/repos/${seg(repoId)}/pulls/${number}`);
       if (!pr.id) return null;
       return { id: pr.id, repoId, number: pr.number, title: pr.title };
     } catch (err) {
@@ -192,7 +210,7 @@ export class HttpDevDigestApi implements DevDigestApi {
 
   async startReview(pullId: string, target: RunTarget): Promise<StartedRun[]> {
     const body = 'all' in target ? { all: true } : { agentId: target.agentId };
-    const res = await this.http.post<ReviewRunResponseWire>(`/pulls/${pullId}/review`, body);
+    const res = await this.http.post<ReviewRunResponseWire>(`/pulls/${seg(pullId)}/review`, body);
     return res.runs.map((r) => ({ runId: r.run_id, agentId: r.agent_id, agentName: r.agent_name }));
   }
 
@@ -203,7 +221,7 @@ export class HttpDevDigestApi implements DevDigestApi {
       limit: q.limit,
       cursor: q.cursor,
     });
-    const res = await this.http.get<RunFindingsWire>(`/runs/${runId}/findings${qs}`);
+    const res = await this.http.get<RunFindingsWire>(`/runs/${seg(runId)}/findings${qs}`);
     return {
       findings: res.findings.map(mapFinding),
       status: res.status,
@@ -213,7 +231,7 @@ export class HttpDevDigestApi implements DevDigestApi {
   }
 
   async listReviews(pullId: string): Promise<ReviewWithFindings[]> {
-    const reviews = await this.http.get<ReviewDtoWire[]>(`/pulls/${pullId}/reviews`);
+    const reviews = await this.http.get<ReviewDtoWire[]>(`/pulls/${seg(pullId)}/reviews`);
     return reviews.map((r) => ({
       reviewId: r.id,
       agentId: r.agent_id,
@@ -224,7 +242,7 @@ export class HttpDevDigestApi implements DevDigestApi {
   }
 
   async listRunsForPull(pullId: string): Promise<RunListItem[]> {
-    const runs = await this.http.get<RunSummaryWire[]>(`/pulls/${pullId}/runs`);
+    const runs = await this.http.get<RunSummaryWire[]>(`/pulls/${seg(pullId)}/runs`);
     return runs.map((r) => ({
       runId: r.run_id,
       agentId: r.agent_id,
@@ -235,7 +253,7 @@ export class HttpDevDigestApi implements DevDigestApi {
 
   async getConventions(repoId: string, q: ConventionQuery): Promise<ConventionsPage> {
     const qs = query({ status: q.status, category: q.category });
-    const res = await this.http.get<ConventionsPageWire>(`/repos/${repoId}/conventions${qs}`);
+    const res = await this.http.get<ConventionsPageWire>(`/repos/${seg(repoId)}/conventions${qs}`);
     const candidates: ConventionItem[] = res.candidates.map((c) => ({
       category: c.category,
       rule: c.rule,

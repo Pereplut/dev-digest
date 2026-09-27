@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { MockDevDigestApi } from '../../src/adapters/mocks.js';
+import { MOCK_RUN_ID, MockDevDigestApi } from '../../src/adapters/mocks.js';
 import { getFindings } from '../../src/tools/findings.js';
 
 describe('tools/findings — ring 3, MockDevDigestApi, no network', () => {
   it('reads findings for a completed run', async () => {
     const api = new MockDevDigestApi();
-    const result = await getFindings(api, { by: 'run', runId: 'run-1', limit: 20 });
+    const result = await getFindings(api, { by: 'run', runId: MOCK_RUN_ID, limit: 20 });
     expect(result.kind).toBe('ok');
     if (result.kind !== 'ok') throw new Error('unreachable');
     expect(result.findings).toHaveLength(2);
@@ -34,7 +34,7 @@ describe('tools/findings — ring 3, MockDevDigestApi, no network', () => {
 
   it('filters by severity on the run path', async () => {
     const api = new MockDevDigestApi();
-    const result = await getFindings(api, { by: 'run', runId: 'run-1', severity: ['CRITICAL'], limit: 20 });
+    const result = await getFindings(api, { by: 'run', runId: MOCK_RUN_ID, severity: ['CRITICAL'], limit: 20 });
     expect(result.kind).toBe('ok');
     if (result.kind !== 'ok') throw new Error('unreachable');
     expect(result.findings).toHaveLength(1);

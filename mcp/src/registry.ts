@@ -134,7 +134,16 @@ const ReviewPullRequestInput = z
 
 const GetFindingsInput = z
   .object({
-    run_id: z.string().optional().describe('Run id from `review_pull_request`. Use this OR repo+pull_number, not both.'),
+    // `.uuid()` is not extra strictness: the wrapped route validates the same
+    // id as `z.string().uuid()` (server `_shared/schemas.ts` `IdParams`), so the
+    // tool is exactly as strict as the endpoint — the bar mcp/INSIGHTS.md
+    // (2026-09-27, "array-only enum param") sets. Unconstrained, this string
+    // reached the URL path directly and could re-address the request.
+    run_id: z
+      .string()
+      .uuid()
+      .optional()
+      .describe('Run id from `review_pull_request`. Use this OR repo+pull_number, not both.'),
     repo: z.string().optional().describe('Repository slug as `owner/name`, e.g. `acme/web`.'),
     // Deliberately undescribed — the name carries it (spec 0011).
     pull_number: z.number().int().positive().optional(),

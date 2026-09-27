@@ -46,3 +46,35 @@ describe('adapters/http/index — HttpDevDigestApi mapping', () => {
     await expect(api.getPullByNumber('repo-1', 999)).resolves.toBeNull();
   });
 });
+
+/**
+ * Regression: ids reached the URL path unencoded, so a `run_id` of
+ * `../settings?x=` built `/runs/../settings?x=/findings`, which WHATWG URL
+ * normalisation collapses to `GET /settings` — the tool argument, not this code,
+ * chose the endpoint. Two reviewers found it independently.
+ */
+describe('adapters/http/index — path segments are encoded', () => {
+  it('cannot be made to address another route through a run id', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({ findings: [], status: 'done', grounding: null, next_cursor: null }),
+    );
+    const api = new HttpDevDigestApi({ baseUrl: 'http://localhost:3001', fetchImpl });
+
+    await api.getRunFindings('../settings?x=', { limit: 20 });
+
+    const url = String(fetchImpl.mock.calls[0]![0]);
+    // The traversal is escaped, so the path still names /runs/<segment>/findings.
+    expect(url).toContain('/runs/..%2Fsettings%3Fx%3D/findings');
+    expect(new URL(url).pathname).not.toBe('/settings');
+    expect(new URL(url).pathname.startsWith('/runs/')).toBe(true);
+  });
+
+  it('encodes a slash inside a pull id too, so the rule is not run-id-specific', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]));
+    const api = new HttpDevDigestApi({ baseUrl: 'http://localhost:3001', fetchImpl });
+
+    await api.listReviews('a/b');
+
+    expect(String(fetchImpl.mock.calls[0]![0])).toContain('/pulls/a%2Fb/reviews');
+  });
+});

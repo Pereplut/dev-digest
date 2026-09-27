@@ -19,7 +19,7 @@ import type {
   Severity,
 } from '../ports.js';
 import { currentWave, filterFindings, paginate, resolveRepoSlug } from '../core/project.js';
-import { repositoryUnknownText, type StillRunningInfo } from '../core/errors.js';
+import { invalidCursorText, repositoryUnknownText, type StillRunningInfo } from '../core/errors.js';
 
 interface CommonFilters {
   severity?: Severity[];
@@ -100,9 +100,17 @@ export async function getFindings(api: DevDigestApi, input: GetFindingsInput): P
     ...(input.severity ? { severity: input.severity } : {}),
     ...(input.category ? { category: input.category } : {}),
   });
-  const page = paginate(filtered, { limit: input.limit, ...(input.cursor ? { cursor: input.cursor } : {}) });
+  const paged = paginate(filtered, { limit: input.limit, ...(input.cursor ? { cursor: input.cursor } : {}) });
+  if (!paged.ok) return { kind: 'error', text: invalidCursorText() };
+
   // No grounding in the pull path: it is a per-run tally, and this path merges
   // the latest review of every agent. Reporting one run's figure for all of them
   // would be worse than omitting it.
-  return { kind: 'ok', findings: page.items, nextCursor: page.nextCursor, status: null, grounding: null };
+  return {
+    kind: 'ok',
+    findings: paged.page.items,
+    nextCursor: paged.page.nextCursor,
+    status: null,
+    grounding: null,
+  };
 }

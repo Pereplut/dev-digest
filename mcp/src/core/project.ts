@@ -191,23 +191,48 @@ export function encodeCursor(offset: number): string {
   return Buffer.from(JSON.stringify({ offset }), 'utf8').toString('base64url');
 }
 
-export function decodeCursor(cursor: string | undefined): number {
-  if (!cursor) return 0;
+/**
+ * A cursor either decodes or it does not. Collapsing failure to offset 0 makes
+ * a bad cursor indistinguishable from no cursor, so the caller is handed page
+ * one *as if it were the next page* — silently, forever. The route this tool
+ * wraps takes the opposite position for the same input (`AppError
+ * 'invalid_cursor'`, 400, with its own regression test), and the two halves
+ * should not disagree.
+ *
+ * The realistic trigger is not a corrupted string: the `run_id` path's cursor
+ * is the server's base64 `"<rank>|<uuid>"`, this path's is a base64 `{offset}`.
+ * They are different formats, so passing one to the other is an ordinary
+ * mistake that must produce an error rather than a repeat of page one.
+ */
+export type CursorDecode = { ok: true; offset: number } | { ok: false };
+
+export function decodeCursor(cursor: string | undefined): CursorDecode {
+  if (!cursor) return { ok: true, offset: 0 };
   try {
-    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as { offset?: number };
-    return typeof parsed.offset === 'number' && parsed.offset >= 0 ? parsed.offset : 0;
+    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as { offset?: unknown };
+    const { offset } = parsed;
+    if (typeof offset !== 'number' || !Number.isInteger(offset) || offset < 0) return { ok: false };
+    return { ok: true, offset };
   } catch {
-    return 0;
+    return { ok: false };
   }
 }
 
-export function paginate<T>(items: T[], opts: { limit: number; cursor?: string }): Page<T> {
-  const offset = decodeCursor(opts.cursor);
+export type Paginated<T> = { ok: true; page: Page<T> } | { ok: false };
+
+export function paginate<T>(items: T[], opts: { limit: number; cursor?: string }): Paginated<T> {
+  const decoded = decodeCursor(opts.cursor);
+  if (!decoded.ok) return { ok: false };
+
+  const { offset } = decoded;
   const slice = items.slice(offset, offset + opts.limit);
   const nextOffset = offset + slice.length;
   return {
-    items: slice,
-    nextCursor: nextOffset < items.length ? encodeCursor(nextOffset) : null,
+    ok: true,
+    page: {
+      items: slice,
+      nextCursor: nextOffset < items.length ? encodeCursor(nextOffset) : null,
+    },
   };
 }
 
