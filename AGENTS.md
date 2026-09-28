@@ -12,6 +12,7 @@ All packages are TypeScript on Node ≥ 22.
 | `server/` | Fastify 5 (`tsx watch`) | Drizzle ORM + drizzle-kit, Postgres 16 + pgvector (`postgres`), Zod + fastify-type-provider-zod, openai / @anthropic-ai/sdk, octokit, simple-git, @ast-grep/napi, js-tiktoken, p-queue | vitest, testcontainers |
 | `client/` | Next.js 15 (App Router), React 19 | TanStack Query, next-intl, Zod, Tailwind CSS 4, recharts, mermaid, react-markdown, lucide-react | vitest + React Testing Library (jsdom) |
 | `reviewer-core/` | plain TS library (consumed as source) | Zod, openai SDK (OpenRouter-compatible) | vitest |
+| `mcp/` | MCP server (stdio + Streamable HTTP) | `@modelcontextprotocol/server` + `/fastify` (spec `2026-07-28`), **Zod 4** | vitest, dependency-cruiser |
 | `e2e/` | tsx runner (`run.ts`) | agent-browser CLI (Chrome for Testing) | JSON flows |
 | `server/src/vendor/shared/` | — | Zod contracts (`@devdigest/shared`) | via server tests |
 
@@ -21,6 +22,7 @@ All packages are TypeScript on Node ≥ 22.
 | `server/` | `@devdigest/api`: REST API, DB schema and migrations, GitHub/git/LLM adapters, review run executor, repo-intel indexer | 3001 | pnpm | [server/AGENTS.md](server/AGENTS.md) | [server/README.md](server/README.md) |
 | `client/` | `@devdigest/web`: the studio UI (PR list, PR detail, findings, agents, settings) | 3000 | pnpm | [client/AGENTS.md](client/AGENTS.md) | [client/README.md](client/README.md) |
 | `reviewer-core/` | `@devdigest/reviewer-core`: pure review engine (diff → prompt → LLM → grounded findings, cost sum) | — | npm | [reviewer-core/AGENTS.md](reviewer-core/AGENTS.md) | [reviewer-core/README.md](reviewer-core/README.md) |
+| `mcp/` | `@devdigest/mcp`: five MCP tools over the API for external coding agents | — | npm | [mcp/AGENTS.md](mcp/AGENTS.md) | [mcp/README.md](mcp/README.md) |
 | `e2e/` | `@devdigest/e2e`: deterministic browser flows over the seeded stack | — | npm | [e2e/AGENTS.md](e2e/AGENTS.md) | [e2e/README.md](e2e/README.md) |
 | `server/src/vendor/shared/` | `@devdigest/shared`: canonical Zod contracts (client keeps a vendored copy) | — | — | [shared AGENTS.md](server/src/vendor/shared/AGENTS.md) | [index.ts header](server/src/vendor/shared/index.ts) |
 
@@ -44,6 +46,7 @@ Also at the root:
 | `server/` | `pnpm typecheck` | `pnpm lint` | unit: `pnpm exec vitest run --exclude '**/*.it.test.ts'` · integration (Docker): `pnpm exec vitest run .it.test` |
 | `client/` | `pnpm typecheck` | `pnpm lint` | `pnpm test` |
 | `reviewer-core/` | `npm run typecheck` | `npm run lint` | `npm test` |
+| `mcp/` | `npm run typecheck` | `npm run lint` (`eslint .` + `npm run arch`) | `npm test` · protocol: `npx @modelcontextprotocol/inspector --cli <entry> --method tools/list` |
 | `e2e/` | `npm run typecheck` | `npm run lint` | `./scripts/e2e.sh` (from the root) |
 
 A change to `reviewer-core/` or `server/src/vendor/shared/` also requires server typecheck and tests.
@@ -75,7 +78,7 @@ A change to `reviewer-core/` or `server/src/vendor/shared/` also requires server
 - **Migrations:** `server/src/db/migrations/**` (the `.sql` files and `meta/` snapshots).
   - Never hand-edit, rename, reorder or delete an existing migration.
   - A schema change goes in `server/src/db/schema/`. Then run `pnpm db:generate` (creates the next migration) and `pnpm db:migrate`.
-- **Lockfiles:** `server/pnpm-lock.yaml`, `client/pnpm-lock.yaml`, `reviewer-core/package-lock.json`, `e2e/package-lock.json`, `skills-lock.json`.
+- **Lockfiles:** `server/pnpm-lock.yaml`, `client/pnpm-lock.yaml`, `reviewer-core/package-lock.json`, `mcp/package-lock.json`, `e2e/package-lock.json`, `skills-lock.json`.
   - Never hand-edit, regenerate from scratch, or delete them.
   - They change only as a side effect of that package's own manager (`pnpm add` / `npm i`) when dependencies change.
   - Never add a second lockfile (for example `package-lock.json` in a pnpm package).

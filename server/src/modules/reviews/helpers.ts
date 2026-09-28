@@ -35,6 +35,47 @@ export interface ReviewDto {
   findings: ReviewDtoFinding[];
 }
 
+/**
+ * Decoded page boundary for `GET /runs/:id/findings` — the last row of the
+ * previous page. Mirrors `pulls/helpers.ts` `PullCursor`, but findings carry
+ * no timestamp of their own, so the pair is the same `(severity rank, id)`
+ * the repository's keyset predicate and `ORDER BY` both use.
+ */
+export interface RunFindingsCursor {
+  severityRank: number;
+  id: string;
+}
+
+const SEVERITY_RANK: Record<string, number> = { CRITICAL: 0, WARNING: 1, SUGGESTION: 2 };
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Encode a page boundary. Opaque to the client on purpose, exactly like
+ * `pulls/helpers.ts` `encodePullCursor` — an implementation detail of the
+ * ordering, not an API the caller composes. `base64url` so it survives a
+ * query string without escaping.
+ */
+export function encodeRunFindingsCursor(row: FindingRow): string {
+  const rank = SEVERITY_RANK[row.severity] ?? 3;
+  return Buffer.from(`${rank}|${row.id}`, 'utf8').toString('base64url');
+}
+
+/**
+ * Decode a cursor; `null` for anything malformed, so a bad one is a 400 not a
+ * 500 — both halves are bound into a SQL cast in the repository (see
+ * `pulls/helpers.ts` `decodePullCursor` for why that matters).
+ */
+export function decodeRunFindingsCursor(raw: string): RunFindingsCursor | null {
+  const decoded = Buffer.from(raw, 'base64url').toString('utf8');
+  const sep = decoded.indexOf('|');
+  if (sep <= 0) return null;
+  const rankPart = decoded.slice(0, sep);
+  const id = decoded.slice(sep + 1);
+  if (!/^[0-3]$/.test(rankPart)) return null;
+  if (!UUID_RE.test(id)) return null;
+  return { severityRank: Number(rankPart), id };
+}
+
 export function findingRowToDto(row: FindingRow): ReviewDtoFinding {
   return {
     id: row.id,

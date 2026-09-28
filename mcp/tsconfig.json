@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "moduleDetection": "force",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "verbatimModuleSyntax": false,
+    "declaration": false,
+    "sourceMap": true,
+    "composite": false,
+    "noEmit": true,
+    "types": ["node"],
+    "lib": ["ES2022"]
+  },
+  // test/** is included because this config is `noEmit` (typecheck IS the
+  // build, mirroring reviewer-core/tsconfig.json), so type-checking the tests
+  // costs nothing and stops a test casting its way past a contract unnoticed.
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

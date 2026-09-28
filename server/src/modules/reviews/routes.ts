@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
-import { RunRequest } from '@devdigest/shared';
+import { RunFindingsQuery, RunRequest } from '@devdigest/shared';
 import type { RunEvent } from '@devdigest/shared';
 import { getContext } from '../_shared/context.js';
 import { IdParams } from '../_shared/schemas.js';
@@ -12,6 +12,7 @@ import { ReviewService } from './service.js';
  *   POST   /pulls/:id/review  {agentId} | {all:true}  → run review(s); returns runs
  *   GET    /runs/:id/events                            → SSE stream of RunEvent (replay-first)
  *   GET    /runs/:id/trace                             → the single-document RunTrace
+ *   GET    /runs/:id/findings                          → findings for a run, filtered + paginated (spec 0011)
  *   GET    /pulls/:id/reviews                          → persisted reviews + findings for a PR
  *   GET    /pulls/:id/intent                           → derived intent, or null (spec 0008)
  *   POST   /findings/:id/(accept|dismiss)              → finding actions
@@ -167,6 +168,23 @@ export default async function reviewsRoutes(appBase: FastifyInstance) {
     if (!trace) throw new NotFoundError('Run trace not found');
     return trace;
   });
+
+  // ---- Findings for a run: severity/category filter + pagination (spec 0011) --
+  // Filtering, category and pagination all resolve in SQL (review.repo.ts) —
+  // never a JS post-filter over a fetched-then-discarded result set.
+  app.get(
+    '/runs/:id/findings',
+    { schema: { params: IdParams, querystring: RunFindingsQuery } },
+    async (req) => {
+      const { workspaceId } = await getContext(container, req);
+      return service.getRunFindings(workspaceId, req.params.id, {
+        ...(req.query.severity ? { severity: req.query.severity } : {}),
+        ...(req.query.category ? { category: req.query.category } : {}),
+        limit: req.query.limit,
+        ...(req.query.cursor ? { cursor: req.query.cursor } : {}),
+      });
+    },
+  );
 
   // ---- Reads --------------------------------------------------------------
   app.get('/pulls/:id/reviews', { schema: { params: IdParams } }, async (req) => {

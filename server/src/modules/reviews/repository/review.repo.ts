@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, desc, inArray, isNull, sql } from 'drizzle-orm';
 import type { DbOrTx } from '../../../db/client.js';
 import * as t from '../../../db/schema.js';
 import type { Finding } from '@devdigest/shared';
@@ -116,6 +116,83 @@ export async function latestReviewFindings(
     .select({ file: t.findings.file, startLine: t.findings.startLine })
     .from(t.findings)
     .where(and(inArray(t.findings.reviewId, latest), isNull(t.findings.dismissedAt)));
+}
+
+/**
+ * One page of a run's findings (`GET /runs/:id/findings`, spec 0011) — filtered
+ * by severity/category, keyset-paginated, ordered highest severity first. All
+ * four resolve in SQL: no JS post-filtering, ever, on model-sized result sets.
+ *
+ * Findings carry no timestamp of their own (`findings` has no `created_at`
+ * column), so the keyset sorts on the same `(severity rank, id)` pair the
+ * query orders by — `id` alone would work for stability, but severity-first
+ * matches what a caller polling this endpoint actually wants first.
+ *
+ * Returns `undefined` when the run does not exist IN THIS WORKSPACE, so the
+ * caller 404s instead of leaking another workspace's run by id. A still-
+ * running run legitimately has no review yet (`insertReview` only happens on
+ * completion — run-executor.ts:304), so `rows` comes back empty with the
+ * run's live `status` — not an error.
+ */
+export async function getRunFindingsPage(
+  db: DbOrTx,
+  workspaceId: string,
+  runId: string,
+  opts: {
+    severity?: string[];
+    category?: string[];
+    limit: number;
+    cursor?: { severityRank: number; id: string };
+  },
+): Promise<
+  { status: string | null; grounding: string | null; rows: FindingRow[]; hasMore: boolean } | undefined
+> {
+  // `grounding` travels with `status` because zero findings is ambiguous without
+  // it: a completed run that reviewed a real diff and found nothing looks
+  // identical to one handed an empty diff. "0/0 passed" is the tell.
+  const [run] = await db
+    .select({ status: t.agentRuns.status, grounding: t.agentRuns.grounding })
+    .from(t.agentRuns)
+    .where(and(eq(t.agentRuns.id, runId), eq(t.agentRuns.workspaceId, workspaceId)));
+  if (!run) return undefined;
+
+  // Lower rank = higher severity, so ORDER BY rank ASC reads as "worst first".
+  const rank = sql`case ${t.findings.severity}
+    when 'CRITICAL' then 0 when 'WARNING' then 1 when 'SUGGESTION' then 2 else 3 end`;
+
+  const conditions = [eq(t.reviews.runId, runId)];
+  if (opts.severity && opts.severity.length > 0) {
+    conditions.push(inArray(t.findings.severity, opts.severity));
+  }
+  if (opts.category && opts.category.length > 0) {
+    conditions.push(inArray(t.findings.category, opts.category));
+  }
+  if (opts.cursor) {
+    // Row-value comparison over the same (rank, id) pair ORDER BY uses, exactly
+    // the keyset predicate `pulls/repository/pull.repo.ts` uses for its own
+    // (sortKey, id) pagination. Both halves are bound as parameters, not
+    // concatenated — `${opts.cursor.id}::uuid` casts a TEXT parameter, it does
+    // not interpolate one.
+    conditions.push(
+      sql`(${rank}, ${t.findings.id}) > (${opts.cursor.severityRank}, ${opts.cursor.id}::uuid)`,
+    );
+  }
+
+  // Fetch `limit + 1` rows so "is there another page?" needs no second query.
+  const rows = await db
+    .select({ finding: t.findings })
+    .from(t.findings)
+    .innerJoin(t.reviews, eq(t.reviews.id, t.findings.reviewId))
+    .where(and(...conditions))
+    .orderBy(rank, t.findings.id)
+    .limit(opts.limit + 1);
+
+  return {
+    status: run.status,
+    grounding: run.grounding,
+    rows: rows.slice(0, opts.limit).map((r) => r.finding),
+    hasMore: rows.length > opts.limit,
+  };
 }
 
 export async function getReview(db: DbOrTx, reviewId: string): Promise<ReviewRow | undefined> {
