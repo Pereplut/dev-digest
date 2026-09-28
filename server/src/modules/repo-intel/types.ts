@@ -144,7 +144,18 @@ export interface RepoIntel {
   getIndexState(repoId: string): Promise<IndexState>;
 
   // --- Reads --------------------------------------------------------------
-  getBlastRadius(repoId: string, changedFiles: string[]): Promise<BlastResult>;
+  /**
+   * `opts.indexOnly` (spec 0012 AC12): when true, a caller that cannot serve
+   * from the persistent index gets the degraded literal back instead of the
+   * best-effort fallback that parses the clone at request time. Only
+   * `blast/service.ts` (an HTTP-reachable route) sets it; every other caller
+   * keeps the pre-existing fallback behaviour.
+   */
+  getBlastRadius(
+    repoId: string,
+    changedFiles: string[],
+    opts?: { indexOnly?: boolean },
+  ): Promise<BlastResult>;
   getRepoMap(repoId: string, tokenBudget?: number): Promise<RepoMapResult>;
   getFileRank(repoId: string, paths: string[]): Promise<FileRankRow[]>;
   getSymbolsInFiles(repoId: string, paths: string[]): Promise<SymbolRow[]>;

@@ -8,6 +8,7 @@
  */
 import type {
   AgentSummary,
+  BlastRadiusResult,
   ConventionItem,
   ConventionsPage,
   FindingCategory,
@@ -121,6 +122,24 @@ export function enabledAgentNames(agents: AgentSummary[]): string[] {
 /** Rationale/suggestion are markdown and can be long; cap them so `detailed`
  * cannot blow the token budget on a single finding. */
 export const MAX_FINDING_TEXT_CHARS = 2000;
+
+/**
+ * `get_blast_radius`'s downstream-GROUP cap (spec 0012, post-review). The
+ * server already caps callers PER changed symbol at
+ * `MAX_CALLERS_PER_SYMBOL` (20, `repo-intel/constants.ts`), but nothing on
+ * the server side re-caps the number of groups — that total is now
+ * `20 × changed symbols`. A real PR in this codebase touches 37 changed
+ * symbols (spec 0012 §7's own manual-demo data, `Pereplut/dev-digest#9`),
+ * so an uncapped result can serialise up to ~740 caller rows: harmless for
+ * the page (a human scrolls it) but it floods an agent's context in a
+ * single tool call. 10 is chosen so the worst case stays at <= 200 caller
+ * rows — an order of magnitude below that ceiling — while still returning
+ * every group whole for the common case, which touches a handful of
+ * symbols with real callers. Groups are ranked by caller count so the
+ * trimmed-away ones are the least consequential, and the omission is
+ * reported rather than silent (see `projectBlast`).
+ */
+export const MAX_BLAST_DOWNSTREAM_GROUPS = 10;
 
 export function truncateText(text: string, maxChars = MAX_FINDING_TEXT_CHARS): string {
   if (text.length <= maxChars) return text;
@@ -270,6 +289,81 @@ export function projectConventions(page: ConventionsPage, format: ResponseFormat
   return {
     conventions: page.candidates.map((c) => projectConvention(c, format)),
     scan_status: page.scanStatus,
+  };
+}
+
+// ---- Blast radius --------------------------------------------------------------
+
+export interface BlastCallerProjection {
+  name: string;
+  file: string;
+  line: number;
+}
+
+export interface BlastDownstreamProjection {
+  symbol: string;
+  callers: BlastCallerProjection[];
+  endpoints_affected: string[];
+  crons_affected: string[];
+}
+
+export interface BlastRadiusProjection {
+  changed_symbols: { name: string; file: string; kind: string }[];
+  downstream: BlastDownstreamProjection[];
+  summary: string;
+  degraded?: boolean;
+  reason?: string;
+  /** Present only when `downstream` was actually trimmed — how many groups
+   * (and, within them, how many caller rows) were left out. */
+  omitted_downstream_groups?: number;
+  omitted_downstream_callers?: number;
+}
+
+/**
+ * `GET /pulls/:id/blast`, re-keyed to snake_case. `get_blast_radius` has no
+ * `response_format` parameter (the map is already the concise shape — there
+ * is no larger "detailed" form to gate behind one), so this always returns
+ * every field the route gives it. `degraded`/`reason` are carried through
+ * exactly when the server reports them, never invented, so the agent is told
+ * the map is partial instead of silently reading a thin one.
+ *
+ * `downstream` is additionally capped at `MAX_BLAST_DOWNSTREAM_GROUPS`,
+ * ranked by caller count so the groups kept are the most consequential ones.
+ * When groups are actually dropped, `omitted_downstream_groups` /
+ * `omitted_downstream_callers` say so — the agent is told the map was
+ * trimmed instead of silently reading a short one. This is an MCP-only cap:
+ * the page keeps rendering the server's full, uncapped `downstream`.
+ */
+export function projectBlast(result: BlastRadiusResult): BlastRadiusProjection {
+  const ranked = [...result.downstream].sort((a, b) => b.callers.length - a.callers.length);
+  const kept = ranked.slice(0, MAX_BLAST_DOWNSTREAM_GROUPS);
+  const omitted = ranked.slice(MAX_BLAST_DOWNSTREAM_GROUPS);
+
+  const concise: BlastRadiusProjection = {
+    changed_symbols: result.changedSymbols.map((s) => ({ name: s.name, file: s.file, kind: s.kind })),
+    downstream: kept.map((d) => ({
+      symbol: d.symbol,
+      callers: d.callers.map((c) => ({ name: c.name, file: c.file, line: c.line })),
+      endpoints_affected: d.endpointsAffected,
+      crons_affected: d.cronsAffected,
+    })),
+    summary: result.summary,
+  };
+
+  const projected: BlastRadiusProjection =
+    result.degraded === undefined
+      ? concise
+      : {
+          ...concise,
+          degraded: result.degraded,
+          ...(result.reason !== undefined ? { reason: result.reason } : {}),
+        };
+
+  if (omitted.length === 0) return projected;
+  return {
+    ...projected,
+    omitted_downstream_groups: omitted.length,
+    omitted_downstream_callers: omitted.reduce((n, d) => n + d.callers.length, 0),
   };
 }
 

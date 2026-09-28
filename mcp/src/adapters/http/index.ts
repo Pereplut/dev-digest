@@ -16,6 +16,7 @@
  */
 import type {
   AgentSummary,
+  BlastRadiusResult,
   ConventionItem,
   ConventionQuery,
   ConventionsPage,
@@ -120,6 +121,35 @@ interface ConventionCandidateWire {
 interface ConventionsPageWire {
   candidates: ConventionCandidateWire[];
   scan: { status: 'running' | 'done' | 'failed' } | null;
+}
+
+/** `GET /pulls/:id/blast` response (`BlastRadius` in
+ * `server/src/vendor/shared/contracts/brief.ts`). */
+interface BlastCallerWire {
+  name: string;
+  file: string;
+  line: number;
+}
+
+interface ChangedSymbolWire {
+  name: string;
+  file: string;
+  kind: string;
+}
+
+interface DownstreamImpactWire {
+  symbol: string;
+  callers: BlastCallerWire[];
+  endpoints_affected: string[];
+  crons_affected: string[];
+}
+
+interface BlastRadiusWire {
+  changed_symbols: ChangedSymbolWire[];
+  downstream: DownstreamImpactWire[];
+  summary: string;
+  degraded?: boolean;
+  reason?: string;
 }
 
 // ---- Mapping -----------------------------------------------------------------
@@ -281,6 +311,23 @@ export class HttpDevDigestApi implements DevDigestApi {
       status: c.status,
     }));
     return { candidates, scanStatus: res.scan?.status ?? null };
+  }
+
+  async getBlastRadius(prId: string): Promise<BlastRadiusResult> {
+    const res = await this.http.get<BlastRadiusWire>(`/pulls/${seg(prId)}/blast`);
+    const result: BlastRadiusResult = {
+      changedSymbols: res.changed_symbols.map((s) => ({ name: s.name, file: s.file, kind: s.kind })),
+      downstream: res.downstream.map((d) => ({
+        symbol: d.symbol,
+        callers: d.callers.map((c) => ({ name: c.name, file: c.file, line: c.line })),
+        endpointsAffected: d.endpoints_affected,
+        cronsAffected: d.crons_affected,
+      })),
+      summary: res.summary,
+    };
+    if (res.degraded !== undefined) result.degraded = res.degraded;
+    if (res.reason !== undefined) result.reason = res.reason;
+    return result;
   }
 }
 

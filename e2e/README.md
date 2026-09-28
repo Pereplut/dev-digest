@@ -115,3 +115,4 @@ a CI artifact by `.github/workflows/e2e-web.yml`).
 | `08-skills` | `/skills` → seeded skill cards + Preview tab → Security Reviewer's Skills tab shows "2 of 12 enabled" and the globally-off skill |
 | `09-conventions` | `/conventions` → seeded convention candidates, their `file:line` evidence, snippets and confidence meters, and the accept counter |
 | `10-pr-finding-actions` | PR #482 → Agent runs → **reject a finding** → still rejected after a full reload (**mutating**: needs `E2E_ALLOW_MUTATING=1`, runs last) |
+| `11-pr-blast-radius` | PR #482 → Overview tab → Blast radius card shows the `degraded` `role="status"` marker and its `no_data` reason sentence (seeded repo has no clone, so this covers the degraded state only — populated is client unit tests + manual demo) |

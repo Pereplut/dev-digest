@@ -43,15 +43,16 @@ catch the rest in-editor):
   ring-3 module: a service that only forwards to the port is a Middle Man.
   Their handlers in `registry.ts` call the port directly and pipe the result
   through a ring-1 projection (ring 4 → ring 1 is allowed).
-- `get_blast_radius` never calls the port at all — it is a stub returning
-  `isError: true` with a fixed text, registered so the surface stays stable.
+- `get_blast_radius` wraps `GET /pulls/:id/blast` (spec 0012): a finished
+  code-index read, no LLM call and no clone parsing at request time.
 
 ## Conventions
 - **Tool descriptions, parameter `.describe()` texts, server `instructions`,
-  and the six tool-error texts are verbatim from
-  [`../specs/0011-mcp-server.md`](../specs/0011-mcp-server.md).** Never
-  paraphrase them when editing `registry.ts` or `core/errors.ts` — diff
-  against the spec, don't retype from memory.
+  and the tool-error texts are verbatim from
+  [`../specs/0011-mcp-server.md`](../specs/0011-mcp-server.md) and, for
+  `get_blast_radius`, [`../specs/0012-blast-radius.md`](../specs/0012-blast-radius.md)
+  §6.** Never paraphrase them when editing `registry.ts` or `core/errors.ts` —
+  diff against the spec, don't retype from memory.
 - Five tool names, no `devdigest_` prefix: `list_review_agents`,
   `review_pull_request`, `get_findings`, `get_repo_conventions`,
   `get_blast_radius`.
@@ -76,5 +77,6 @@ catch the rest in-editor):
 
 ## Know before you edit
 - Gotchas: [INSIGHTS.md](INSIGHTS.md)
-- Spec: [`../specs/0011-mcp-server.md`](../specs/0011-mcp-server.md)
+- Specs: [`../specs/0011-mcp-server.md`](../specs/0011-mcp-server.md) (the five tools, error texts),
+  [`../specs/0012-blast-radius.md`](../specs/0012-blast-radius.md) (`get_blast_radius` wired to `GET /pulls/:id/blast`)
 - Skills: `onion-architecture`, `zod`, `typescript-expert`, `security`

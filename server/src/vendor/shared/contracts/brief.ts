@@ -33,6 +33,12 @@ export const DownstreamImpact = z.object({
   callers: z.array(BlastCaller),
   endpoints_affected: z.array(z.string()),
   crons_affected: z.array(z.string()),
+  // Additive: true only when the server actually truncated this group's
+  // callers at MAX_CALLERS_PER_SYMBOL. The client cannot know whether
+  // truncation happened just from `callers.length` (a symbol with exactly
+  // the cap's worth of REAL callers looks identical) — only the server, which
+  // saw the pre-cap count, can say so truthfully. Omitted when not capped.
+  capped: z.boolean().optional(),
 });
 export type DownstreamImpact = z.infer<typeof DownstreamImpact>;
 
@@ -40,6 +46,12 @@ export const BlastRadius = z.object({
   changed_symbols: z.array(ChangedSymbol),
   downstream: z.array(DownstreamImpact),
   summary: z.string(),
+  // Additive (spec 0012): the index this map was read from may be missing or
+  // partial. `reason` is a plain string, not an enum of DegradedReason — the
+  // contract package must not import server module types. Both optional so
+  // the payload stays minimal on the happy path and back-compat holds.
+  degraded: z.boolean().optional(),
+  reason: z.string().optional(),
 });
 export type BlastRadius = z.infer<typeof BlastRadius>;
 
