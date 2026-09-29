@@ -67,6 +67,12 @@ export interface StructuredRequest<T> {
    * the `session_id` body field; ignored by providers that don't support it.
    */
   sessionId?: string;
+  /**
+   * Cancellation signal for the underlying HTTP request. A provider that
+   * supports it (OpenRouterProvider) aborts the in-flight call when this
+   * fires, instead of running to completion after the caller has moved on.
+   */
+  signal?: AbortSignal;
 }
 
 export interface StructuredResult<T> {

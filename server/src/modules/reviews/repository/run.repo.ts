@@ -122,12 +122,16 @@ export async function cancelRunIfRunning(db: DbOrTx, runId: string): Promise<boo
   return rows.length > 0;
 }
 
-/** On boot: any run still 'running' is orphaned (its process died / restarted),
- *  so mark it failed. Prevents permanently stuck "running" runs in the UI. */
-export async function reapStaleRunningRuns(db: DbOrTx): Promise<number> {
+/** On boot: EVERY run still 'running' is orphaned — not just an old/stale one —
+ *  because `app.ts` awaits this before the server accepts requests, so a fresh
+ *  process has no in-flight runs of its own yet (single-API-instance-per-DB
+ *  assumption, see app.ts). Marks each `failed` with an explanatory `error` so
+ *  the UI and any later debugging say what happened, instead of a `failed` row
+ *  with no error, no grounding and no duration (server/INSIGHTS.md, 2026-09-27). */
+export async function reapOrphanedRunningRuns(db: DbOrTx): Promise<number> {
   const rows = await db
     .update(t.agentRuns)
-    .set({ status: 'failed' })
+    .set({ status: 'failed', error: 'Orphaned by an API restart (reaped on boot)' })
     .where(eq(t.agentRuns.status, 'running'))
     .returning({ id: t.agentRuns.id });
   return rows.length;
