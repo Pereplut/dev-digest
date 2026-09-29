@@ -293,6 +293,7 @@ export class RepoIntelService implements RepoIntel {
           file: r.fromPath,
           symbol: callerName,
           viaSymbol: sym.name,
+          viaFile: sym.file, // `sym` is this loop's changed symbol — its own decl file
           line: r.line,
           rank: 0, // ripgrep/degraded path has no persistent rank
         });
@@ -393,13 +394,17 @@ export class RepoIntelService implements RepoIntel {
         enclosingFromRows(symsByFile.get(c.fromPath) ?? [], c.line) ??
         c.fromPath.split('/').pop() ??
         c.fromPath;
-      const key = `${c.fromPath}|${enclosing}|${c.toSymbol}`;
+      // `c.declFile` is included in the dedup key too: two references from the
+      // same enclosing caller to the SAME symbol NAME declared in two
+      // different files are two distinct callers, not one.
+      const key = `${c.fromPath}|${enclosing}|${c.toSymbol}|${c.declFile}`;
       if (seenCaller.has(key)) continue;
       seenCaller.add(key);
       callers.push({
         file: c.fromPath,
         symbol: enclosing,
         viaSymbol: c.toSymbol,
+        viaFile: c.declFile,
         line: c.line,
         rank: c.rank,
       });
@@ -418,7 +423,7 @@ export class RepoIntelService implements RepoIntel {
 
     return {
       changedSymbols,
-      callers: capCallersPerSymbol(callers, MAX_CALLERS_PER_SYMBOL),
+      callers: capCallersPerDeclaration(callers, MAX_CALLERS_PER_SYMBOL),
       impactedEndpoints: [...endpoints],
       factsByFile,
       degraded: false,
@@ -776,20 +781,20 @@ function enclosingFromRows(rows: FullSymbolRow[], line: number): string | null {
 }
 
 /**
- * Cap `max` callers PER `viaSymbol`, not `max` callers total. `callers` is
+ * Cap `max` callers per `(viaFile, viaSymbol)` declaration. `callers` is
  * already rank-sorted descending (see the `.sort()` right before this is
- * called), so a single pass that drops rows once a symbol's count reaches
- * `max` both enforces the per-symbol cap AND preserves that rank order in the
- * flattened output — equivalent to grouping by `viaSymbol`, taking the first
- * `max` of each group, then flattening, without the extra allocation.
+ * called), so a single pass that drops rows once a declaration's count
+ * reaches `max` both enforces the cap and preserves that rank order in the
+ * flattened output.
  */
-function capCallersPerSymbol(callers: BlastCallerRow[], max: number): BlastCallerRow[] {
-  const seenPerSymbol = new Map<string, number>();
+function capCallersPerDeclaration(callers: BlastCallerRow[], max: number): BlastCallerRow[] {
+  const seenPerDeclaration = new Map<string, number>();
   const capped: BlastCallerRow[] = [];
   for (const c of callers) {
-    const count = seenPerSymbol.get(c.viaSymbol) ?? 0;
+    const declKey = `${c.viaFile}|${c.viaSymbol}`;
+    const count = seenPerDeclaration.get(declKey) ?? 0;
     if (count >= max) continue;
-    seenPerSymbol.set(c.viaSymbol, count + 1);
+    seenPerDeclaration.set(declKey, count + 1);
     capped.push(c);
   }
   return capped;

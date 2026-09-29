@@ -55,12 +55,14 @@ describe('RepoIntelService.getBlastRadius — per-viaSymbol caller cap', () => {
     const rateLimitRows: ResolvedCallerRow[] = Array.from({ length: 25 }, (_, i) => ({
       fromPath: `r${i}.ts`,
       toSymbol: 'rateLimit',
+      declFile: 'a.ts',
       line: 1,
       rank: i, // 0..24
     }));
     const clampRows: ResolvedCallerRow[] = Array.from({ length: 25 }, (_, i) => ({
       fromPath: `c${i}.ts`,
       toSymbol: 'clamp',
+      declFile: 'a.ts',
       line: 1,
       rank: 200 + i, // 200..224 — disjoint range so top-20 is unambiguous
     }));

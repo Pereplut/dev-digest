@@ -139,6 +139,8 @@ interface ChangedSymbolWire {
 
 interface DownstreamImpactWire {
   symbol: string;
+  /** The declaring file of `symbol` (spec 0012 fix) — absent on an older payload. */
+  file?: string;
   callers: BlastCallerWire[];
   endpoints_affected: string[];
   crons_affected: string[];
@@ -319,6 +321,7 @@ export class HttpDevDigestApi implements DevDigestApi {
       changedSymbols: res.changed_symbols.map((s) => ({ name: s.name, file: s.file, kind: s.kind })),
       downstream: res.downstream.map((d) => ({
         symbol: d.symbol,
+        ...(d.file !== undefined ? { file: d.file } : {}),
         callers: d.callers.map((c) => ({ name: c.name, file: c.file, line: c.line })),
         endpointsAffected: d.endpoints_affected,
         cronsAffected: d.crons_affected,

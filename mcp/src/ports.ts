@@ -141,6 +141,14 @@ export interface BlastCaller {
 
 export interface BlastDownstreamImpact {
   symbol: string;
+  /**
+   * The file that declares `symbol` (spec 0012 fix). A bare name is not
+   * unique — this codebase alone declares `renderWithIntl` in 8 files — so
+   * an agent reading two same-named entries needs this to tell them apart.
+   * Optional: absent on an older server response recorded before this field
+   * existed.
+   */
+  file?: string;
   callers: BlastCaller[];
   endpointsAffected: string[];
   cronsAffected: string[];

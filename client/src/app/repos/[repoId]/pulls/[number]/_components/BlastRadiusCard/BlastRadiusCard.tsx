@@ -17,6 +17,7 @@ import {
   CALLER_DISPLAY_CAP,
   degradedReasonKey,
   findDownstream,
+  symbolKey,
   totalCallers,
   uniqueSorted,
 } from "./helpers";
@@ -31,13 +32,16 @@ interface BlastRadiusCardProps {
 export function BlastRadiusCard({ prId, repoFullName, headSha }: BlastRadiusCardProps) {
   const t = useTranslations("prReview");
   const { data: blast, isLoading } = usePrBlast(prId);
+  // Keyed by `${file}:${name}`, never by name alone — a bare symbol name is
+  // not unique (spec 0012 fix), so two changed symbols sharing a name must
+  // expand/collapse independently.
   const [openSymbols, setOpenSymbols] = React.useState<ReadonlySet<string>>(new Set());
 
-  const toggleSymbol = (name: string) => {
+  const toggleSymbol = (key: string) => {
     setOpenSymbols((prev) => {
       const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   };
@@ -110,8 +114,11 @@ export function BlastRadiusCard({ prId, repoFullName, headSha }: BlastRadiusCard
 
           <div style={s.tree}>
             {changed_symbols.map((sym) => {
-              const group = findDownstream(downstream, sym.name);
-              const key = `${sym.file}:${sym.name}`;
+              // Hoisted above the `!group` branch so both branches, and the
+              // open/toggle state below, reuse the same key instead of each
+              // computing (or matching on) it separately.
+              const key = symbolKey({ file: sym.file, name: sym.name });
+              const group = findDownstream(downstream, { file: sym.file, name: sym.name });
 
               if (!group || group.callers.length === 0) {
                 return (
@@ -122,7 +129,7 @@ export function BlastRadiusCard({ prId, repoFullName, headSha }: BlastRadiusCard
                 );
               }
 
-              const open = openSymbols.has(sym.name);
+              const open = openSymbols.has(key);
               return (
                 <div key={key} style={s.symbolGroup}>
                   <button
@@ -130,8 +137,9 @@ export function BlastRadiusCard({ prId, repoFullName, headSha }: BlastRadiusCard
                     aria-expanded={open}
                     aria-label={t(open ? "blast.collapseSymbol" : "blast.expandSymbol", {
                       symbol: sym.name,
+                      file: sym.file,
                     })}
-                    onClick={() => toggleSymbol(sym.name)}
+                    onClick={() => toggleSymbol(key)}
                     style={s.symbolHeader}
                   >
                     <Icon.ChevronRight size={13} style={s.chevron(open)} />

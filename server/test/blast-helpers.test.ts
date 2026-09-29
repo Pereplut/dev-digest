@@ -9,8 +9,10 @@ import { buildBlastRadius } from '../src/modules/blast/helpers.js';
 import { MAX_CALLERS_PER_SYMBOL } from '../src/modules/blast/constants.js';
 import type { BlastCallerRow, BlastResult } from '../src/modules/repo-intel/types.js';
 
+// `viaFile` defaults to 'a.ts', matching every fixture's changed symbol below
+// unless a test needs two different decl files and overrides it explicitly.
 function caller(over: Partial<BlastCallerRow> & { viaSymbol: string }): BlastCallerRow {
-  return { file: 'b.ts', symbol: 'caller', line: 1, rank: 0, ...over };
+  return { file: 'b.ts', symbol: 'caller', viaFile: 'a.ts', line: 1, rank: 0, ...over };
 }
 
 describe('buildBlastRadius', () => {
@@ -152,30 +154,96 @@ describe('buildBlastRadius', () => {
    * reintroduced same-file callers upstream — the helper cannot invent rows
    * it wasn't given, so that assertion proved nothing about the exclusion.
    * What IS this helper's job: pass every row it is given straight through,
-   * grouped by `viaSymbol` alone. It must NOT filter by matching a caller's
-   * file against some OTHER changed symbol's decl file — grouping is by bare
-   * symbol name, and a name can legitimately be declared in two different
-   * files (e.g. `activeRunsForPull` is a `method` in
-   * `server/src/modules/reviews/repository.ts:73` AND a `function` in
-   * `reviews/repository/run.repo.ts:10`; the caller at `repository.ts:77`
-   * legitimately reaches the free function). A name-based or file-based
-   * filter here would silently delete a real caller like that one.
+   * grouped by `(viaFile, viaSymbol)`. `row.file` (the CALLER's own location)
+   * is orthogonal to grouping and must never be cross-checked against some
+   * OTHER changed symbol's decl file — only `row.viaFile` (the file that
+   * DECLARES the symbol this row reaches) decides which group a row belongs
+   * to. Here `clamp`'s caller happens to sit in `a.ts`, the decl file of the
+   * unrelated symbol `rateLimit`; that must not matter, and its real decl
+   * file — `viaFile: 'b.ts'` — is what places it correctly.
    */
-  it('passes every caller row it is given straight through, even one whose file matches another changed symbol\'s decl file', () => {
+  it('passes every caller row it is given straight through, even one whose (caller) file matches another changed symbol\'s decl file', () => {
     const result: BlastResult = {
       changedSymbols: [
         { file: 'a.ts', name: 'rateLimit', kind: 'function' },
         { file: 'b.ts', name: 'clamp', kind: 'function' },
       ],
       // `clamp`'s caller happens to live in `a.ts` — the decl file of the
-      // UNRELATED symbol `rateLimit`. buildBlastRadius must not drop it: it
-      // groups by viaSymbol name only, never by cross-checking filenames.
-      callers: [caller({ viaSymbol: 'clamp', file: 'a.ts', symbol: 'weirdCaller', line: 5, rank: 1 })],
+      // UNRELATED symbol `rateLimit`. buildBlastRadius must not drop it, and
+      // must place it under `clamp` (its real `viaFile` is `b.ts`), not
+      // `rateLimit`.
+      callers: [
+        caller({ viaSymbol: 'clamp', viaFile: 'b.ts', file: 'a.ts', symbol: 'weirdCaller', line: 5, rank: 1 }),
+      ],
       impactedEndpoints: [],
     };
     const radius = buildBlastRadius(result);
     const cl = radius.downstream.find((d) => d.symbol === 'clamp')!;
     expect(cl.callers).toEqual([{ name: 'weirdCaller', file: 'a.ts', line: 5 }]);
+    expect(radius.downstream.find((d) => d.symbol === 'rateLimit')).toBeUndefined();
+  });
+
+  /**
+   * The bug this spec fixes (spec 0012 aliasing fix): two changed symbols
+   * sharing a NAME but declared in different files used to group into ONE
+   * downstream entry with a merged caller list — pushed TWICE (once per
+   * changed symbol), both copies showing the same merged callers. Grouping
+   * on `(viaFile, viaSymbol)` keeps them apart. This assertion fails against
+   * the old bare-`viaSymbol` grouping, which would give both entries the
+   * same 2-caller merged list instead of one real caller each.
+   */
+  it('two changed symbols with the same name in different files get two separate downstream groups', () => {
+    const result: BlastResult = {
+      changedSymbols: [
+        { file: 'a.ts', name: 'handler', kind: 'function' },
+        { file: 'b.ts', name: 'handler', kind: 'function' },
+      ],
+      callers: [
+        caller({ viaSymbol: 'handler', viaFile: 'a.ts', file: 'caller-a.ts', symbol: 'fromA', line: 1, rank: 1 }),
+        caller({ viaSymbol: 'handler', viaFile: 'b.ts', file: 'caller-b.ts', symbol: 'fromB', line: 2, rank: 1 }),
+      ],
+      impactedEndpoints: [],
+    };
+    const radius = buildBlastRadius(result);
+    expect(radius.downstream).toHaveLength(2);
+
+    const groupA = radius.downstream.find((d) => d.file === 'a.ts')!;
+    const groupB = radius.downstream.find((d) => d.file === 'b.ts')!;
+    expect(groupA.symbol).toBe('handler');
+    expect(groupB.symbol).toBe('handler');
+    expect(groupA.callers).toEqual([{ name: 'fromA', file: 'caller-a.ts', line: 1 }]);
+    expect(groupB.callers).toEqual([{ name: 'fromB', file: 'caller-b.ts', line: 2 }]);
+  });
+
+  /**
+   * The per-symbol cap (`MAX_CALLERS_PER_SYMBOL`) must apply to each
+   * same-named declaration independently — not to their combined pool. This
+   * fails against the old bare-`viaSymbol` grouping, which would cap the
+   * union of both groups' rows at `MAX_CALLERS_PER_SYMBOL` total instead of
+   * `MAX_CALLERS_PER_SYMBOL` for each.
+   */
+  it('caps two same-named changed symbols in different files independently', () => {
+    const rowsFor = (viaFile: string, prefix: string): BlastCallerRow[] =>
+      Array.from({ length: MAX_CALLERS_PER_SYMBOL + 3 }, (_, i) =>
+        caller({ viaSymbol: 'handler', viaFile, file: `${prefix}${i}.ts`, symbol: `${prefix}${i}`, rank: i }),
+      );
+    const result: BlastResult = {
+      changedSymbols: [
+        { file: 'a.ts', name: 'handler', kind: 'function' },
+        { file: 'b.ts', name: 'handler', kind: 'function' },
+      ],
+      callers: [...rowsFor('a.ts', 'fromA'), ...rowsFor('b.ts', 'fromB')],
+      impactedEndpoints: [],
+    };
+    const radius = buildBlastRadius(result);
+    const groupA = radius.downstream.find((d) => d.file === 'a.ts')!;
+    const groupB = radius.downstream.find((d) => d.file === 'b.ts')!;
+    expect(groupA.callers).toHaveLength(MAX_CALLERS_PER_SYMBOL);
+    expect(groupB.callers).toHaveLength(MAX_CALLERS_PER_SYMBOL);
+    expect(groupA.capped).toBe(true);
+    expect(groupB.capped).toBe(true);
+    expect(groupA.callers.every((c) => c.name.startsWith('fromA'))).toBe(true);
+    expect(groupB.callers.every((c) => c.name.startsWith('fromB'))).toBe(true);
   });
 
   it('summary: counts only, dot-separated, singular/plural handled, zero counts rendered', () => {

@@ -141,7 +141,9 @@ describe('RepoIntelService.getBlastRadius({ indexOnly: true })', () => {
       paths.length === 1 && paths[0] === 'a.ts'
         ? [{ path: 'a.ts', name: 'rateLimit', kind: 'function', line: 1, endLine: 5, exported: true, signature: null }]
         : [];
-    repo.getResolvedCallers = async () => [{ fromPath: 'b.ts', toSymbol: 'rateLimit', line: 3, rank: 1 }];
+    repo.getResolvedCallers = async () => [
+      { fromPath: 'b.ts', toSymbol: 'rateLimit', declFile: 'a.ts', line: 3, rank: 1 },
+    ];
     repo.getFileFacts = async () => [];
     const container = indexOnlyContainer();
     const service = new RepoIntelService(container, repo);

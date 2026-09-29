@@ -111,8 +111,8 @@ module to read another's entities — the same rationale `SmartDiffService` docu
 
 **`helpers.ts` — `buildBlastRadius(result: BlastResult): BlastRadius`**, pure, no I/O:
 
-- Group `result.callers` by `viaSymbol` → one `DownstreamImpact` per changed symbol that has at
-  least one caller.
+- Group `result.callers` by `(viaFile, viaSymbol)` — **not** `viaSymbol` alone (post-ship aliasing
+  fix, see below) → one `DownstreamImpact` per changed symbol that has at least one caller.
 - Map each `BlastCallerRow` → `BlastCaller`: `{ name: row.symbol, file: row.file, line: row.line }`.
 - Order each group by `rank` descending, then cap at `MAX_CALLERS_PER_SYMBOL` (20). The facade
   already sorts by rank (`repo-intel/service.ts:376`) and, after the fix below, already caps — the
@@ -198,6 +198,59 @@ Two things this does not disturb:
 Guarded by a unit test with more than 20 callers spread over two `viaSymbol` values, asserting both
 groups survive at 20 each — a test that fails against the current `slice`.
 
+#### Post-ship fix — a bare symbol NAME is not unique; grouping/capping key on `(viaFile, viaSymbol)`
+
+`/pr-self-review` (WARNING, `BlastRadiusCard.tsx:125`) and `server/INSIGHTS.md` (2026-09-28, "Blast
+radius groups by bare symbol NAME") both named the same gap: everything above — the facade's
+`capCallersPerSymbol`, `blast/helpers.ts`'s grouping, `DownstreamImpact.symbol`, and the client's
+`openSymbols`/`toggleSymbol`/`findDownstream` — keyed on the bare symbol **name** alone. A name is
+not unique in this codebase (`renderWithIntl` is declared in 8 files; `listModels`/`complete`/`embed`
+in 5 each), so two changed symbols sharing a name silently merged: one downstream group instead of
+two, one caller-count cap shared instead of 20 each, and — client-side — one `openSymbols` entry, so
+the two rows expanded/collapsed together and the second always rendered the first's callers.
+
+The data to disambiguate them already existed and was being dropped: `getResolvedCallers`
+(`repo-intel/repository.ts:558-586`) filters `inArray(references.declFile, declFiles)` but never
+selected `declFile` into the result row, even though each reference already knows which declaration
+it resolved to. Fixed end to end, keying every grouping/capping step on the PAIR, not the name alone:
+
+1. `ResolvedCallerRow` (`repo-intel/repository.ts`) gains `declFile: string | null` — selected
+   straight off the column already filtered on. Guaranteed non-null in practice: SQL `NULL` never
+   satisfies `inArray`.
+2. `BlastCallerRow` (`repo-intel/types.ts`) gains `viaFile: string` beside `viaSymbol` — the file that
+   DECLARES the symbol a caller reaches, not the caller's own `file`. Set from `c.declFile` on the
+   persistent path (`tryPersistentBlast`) and from the changed symbol's own `sym.file` on the
+   best-effort (T1 ripgrep) path, where every changed symbol is already single-file. The dedup key in
+   `tryPersistentBlast` gains `declFile` too, so two references from the same caller to two
+   same-named-but-different-file declarations stay two rows, not one.
+3. `capCallersPerSymbol` (`repo-intel/service.ts`) now caps per `(viaFile, viaSymbol)`, not per bare
+   `viaSymbol` — otherwise the per-declaration cap silently degrades back into a per-NAME cap the
+   moment two changed symbols share a name.
+4. `DownstreamImpact` (both vendored `brief.ts` copies) gains `file: z.string().optional()` — additive,
+   so `PrBrief` keeps compiling. `blast/helpers.ts` groups `result.callers` by `(viaFile, viaSymbol)`
+   and sets `file: sym.file` on every group it emits.
+5. The client (`BlastRadiusCard.tsx` + `helpers.ts`) keys `openSymbols`/`toggleSymbol` on
+   `${sym.file}:${sym.name}` (the same key already used for the React `key`, now hoisted once and
+   reused rather than recomputed) instead of `sym.name` alone, and `findDownstream(downstream, file,
+   name)` prefers an exact `(file, name)` match, falling back to a name-only match only against a
+   group with **no** `file` at all — an older payload recorded before the field existed — never
+   against a group whose `file` is present but doesn't match, which would silently reintroduce the
+   bug for a fresh payload.
+6. `mcp/`'s own types (`ports.ts`'s `BlastDownstreamImpact`, `core/project.ts`'s
+   `BlastDownstreamProjection`, the HTTP adapter's wire type) all gain the same optional `file`,
+   carried straight through `projectBlast`, so an agent calling `get_blast_radius` can tell two
+   same-named entries apart too.
+
+Guarded by `server/test/blast-helpers.test.ts` (two same-named changed symbols in different files
+produce two separate `downstream` groups with their own, uncontaminated callers; the per-symbol cap
+applies to each independently) and `server/test/repo-intel-blast-same-name-cap.test.ts` (the same
+scenario one layer down, against the facade's `capCallersPerSymbol`) — both written to fail against
+the old bare-`viaSymbol` grouping, confirmed by temporarily reverting the four production files and
+watching all three new assertions fail before restoring the fix. Client coverage in
+`BlastRadiusCard.test.tsx`: two same-named symbols render two rows that expand/collapse independently
+and each shows only its own callers, disambiguated by document order and caller content (both rows
+share the same `blast.expandSymbol` accessible name, so a name-only query can't tell them apart).
+
 ### 2. Contract — `BlastRadius` gains `degraded` / `reason`
 
 `BlastResult` carries `degraded` + `reason` (`repo-intel/types.ts:85-86`); `BlastRadius` has nowhere
@@ -250,6 +303,36 @@ MAX_CALLERS_PER_SYMBOL` for that group (i.e. the slice at `MAX_CALLERS_PER_SYMBO
 row), and omits the key otherwise — the same minimal-payload convention as `degraded`/`reason`. The
 client (`BlastRadiusCard.tsx`) renders `blast.cappedCallers` only when `group.capped` is true, never
 from `callers.length` alone.
+
+#### Post-ship addition — `DownstreamImpact.file`
+
+The aliasing fix above (see [§The facade fix](#the-facade-fix--max_callers_per_symbol-is-applied-as-a-total-cap))
+adds one more field, in both vendored `brief.ts` copies:
+
+```ts
+export const DownstreamImpact = z.object({
+  symbol: z.string(),
+  file: z.string(),                      // new — the file that declares `symbol`
+  callers: z.array(BlastCaller),
+  endpoints_affected: z.array(z.string()),
+  crons_affected: z.array(z.string()),
+  capped: z.boolean().optional(),
+});
+```
+
+`symbol` alone was never unique — a bare name can be declared in several files — so `file` is what a
+consumer needs to key on to tell two same-named entries apart. First shipped **optional**, with a
+name-only fallback in the client's `findDownstream` for "a group with no `file` at all". A round-2
+`/pr-self-review` (two independent reviewers) found the optional unjustified and the fallback actively
+dangerous: nothing persists or replays a `BlastRadius` payload (no read/write path for `pr_brief`
+exists anywhere in `server/src`, the client hook casts the fetch response rather than parsing it, and
+the only `BlastRadius.parse()` call in the codebase is in tests), the producer (`blast/helpers.ts`) has
+always set `file` unconditionally from a required `ChangedSymbol.file`, and its two siblings in this
+same file — `ChangedSymbol.file` and `BlastCaller.file` — are both required. Worse, the fallback *was*
+the aliasing merge this feature exists to remove: a payload whose `file` a consumer failed to key on
+would silently re-degrade to name-only matching. Made required in both vendored copies (confirmed
+byte-identical via `diff`); the client's `findDownstream` fallback branch and its justifying comment
+were deleted outright, not kept as dead code.
 
 ### 3. Client — the Blast radius card
 
@@ -310,6 +393,25 @@ Gating loading on `isLoading` rather than `isFetching`, giving the degraded mark
 `role="status"`, and querying the collapsible by its exact accessible name are all recorded
 requirements for testability (`client/INSIGHTS.md:126-142`).
 
+**Post-ship fix — expand state and downstream lookup key on `(file, symbol)`, not `symbol` alone.**
+`openSymbols`/`toggleSymbol` key on `symbolKey({ file: sym.file, name: sym.name })` (the row's own
+React `key`, hoisted once per row and reused rather than recomputed for the toggle), and
+`findDownstream(downstream, { file, name })` — see [§The facade fix's post-ship subsection](#post-ship-fix--a-bare-symbol-name-is-not-unique-grouping-capping-key-on-viafile-viasymbol)
+— matches on the exact `(file, name)` pair. Two changed symbols sharing a name now expand/collapse
+independently and each renders only its own callers.
+
+**Round-2 `/pr-self-review` fix — a named-parameter object, not two adjacent `string`s.**
+`findDownstream(downstream, file, name)` took `file` and `name` as two positional `string` arguments
+that typecheck identically if swapped — a caller passing `(downstream, sym.name, sym.file)` by mistake
+would compile clean and fail silently (every lookup misses; every symbol renders
+`blast.noCallersForSymbol`). Now `findDownstream(downstream: DownstreamImpact[], symbol: { file:
+string; name: string })`. `symbolKey({ file, name })` — exported from `BlastRadiusCard/helpers.ts` —
+is the single definition of that identity pair: the component's key/state computation and
+`findDownstream`'s internal match both call it, rather than each independently building
+`` `${file}:${name}` `` or `` `${file}|${name}` `` and risking drift between the two. The server side
+of the same shape, `groupKey(file, name)` in `server/src/modules/blast/helpers.ts`, took the same
+object-parameter fix for the same reason.
+
 **Hard client constraint** — only `import type` from `@devdigest/shared`. A value import of the Zod
 schema typechecks and passes vitest but breaks `next build`, because the vendored barrel re-exports
 with `.js` specifiers webpack cannot resolve; enforced by `client/eslint.config.mjs:55-64` and
@@ -337,8 +439,8 @@ A new `blast` group **inside** `client/messages/en/prReview.json`. *Not* a new `
 | `callersLabel` | `Callers` |
 | `endpointsLabel` | `Endpoints reached` |
 | `cronsLabel` | `Cron jobs reached` |
-| `expandSymbol` | `Show callers of {symbol}` |
-| `collapseSymbol` | `Hide callers of {symbol}` |
+| `expandSymbol` | `Show callers of {symbol} in {file}` |
+| `collapseSymbol` | `Hide callers of {symbol} in {file}` |
 | `noCallersForSymbol` | `No caller outside its own file` |
 | `cappedCallers` | `Showing the {count} highest-ranked callers` — rendered only when the server's `DownstreamImpact.capped` is `true` (post-review addition, §2), never from a client-side `callers.length` comparison; a group with exactly `{count}` real callers and nothing dropped renders no note at all |
 | `openOnGitHub` | `Open {file} line {line} on GitHub` |
@@ -352,7 +454,14 @@ A new `blast` group **inside** `client/messages/en/prReview.json`. *Not* a new `
 | `degraded.reason.no_data` | `This repository has not been indexed yet, so there is nothing to read.` |
 
 `expandSymbol` / `collapseSymbol` are the collapsible's accessible name and are what the tests
-query by. `degraded.label` plus one `degraded.reason.*` sentence render together inside the
+query by. Both interpolate `{file}` as well as `{symbol}` (round-2 `/pr-self-review` fix): with
+`{symbol}` alone, two changed symbols that share a name — the same collision the aliasing fix above
+disambiguates server-side — rendered the same *visible text* (`sym.name`, never `sym.file`) **and**
+the same accessible name, an a11y gap a screen-reader user could not resolve, not merely a test
+inconvenience. `BlastRadiusCard.tsx` passes `{ symbol: sym.name, file: sym.file }`; `symbolKey({file,
+name})`, exported from `BlastRadiusCard/helpers.ts`, is the one place that identity pair is defined,
+reused by the component's expand-state key and by `findDownstream`'s lookup so the two never drift
+apart. `degraded.label` plus one `degraded.reason.*` sentence render together inside the
 `role="status"` chip, so the marker always says *why* the map is partial — a marker without a reason
 is the failure this spec is fixing, not a nicety. The five reason keys are exactly
 `DegradedReason` (`server/src/modules/repo-intel/types.ts:27-32`).
@@ -379,6 +488,11 @@ forwards calls the port directly and projects the result in ring 1
    `okJson(projectBlast(…))`. Replace the `description`, delete the
    `` `get_blast_radius` is registered but not implemented. `` line from `INSTRUCTIONS`
    (`registry.ts:50`), and retire `blastRadiusStubText` from `core/errors.ts:105`.
+
+**Post-ship addition** — `BlastDownstreamImpact` (`ports.ts`), `BlastDownstreamProjection`
+(`core/project.ts`) and the HTTP adapter's wire type all gained the same optional `file` the contract
+did (see the aliasing fix above), carried straight through `projectBlast` and the wire mapping so an
+agent calling `get_blast_radius` can tell two same-named `downstream` entries apart too.
 
 Four things that break if missed:
 
@@ -540,13 +654,13 @@ Per L03's pipeline, and the PR description names which subagent did what:
 
 | Layer | How |
 |---|---|
-| Ring 1 — the mapping | `server/test/blast-helpers.test.ts`: flat→grouped by `viaSymbol`; rank ordering; per-symbol cap at 20 (and `capped: true` is reported only when a row was actually dropped, never at exactly 20 real callers); endpoints/crons attributed from `factsByFile` over the group's caller files only; `factsByFile` absent ⇒ empty arrays, no throw; zero-caller symbol present in `changed_symbols` and absent from `downstream`; `summary` counts and pluralisation; the helper passes every row it is given straight through, grouped by `viaSymbol` alone — it does not filter by matching a caller's file against some other symbol's decl file (post-review: the original "decl file never a caller" case here was vacuous — its only fixture caller lived in a different file from the decl file, so it passed under any implementation; that invariant is enforced upstream and tested for real at Ring 1 — the facade fix below) |
-| Ring 1 — the facade fix | `server/test/repo-intel-blast-cap.test.ts`: > 20 callers over two `viaSymbol` values keep 20 each, rank order preserved. `server/test/repo-intel-blast-decl-exclusion.test.ts` (post-review addition): stubs `container.codeIndex.references()` to return one same-file and one other-file reference for the same symbol and asserts only the other-file one survives `getBlastRadius`'s best-effort path (`repo-intel/service.ts:277`) — the real enforcement point for AC13 |
+| Ring 1 — the mapping | `server/test/blast-helpers.test.ts`: flat→grouped by `(viaFile, viaSymbol)`; rank ordering; per-symbol cap at 20 (and `capped: true` is reported only when a row was actually dropped, never at exactly 20 real callers); endpoints/crons attributed from `factsByFile` over the group's caller files only; `factsByFile` absent ⇒ empty arrays, no throw; zero-caller symbol present in `changed_symbols` and absent from `downstream`; `summary` counts and pluralisation; the helper passes every row it is given straight through, grouped by `(viaFile, viaSymbol)` — it does not filter by matching a caller's OWN file against some other symbol's decl file (post-review: the original "decl file never a caller" case here was vacuous — its only fixture caller lived in a different file from the decl file, so it passed under any implementation; that invariant is enforced upstream and tested for real at Ring 1 — the facade fix below); (post-ship aliasing fix) two changed symbols sharing a NAME but declared in different files produce two separate `downstream` groups, each with its own, uncontaminated callers, and the per-symbol cap applies to each independently — both fail against the old bare-`viaSymbol` grouping |
+| Ring 1 — the facade fix | `server/test/repo-intel-blast-cap.test.ts`: > 20 callers over two `viaSymbol` values keep 20 each, rank order preserved. `server/test/repo-intel-blast-decl-exclusion.test.ts` (post-review addition): stubs `container.codeIndex.references()` to return one same-file and one other-file reference for the same symbol and asserts only the other-file one survives `getBlastRadius`'s best-effort path (`repo-intel/service.ts:277`) — the real enforcement point for AC13. `server/test/repo-intel-blast-same-name-cap.test.ts` (post-ship aliasing fix): two changed symbols named `helper` in different decl files, each with 25 resolved callers tagged with the correct `declFile`, assert `capCallersPerSymbol` keeps 20 for EACH `(viaFile, viaSymbol)` pair (40 total), not 20 combined — fails against the old bare-`viaSymbol` cap |
 | Ring 1 — indexOnly bailout (post-review) | `server/test/repo-intel-blast-index-only.test.ts`: `RepoIntelService.getBlastRadius(..., { indexOnly: true })` against a `codeIndex` stub whose every method throws — proof the best-effort (clone-parsing) path is never entered — across `flag_off` (repo-intel disabled), `no_data` (no index row), `index_failed` (persisted `degraded`/`failed` row) and a control case where the persistent index IS usable, to show `indexOnly` only bites on the bailout |
 | Ring 3 — service | Unknown pull request and cross-workspace pull request both `NotFoundError`, asserted **before** `repoIntel.getBlastRadius` is called (spy never invoked). Fake the container with an explicit stub object, **never** `as unknown as` — `server/tsconfig.json` excludes `test/**`, so a structural cast typechecks green while the test dies at runtime (`server/INSIGHTS.md:114-116`). The facade-call assertion checks the full argument list, including the third `{ indexOnly: true }` argument (post-review) |
 | Ring 4 — route | Route test asserting 200 + `BlastRadius.parse(payload)` succeeds, degraded fields present when the facade reports them and absent when it does not. Hermetic (no `test/helpers/pg.ts`), so **not** `*.it.test.ts` |
 | Contract | `BlastRadius.parse` accepts a payload without `degraded`/`reason` (back-compat) and with them; `DownstreamImpact.capped` likewise back-compat both ways; the client copy is byte-compatible for these fields |
-| Client — component | `BlastRadiusCard.test.tsx` per state: skeleton on `isLoading`; populated tree; collapsible queried by its exact accessible name (`blast.expandSymbol`); empty state copy; degraded chip found via `role="status"` with the reason sentence; `href` equals `githubBlobUrl(repo, sha, file, line)`; `repoFullName === null` ⇒ text, no link; unknown `reason` ⇒ the `no_data` sentence; the capped note renders only when `group.capped` is `true`, and NOT at exactly 20 real callers with `capped` unset |
+| Client — component | `BlastRadiusCard.test.tsx` per state: skeleton on `isLoading`; populated tree; collapsible queried by its exact accessible name (`blast.expandSymbol`); empty state copy; degraded chip found via `role="status"` with the reason sentence; `href` equals `githubBlobUrl(repo, sha, file, line)`; `repoFullName === null` ⇒ text, no link; unknown `reason` ⇒ the `no_data` sentence; the capped note renders only when `group.capped` is `true`, and NOT at exactly 20 real callers with `capped` unset; (post-ship aliasing fix) two changed symbols sharing a name in different files render two rows, queried positionally via `getAllByRole` since both share the same `blast.expandSymbol` accessible name, that expand/collapse independently and each show only their own caller and endpoint |
 | Client — wiring | `OverviewTab.test.tsx` renders the card between `PrIntentCard` and the description, and passes `repoFullName` / `headSha` through — asserted by rendering both through the mock, not just `prId` (post-review: the original mock rendered only `prId`, so a swapped/mistyped prop would have passed) |
 | MCP — ring 1 | `projectBlast` unit tests: snake_case keys, concise shape, `degraded`/`reason` carried through; (post-review) `downstream` capped at `MAX_BLAST_DOWNSTREAM_GROUPS`, ranked by caller count rather than input order, `omitted_downstream_groups`/`omitted_downstream_callers` present only when groups were actually dropped and absent at/under the cap |
 | MCP — ring 4 | `registry.test.ts` through `MockDevDigestApi`, no network: a real map comes back; an unknown pull request number returns §6's text; an unknown repo still returns `repositoryUnknownText` |
@@ -581,3 +695,7 @@ watching a deliberately broken rule fire.
 | Completion | 2026-09-28 | `status: done`; `specs/README.md` index row updated to match. Durable explanations already live in this spec (§§1–8) and in the module `INSIGHTS.md` files touched along the way; no further `docs/` write was judged necessary for a wiring feature with no new architecture. `/pr-self-review` has not been run — per root `AGENTS.md`, that is manual-only and left for the user. |
 | Implementation (round 3 — post-review) | 2026-09-28 | Two findings from a further review, both closed: (1) AC12's "no clone parsing at request time" only held when the persistent index existed — `RepoIntelService.getBlastRadius` fell through to a best-effort path reading `container.codeIndex` and the clone (`repo-intel/service.ts:243-298`), newly reachable from `GET /pulls/:id/blast`. Fixed with an additive `opts?: { indexOnly?: boolean }` on the facade signature (`repo-intel/types.ts:147`); `blast/service.ts` passes `{ indexOnly: true }`; a miss returns the degraded literal from a new `degradedBlastIndexOnly` (reads only `getIndexState`, picking `flag_off`/`no_data`/the persisted row's own `degradedReason` — no new `DegradedReason` value needed) instead of falling through. Guarded by `server/test/repo-intel-blast-index-only.test.ts`, whose `codeIndex` stub throws on every method. (2) `projectBlast`'s per-symbol cap fix left the GROUP count uncapped — `20 × changed symbols`, up to ~740 caller rows for this codebase's own 37-symbol demo PR, pushed whole into an agent's context by `get_blast_radius`. Fixed with `MAX_BLAST_DOWNSTREAM_GROUPS = 10` (`mcp/src/core/project.ts`, beside `MAX_FINDING_TEXT_CHARS`): `projectBlast` ranks `downstream` by caller count and keeps the top 10, reporting `omitted_downstream_groups`/`omitted_downstream_callers` when it actually trims. MCP-only — the route, contract and page are unchanged and keep the full map. Both changes recorded in the `server/` and `mcp/` `INSIGHTS.md`. |
 | Validation (round 3) | 2026-09-28 | `server/` — `pnpm typecheck` clean; `pnpm lint` → 0 errors / 5 pre-existing warnings (none in touched files) + `pnpm arch` → 0 errors, the same 1 pre-existing non-gating `no-orphans` warning; `pnpm exec vitest run --exclude '**/*.it.test.ts'` → **394 tests passed, 0 skipped, 37 files** (up from 390 — 4 new tests in `repo-intel-blast-index-only.test.ts`). `mcp/` — `npm run typecheck` clean; `npm run lint` (`eslint` + `npm run arch`) → 0 violations; `npm test` → **106 tests passed** (up from 103 — 3 new tests in `core/project.test.ts`), `token-budget.test.ts` unchanged at `MEASURED_AT_WRITING = 1668`. `client/` — untouched this pass; `pnpm typecheck` clean, `pnpm test` → **255 tests passed, 0 skipped, 39 files** (unchanged). `reviewer-core/` — not required (no `vendor/shared` or `reviewer-core/` change this pass). **Not run this pass**: `pnpm exec vitest run .it.test` (Docker), `./scripts/e2e.sh`, the MCP protocol/inspector check, and a fresh manual dev-app pass — unaffected by these two fixes (server: one facade branch's reason selection; mcp: a ring-1 result transform), so not re-verified live; left for the user per the standard e2e/manual carve-out. |
+| Implementation (round 4 — the aliasing fix) | 2026-09-28 | `/pr-self-review` WARNING at `BlastRadiusCard.tsx:125`, confirmed against the live index and already recorded at `server/INSIGHTS.md` (2026-09-28, "Blast radius groups by bare symbol NAME"): a bare symbol name is not unique, so grouping/capping/expand-state keyed on it alone merges two same-named-but-different-file changed symbols into one row. Fixed end to end per [§The facade fix's post-ship subsection](#post-ship-fix--a-bare-symbol-name-is-not-unique-grouping-capping-key-on-viafile-viasymbol): `ResolvedCallerRow.declFile` selected (`repo-intel/repository.ts`), `BlastCallerRow.viaFile` added (`repo-intel/types.ts`) and set on both facade paths (`repo-intel/service.ts`), `capCallersPerSymbol` re-keyed on `(viaFile, viaSymbol)`, `blast/helpers.ts` groups on the pair and sets `DownstreamImpact.file`, both vendored `brief.ts` copies gain the additive `file: z.string().optional()` (confirmed byte-identical via `diff`), the client keys `openSymbols`/`findDownstream` on `(file, name)`, and `mcp/`'s `ports.ts`/`core/project.ts`/HTTP adapter carry `file` through `projectBlast`. Three new server tests (`blast-helpers.test.ts` ×2, `repo-intel-blast-same-name-cap.test.ts`) and one new client test (`BlastRadiusCard.test.tsx`); one existing `blast-helpers.test.ts` fixture updated to add `viaFile` and its stale "grouped by `viaSymbol` alone" comment corrected; `ResolvedCallerRow`/`BlastCallerRow` fixtures in `repo-intel-blast-cap.test.ts`, `repo-intel-blast-index-only.test.ts`, `blast-routes.test.ts` and `blast-service.test.ts` gained the now-required `declFile`/`viaFile` fields. `server/INSIGHTS.md`'s 2026-09-28 entry updated to record the fix. |
+| Validation (round 4) | 2026-09-28 | All three new server tests confirmed to FAIL against the pre-fix code first: `git stash` the four production files (`repository.ts`, `types.ts`, `service.ts`, `blast/helpers.ts`) only, ran the new tests → 3 failed (2 `blast-helpers.test.ts`, 1 `repo-intel-blast-same-name-cap.test.ts`), then `git stash pop` restored the fix before any other verification. `server/` — `pnpm typecheck` clean; `pnpm lint` → 0 errors / the same 5 pre-existing warnings (none in touched files) + `pnpm arch` → 0 errors, the same 1 pre-existing non-gating `no-orphans` warning; `pnpm exec vitest run --exclude '**/*.it.test.ts'` → **397 tests passed, 0 skipped, 38 files** (up from 394 — 3 new tests); `pnpm exec vitest run .it.test` → **93 tests passed, 0 skipped, 17 files**. `client/` — `pnpm typecheck` clean; `pnpm lint` → 0 errors / the same 5 pre-existing warnings (none in touched files); `pnpm test` → **256 tests passed, 0 skipped, 39 files** (up from 255 — 1 new test); `pnpm build` → compiles, all 9 routes generate (run last, per `client/INSIGHTS.md` 2026-09-28, since the dev stack was up). `mcp/` — `npm run typecheck` clean; `npm run lint` (`eslint` + `npm run arch`) → 0 violations; `npm test` → **106 tests passed** (unchanged — `file` is optional and additive, no fixture required an update). `reviewer-core/` — required because `vendor/shared/contracts/brief.ts` changed; `npm run typecheck` clean; `npm test` → **63 tests passed** (unchanged). **Not run this pass**: `./scripts/e2e.sh` and the MCP protocol/inspector check — unaffected by this fix (no route, tool schema/description, or seed changed), left for the user per the standard carve-out; a fresh manual dev-app pass likewise left for the user. |
+| Implementation (round 5 — seven round-2 `/pr-self-review` findings) | 2026-09-29 | Two independent reviewers each flagged `DownstreamImpact.file` as optional with an unjustified name-only fallback; five more findings closed alongside. (1) `file` made **required** in both vendored `brief.ts` copies (confirmed byte-identical via `diff`) — nothing persists or replays a `BlastRadius` payload, the producer always sets it, and its siblings `ChangedSymbol.file`/`BlastCaller.file` are both required. The client's `findDownstream` name-only fallback (which *was* the aliasing bug this feature exists to remove) deleted outright, not left dead. (2) `blast.expandSymbol`/`blast.collapseSymbol` now interpolate `{file}` alongside `{symbol}` — a real a11y gap, not just a test convenience: two same-named rows previously shared one visible text AND one accessible name. `BlastRadiusCard.test.tsx`'s same-name regression test rewritten to query each row by its now-unique accessible name, re-querying from `screen` after each click instead of `getAllByRole` + document-order indexing + held element references. (3) `capCallersPerSymbol` → `capCallersPerDeclaration` (and `seenPerSymbol` → `seenPerDeclaration`) in `repo-intel/service.ts` — it has keyed on `(viaFile, viaSymbol)` since round 4; the old name and its four-line docstring explaining the mismatch were themselves the defect. Docstring shortened to state the key once. (4) `symbolKey({ file, name })` exported from `BlastRadiusCard/helpers.ts` — the one definition of the `(file, name)` identity pair, used by both the component's key/state computation and `findDownstream`'s lookup, replacing two independently-written formulas that could drift. `findDownstream` compares `symbolKey`-equal groups instead of two separate field comparisons. (5) The `viaFile: c.declFile!` non-null assertion in `service.ts` removed; the guarantee moved to where it is established — `getResolvedCallers` (`repository.ts`) now explicitly filters `.filter((r): r is ResolvedCallerRow => r.declFile !== null)` with a comment naming the SQL `IN`-never-matches-NULL invariant, `ResolvedCallerRow.declFile` narrowed to `string`, and the service consumes a plain `viaFile: c.declFile`. The `references.decl_file` DB column itself is untouched (`$type<string>()` would hide a real NULL from the Phantom gate). (6) `findDownstream(downstream, file, name)` and `groupKey(file, name)` (server `blast/helpers.ts`) both took two adjacent non-interchangeable `string`s positionally — a caller swap typechecks and fails silently. Both now take a named `{ file, name }` object. (7) The `capped` local in `blast/helpers.ts` — which held the KEPT rows while `wasCapped`/`impact.capped` mean the group was TRUNCATED — renamed to `keptRows`. Contract change touches `reviewer-core`: its typecheck and tests were run. |
+| Validation (round 5) | 2026-09-29 | `server/` — `pnpm typecheck` clean; `pnpm lint` → 0 errors / the same 5 pre-existing warnings (none in touched files) + `pnpm arch` → 0 errors, the same 1 pre-existing non-gating `no-orphans` warning; `pnpm exec vitest run --exclude '**/*.it.test.ts'` → **404 tests passed, 0 skipped, 39 files**. `pnpm exec vitest run .it.test` needed three attempts before a clean run: attempt 1 showed the documented silent-skip shape (`36 passed, 58 skipped, 94 total` — Docker-probe contention); attempt 2 showed the documented second shape, a real-looking `FAIL` in `test/skills.it.test.ts` (a file this change does not touch, and the exact test name `server/INSIGHTS.md` 2026-09-20 already records as contention-prone), confirmed as contention by running that file alone (7/7 passed in 9.7s); attempt 3 showed 3 failures across `reviews.it.test.ts`, `run-findings.it.test.ts` and `skills.it.test.ts` — still none of them files this change touches, and `reviews.it.test.ts`'s failure lines up with the concurrent, separately-owned AbortSignal work in `server/src/modules/reviews/**` (the branch's concurrency warning names this exact path); attempt 4 → **94 tests passed, 0 skipped, 17 files**, clean. `client/` — `pnpm typecheck` clean; `pnpm lint` → 0 errors / the same 5 pre-existing warnings (none in touched files); `pnpm test` first run showed 2 failures in `SkillForm.test.tsx` (an unrelated file, mid-keystroke text race under load from the concurrent Docker-heavy background run) — confirmed contention by running that file alone (2/2 passed in 3.9s) — then a clean re-run → **256 tests passed, 0 skipped, 39 files**. `mcp/` — `npm run typecheck` clean; `npm run lint` (`eslint` + `npm run arch`) → 0 violations; `npm test` → **106 tests passed** (unchanged — no `mcp/` file touched this round; its own `BlastDownstreamImpact.file`/`BlastDownstreamProjection.file` are independent hand-rolled TS interfaces, not derived from the shared Zod type, so the contract's `file` becoming required did not require an `mcp/` change). `reviewer-core/` — required because `vendor/shared/contracts/brief.ts` changed; `npm run typecheck` clean; `npm test` → **67 tests passed** (baseline moved from 63 by the concurrent, separately-owned `reviewer-core/` work this branch does not touch). **Not run this pass**: `./scripts/e2e.sh` and the MCP protocol/inspector check — no route, tool schema/description, or seed changed; left for the user per the standard carve-out; a fresh manual dev-app pass likewise left for the user. |

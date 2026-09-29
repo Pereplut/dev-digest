@@ -36,12 +36,28 @@ export function uniqueSorted(values: string[][]): string[] {
   return Array.from(new Set(values.flat())).sort();
 }
 
-/** The downstream group for a changed symbol, matched by name — absent when it has no callers. */
+/**
+ * The identity key for a changed symbol / downstream group: `(file, name)`,
+ * never `name` alone — a bare symbol name is not unique (spec 0012 fix), so
+ * two changed symbols can share a name while living in different files.
+ * Shared by the component's expand-state key and `findDownstream`'s lookup,
+ * so the two never drift apart into two different notions of "identity".
+ */
+export function symbolKey(symbol: { file: string; name: string }): string {
+  return `${symbol.file}:${symbol.name}`;
+}
+
+/**
+ * The downstream group for a changed symbol — absent when it has no callers.
+ * Matches on the exact `(file, name)` pair via `symbolKey`; `DownstreamImpact.file`
+ * is required (spec 0012 fix), so there is no name-only fallback to fall back to.
+ */
 export function findDownstream(
   downstream: DownstreamImpact[],
-  symbolName: string,
+  symbol: { file: string; name: string },
 ): DownstreamImpact | undefined {
-  return downstream.find((group) => group.symbol === symbolName);
+  const key = symbolKey(symbol);
+  return downstream.find((group) => symbolKey({ file: group.file, name: group.symbol }) === key);
 }
 
 /**

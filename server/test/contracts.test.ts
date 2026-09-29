@@ -78,6 +78,7 @@ describe('AI contracts parse fixtures', () => {
         downstream: [
           {
             symbol: 'rateLimit',
+            file: 'a.ts',
             callers: [{ name: 'publicRouter', file: 'b.ts', line: 23 }],
             endpoints_affected: ['GET /x'],
             crons_affected: ['c'],
@@ -113,6 +114,7 @@ describe('AI contracts parse fixtures', () => {
       downstream: [
         {
           symbol: 'rateLimit',
+          file: 'a.ts',
           callers: [{ name: 'publicRouter', file: 'b.ts', line: 23 }],
           endpoints_affected: ['GET /x'],
           crons_affected: [],
@@ -138,6 +140,7 @@ describe('AI contracts parse fixtures', () => {
       downstream: [
         {
           symbol: 'rateLimit',
+          file: 'a.ts',
           callers: [{ name: 'publicRouter', file: 'b.ts', line: 23 }],
           endpoints_affected: [],
           crons_affected: [],
@@ -152,6 +155,7 @@ describe('AI contracts parse fixtures', () => {
       downstream: [
         {
           symbol: 'rateLimit',
+          file: 'a.ts',
           callers: [{ name: 'publicRouter', file: 'b.ts', line: 23 }],
           endpoints_affected: [],
           crons_affected: [],

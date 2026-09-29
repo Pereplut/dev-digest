@@ -302,6 +302,8 @@ export interface BlastCallerProjection {
 
 export interface BlastDownstreamProjection {
   symbol: string;
+  /** The declaring file of `symbol` (spec 0012 fix) — see `BlastDownstreamImpact.file`. */
+  file?: string;
   callers: BlastCallerProjection[];
   endpoints_affected: string[];
   crons_affected: string[];
@@ -343,6 +345,7 @@ export function projectBlast(result: BlastRadiusResult): BlastRadiusProjection {
     changed_symbols: result.changedSymbols.map((s) => ({ name: s.name, file: s.file, kind: s.kind })),
     downstream: kept.map((d) => ({
       symbol: d.symbol,
+      ...(d.file !== undefined ? { file: d.file } : {}),
       callers: d.callers.map((c) => ({ name: c.name, file: c.file, line: c.line })),
       endpoints_affected: d.endpointsAffected,
       crons_affected: d.cronsAffected,

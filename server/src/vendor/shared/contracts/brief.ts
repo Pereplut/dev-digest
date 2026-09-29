@@ -30,6 +30,16 @@ export type BlastCaller = z.infer<typeof BlastCaller>;
 
 export const DownstreamImpact = z.object({
   symbol: z.string(),
+  // The declaring file of `symbol`. A bare name is not unique —
+  // `renderWithIntl` is declared in 8 files in this repo — so a consumer
+  // must key on (file, symbol) together, never on `symbol` alone, or two
+  // unrelated declarations merge. Required, not optional: nothing persists
+  // or replays a BlastRadius payload (no read/write path for `pr_brief`
+  // exists anywhere in server/src, and the only `BlastRadius.parse()` call
+  // is in tests), the producer (`blast/helpers.ts`) sets this unconditionally
+  // from a required `ChangedSymbol.file`, and its siblings in this file —
+  // `ChangedSymbol.file` and `BlastCaller.file` — are both required too.
+  file: z.string(),
   callers: z.array(BlastCaller),
   endpoints_affected: z.array(z.string()),
   crons_affected: z.array(z.string()),

@@ -42,19 +42,59 @@ function renderCard(props: Partial<React.ComponentProps<typeof BlastRadiusCard>>
   );
 }
 
+const CONTEXT_FILE = "server/src/modules/_shared/context.ts";
+
 const populated: BlastRadius = {
   changed_symbols: [
-    { name: "getContext", file: "server/src/modules/_shared/context.ts", kind: "function" },
+    { name: "getContext", file: CONTEXT_FILE, kind: "function" },
     { name: "unusedHelper", file: "server/src/modules/_shared/helpers.ts", kind: "function" },
   ],
   downstream: [
     {
       symbol: "getContext",
+      file: CONTEXT_FILE,
       callers: [
         { name: "handler", file: "server/src/modules/pulls/routes.ts", line: 42 },
         { name: "handler2", file: "server/src/modules/repos/routes.ts", line: 17 },
       ],
       endpoints_affected: ["GET /pulls/:id", "GET /repos/:id"],
+      crons_affected: [],
+    },
+  ],
+  summary: "2 symbols · 2 callers · 2 endpoints · 0 crons",
+};
+
+/**
+ * Two changed symbols sharing a NAME but declared in different files (spec
+ * 0012 aliasing fix). `downstream[*].file` is what tells them apart — and
+ * since `blast.expandSymbol`/`blast.collapseSymbol` interpolate the file as
+ * well as the symbol name, the two rows now have distinct accessible names
+ * ("Show callers of getContext in server/src/modules/a/context.ts" vs
+ * "…/b/context.ts"), a real a11y requirement and not just a test
+ * convenience: two same-named rows with the same visible text and the same
+ * accessible name would be indistinguishable to a screen-reader user. The
+ * regression test below queries each row by its own unique accessible name,
+ * re-querying from `screen` after each click rather than holding a stale
+ * element reference.
+ */
+const sameNamePopulated: BlastRadius = {
+  changed_symbols: [
+    { name: "getContext", file: "server/src/modules/a/context.ts", kind: "function" },
+    { name: "getContext", file: "server/src/modules/b/context.ts", kind: "function" },
+  ],
+  downstream: [
+    {
+      symbol: "getContext",
+      file: "server/src/modules/a/context.ts",
+      callers: [{ name: "handlerA", file: "server/src/modules/a/routes.ts", line: 5 }],
+      endpoints_affected: ["GET /a"],
+      crons_affected: [],
+    },
+    {
+      symbol: "getContext",
+      file: "server/src/modules/b/context.ts",
+      callers: [{ name: "handlerB", file: "server/src/modules/b/routes.ts", line: 9 }],
+      endpoints_affected: ["GET /b"],
       crons_affected: [],
     },
   ],
@@ -94,16 +134,17 @@ describe("BlastRadiusCard", () => {
     const user = userEvent.setup();
     renderCard();
 
-    const toggle = screen.getByRole("button", { name: "Show callers of getContext" });
+    const toggle = screen.getByRole("button", {
+      name: `Show callers of getContext in ${CONTEXT_FILE}`,
+    });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByText("server/src/modules/pulls/routes.ts:42")).not.toBeInTheDocument();
 
     await user.click(toggle);
 
-    expect(screen.getByRole("button", { name: "Hide callers of getContext" })).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    );
+    expect(
+      screen.getByRole("button", { name: `Hide callers of getContext in ${CONTEXT_FILE}` }),
+    ).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("server/src/modules/pulls/routes.ts:42")).toBeInTheDocument();
     expect(screen.getByText("GET /pulls/:id")).toBeInTheDocument();
   });
@@ -113,7 +154,9 @@ describe("BlastRadiusCard", () => {
     const user = userEvent.setup();
     renderCard({ repoFullName: "acme/payments-api", headSha: "deadbeef" });
 
-    await user.click(screen.getByRole("button", { name: "Show callers of getContext" }));
+    await user.click(
+      screen.getByRole("button", { name: `Show callers of getContext in ${CONTEXT_FILE}` }),
+    );
 
     const link = screen.getByRole("link", { name: "server/src/modules/pulls/routes.ts:42" });
     expect(link).toHaveAttribute(
@@ -127,7 +170,9 @@ describe("BlastRadiusCard", () => {
     const user = userEvent.setup();
     renderCard({ repoFullName: null, headSha: "deadbeef" });
 
-    await user.click(screen.getByRole("button", { name: "Show callers of getContext" }));
+    await user.click(
+      screen.getByRole("button", { name: `Show callers of getContext in ${CONTEXT_FILE}` }),
+    );
 
     expect(
       screen.queryByRole("link", { name: "server/src/modules/pulls/routes.ts:42" }),
@@ -183,7 +228,9 @@ describe("BlastRadiusCard", () => {
       downstream: [{ ...populated.downstream[0]!, capped: true }],
     };
     renderCard();
-    await user.click(screen.getByRole("button", { name: "Show callers of getContext" }));
+    await user.click(
+      screen.getByRole("button", { name: `Show callers of getContext in ${CONTEXT_FILE}` }),
+    );
     expect(screen.getByText("Showing the 20 highest-ranked callers")).toBeInTheDocument();
   });
 
@@ -199,7 +246,51 @@ describe("BlastRadiusCard", () => {
       downstream: [{ ...populated.downstream[0]!, callers: twentyCallers, capped: undefined }],
     };
     renderCard();
-    await user.click(screen.getByRole("button", { name: "Show callers of getContext" }));
+    await user.click(
+      screen.getByRole("button", { name: `Show callers of getContext in ${CONTEXT_FILE}` }),
+    );
     expect(screen.queryByText("Showing the 20 highest-ranked callers")).not.toBeInTheDocument();
+  });
+
+  /**
+   * Spec 0012 aliasing fix: two changed symbols with the SAME name, declared
+   * in different files, must render as two rows that expand/collapse
+   * independently and each show only their own callers — never the other
+   * row's merged/duplicated data.
+   */
+  it("expands two same-named symbols independently and shows each its own callers", async () => {
+    blastData.current = sameNamePopulated;
+    const user = userEvent.setup();
+    renderCard();
+
+    const showA = "Show callers of getContext in server/src/modules/a/context.ts";
+    const hideA = "Hide callers of getContext in server/src/modules/a/context.ts";
+    const showB = "Show callers of getContext in server/src/modules/b/context.ts";
+    const hideB = "Hide callers of getContext in server/src/modules/b/context.ts";
+
+    expect(screen.getByRole("button", { name: showA })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("button", { name: showB })).toHaveAttribute("aria-expanded", "false");
+
+    await user.click(screen.getByRole("button", { name: showA }));
+
+    // Only row A opened; row B stays collapsed — independent expand state.
+    // Re-queried from `screen`, not a held reference: the accessible name
+    // changes with the open state (Show → Hide).
+    expect(screen.getByRole("button", { name: hideA })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: showB })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByText("server/src/modules/a/routes.ts:5")).toBeInTheDocument();
+    expect(screen.queryByText("server/src/modules/b/routes.ts:9")).not.toBeInTheDocument();
+    expect(screen.getByText("GET /a")).toBeInTheDocument();
+    expect(screen.queryByText("GET /b")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: showB }));
+
+    // Both now open, each still showing only its own caller — not merged.
+    expect(screen.getByRole("button", { name: hideA })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: hideB })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("server/src/modules/a/routes.ts:5")).toBeInTheDocument();
+    expect(screen.getByText("server/src/modules/b/routes.ts:9")).toBeInTheDocument();
+    expect(screen.getByText("GET /a")).toBeInTheDocument();
+    expect(screen.getByText("GET /b")).toBeInTheDocument();
   });
 });

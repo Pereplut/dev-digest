@@ -128,7 +128,7 @@ describe('BlastService.forPull', () => {
   it('fetches files and calls the facade exactly once for a real pull request', async () => {
     const getBlastRadius = vi.fn(async () => ({
       changedSymbols: [{ file: 'a.ts', name: 'rateLimit', kind: 'function' }],
-      callers: [{ file: 'b.ts', symbol: 'handler', viaSymbol: 'rateLimit', line: 3, rank: 1 }],
+      callers: [{ file: 'b.ts', symbol: 'handler', viaSymbol: 'rateLimit', viaFile: 'a.ts', line: 3, rank: 1 }],
       impactedEndpoints: ['GET /x'],
     } satisfies BlastResult));
     const reviewRepo = new ReviewRepository(UNUSED_DB);

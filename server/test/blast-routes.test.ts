@@ -127,7 +127,7 @@ describe('GET /pulls/:id/blast', () => {
     ];
     const result: BlastResult = {
       changedSymbols: [{ file: 'a.ts', name: 'rateLimit', kind: 'function' }],
-      callers: [{ file: 'b.ts', symbol: 'handler', viaSymbol: 'rateLimit', line: 3, rank: 1 }],
+      callers: [{ file: 'b.ts', symbol: 'handler', viaSymbol: 'rateLimit', viaFile: 'a.ts', line: 3, rank: 1 }],
       impactedEndpoints: ['GET /x'],
     };
     app = await buildTestApp(new TestContainer(reviewRepo, stubRepoIntel(async () => result)));
