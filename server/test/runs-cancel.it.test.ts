@@ -85,7 +85,7 @@ d('POST /runs/:id/cancel (Testcontainers pg)', () => {
 
   it('cancels an orphaned running run and drops it from the active list', async () => {
     // ORDER MATTERS. buildApp reaps every 'running' agent_runs row on boot
-    // (app.ts:81 -> reapStaleRunningRuns, which is global: no workspace scope,
+    // (app.ts:81 -> reapOrphanedRunningRuns, which is global: no workspace scope,
     // no age filter). A row seeded BEFORE the app is built is already 'failed'
     // by the time the request runs, and the symptom — an empty active list —
     // reads like a broken query rather than a destroyed fixture.

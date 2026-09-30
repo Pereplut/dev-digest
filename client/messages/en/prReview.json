@@ -234,5 +234,36 @@
       "unverified": "not found in the source"
     },
     "derivedWith": "Classified with {model}"
+  },
+  "blast": {
+    "title": "Blast radius",
+    "subtitle": "what this change can reach",
+    "loading": "Reading the code index…",
+    "chip": {
+      "symbols": "{count, plural, one {# changed symbol} other {# changed symbols}}",
+      "callers": "{count, plural, one {# caller} other {# callers}}",
+      "endpoints": "{count, plural, one {# endpoint} other {# endpoints}}",
+      "crons": "{count, plural, one {# cron job} other {# cron jobs}}"
+    },
+    "callersLabel": "Callers",
+    "endpointsLabel": "Endpoints reached",
+    "cronsLabel": "Cron jobs reached",
+    "expandSymbol": "Show callers of {symbol} in {file}",
+    "collapseSymbol": "Hide callers of {symbol} in {file}",
+    "noCallersForSymbol": "No caller outside its own file",
+    "cappedCallers": "Showing the {count} highest-ranked callers",
+    "openOnGitHub": "Open {file} line {line} on GitHub",
+    "emptyTitle": "Nothing downstream",
+    "emptyBody": "No file outside this PR references the symbols it changes. That is not a clean bill of health — only a reference the index could resolve counts as a caller.",
+    "degraded": {
+      "label": "Partial map",
+      "reason": {
+        "flag_off": "Code indexing is switched off on this server, so this map was never built.",
+        "index_failed": "Indexing this repository failed, so there are no callers to read.",
+        "index_partial": "This repository is only partly indexed, so callers are missing.",
+        "repo_too_large": "This repository is too large to index in full, so callers are missing.",
+        "no_data": "This repository has not been indexed yet, so there is nothing to read."
+      }
+    }
   }
 }

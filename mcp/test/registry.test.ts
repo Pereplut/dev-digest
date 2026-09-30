@@ -218,16 +218,59 @@ describe('registry — the five tools end to end (MCP wire protocol, MockDevDige
     expect(textOf(result)).toContain('Did you mean "acme/web"?');
   });
 
-  it('get_blast_radius: always isError, never calls the port', async () => {
+  it('get_blast_radius: returns the map for a known pull request', async () => {
     const result = await client.callTool({
       name: 'get_blast_radius',
       arguments: { repo: 'acme/web', pull_number: 42 },
     });
+    expect(result.isError).toBeFalsy();
+    const body = JSON.parse(textOf(result));
+    expect(body.changed_symbols).toEqual([
+      { name: 'getContext', file: 'src/modules/_shared/context.ts', kind: 'function' },
+    ]);
+    expect(body.downstream).toHaveLength(1);
+    expect(body.downstream[0]).toMatchObject({
+      symbol: 'getContext',
+      endpoints_affected: ['GET /pulls', 'GET /runs/:id/findings'],
+      crons_affected: [],
+    });
+    expect(body.downstream[0].callers).toHaveLength(2);
+    expect(body).not.toHaveProperty('degraded');
+  });
+
+  it('get_blast_radius: carries degraded and reason through unchanged', async () => {
+    const result = await client.callTool({
+      name: 'get_blast_radius',
+      arguments: { repo: 'acme/web', pull_number: 99 },
+    });
+    expect(result.isError).toBeFalsy();
+    const body = JSON.parse(textOf(result));
+    expect(body.degraded).toBe(true);
+    expect(body.reason).toBe('no_data');
+    expect(body.downstream).toEqual([]);
+  });
+
+  it('get_blast_radius: unknown pull request number names the recovery from spec 0012 §6', async () => {
+    const result = await client.callTool({
+      name: 'get_blast_radius',
+      arguments: { repo: 'acme/web', pull_number: 4242 },
+    });
     expect(result.isError).toBe(true);
     expect(textOf(result)).toBe(
-      'get_blast_radius is not implemented yet. For impact analysis on this pull request, call ' +
-        'get_findings (severity: ["CRITICAL"]) and get_repo_conventions instead.',
+      'No pull request #4242 in acme/web. DevDigest only knows pull requests it has synced from ' +
+        'GitHub — open that repository in the DevDigest UI and refresh its pull request list, then ' +
+        'call get_blast_radius again. If the number came from a link or a branch name, check it ' +
+        'against GitHub first: this is the PR number, not an internal id.',
     );
+  });
+
+  it('get_blast_radius: unknown repo still returns the shared repositoryUnknownText', async () => {
+    const result = await client.callTool({
+      name: 'get_blast_radius',
+      arguments: { repo: 'acme/wb', pull_number: 42 },
+    });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('Did you mean "acme/web"?');
   });
 
   it('tools/list ordering is stable across repeated calls on the same server', async () => {

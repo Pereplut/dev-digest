@@ -45,6 +45,53 @@ describe('adapters/http/index — HttpDevDigestApi mapping', () => {
     const api = new HttpDevDigestApi({ baseUrl: 'http://localhost:3001', fetchImpl });
     await expect(api.getPullByNumber('repo-1', 999)).resolves.toBeNull();
   });
+
+  it('maps a blast radius response from snake_case to the plain BlastRadiusResult shape', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        changed_symbols: [{ name: 'getContext', file: 'src/context.ts', kind: 'function' }],
+        downstream: [
+          {
+            symbol: 'getContext',
+            callers: [{ name: 'listPulls', file: 'src/routes.ts', line: 12 }],
+            endpoints_affected: ['GET /pulls'],
+            crons_affected: [],
+          },
+        ],
+        summary: '1 changed symbol · 1 caller · 1 endpoint · 0 cron jobs',
+      }),
+    );
+    const api = new HttpDevDigestApi({ baseUrl: 'http://localhost:3001', fetchImpl });
+    await expect(api.getBlastRadius('pull-1')).resolves.toEqual({
+      changedSymbols: [{ name: 'getContext', file: 'src/context.ts', kind: 'function' }],
+      downstream: [
+        {
+          symbol: 'getContext',
+          callers: [{ name: 'listPulls', file: 'src/routes.ts', line: 12 }],
+          endpointsAffected: ['GET /pulls'],
+          cronsAffected: [],
+        },
+      ],
+      summary: '1 changed symbol · 1 caller · 1 endpoint · 0 cron jobs',
+    });
+    expect(String(fetchImpl.mock.calls[0]![0])).toContain('/pulls/pull-1/blast');
+  });
+
+  it('carries degraded and reason through unchanged, and omits them when absent', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        changed_symbols: [],
+        downstream: [],
+        summary: '0 changed symbols · 0 callers · 0 endpoints · 0 cron jobs',
+        degraded: true,
+        reason: 'no_data',
+      }),
+    );
+    const api = new HttpDevDigestApi({ baseUrl: 'http://localhost:3001', fetchImpl });
+    const result = await api.getBlastRadius('pull-2');
+    expect(result.degraded).toBe(true);
+    expect(result.reason).toBe('no_data');
+  });
 });
 
 /**
@@ -88,4 +135,18 @@ describe('adapters/http/index — path segments are encoded', () => {
 
     expect(String(fetchImpl.mock.calls[0]![0])).toContain('/pulls/a%2Fb/reviews');
   });
+
+  it.each(['..', '.', '', undefined, null, 42])(
+    'getBlastRadius refuses the pull id %j that seg() cannot fix, without calling fetch',
+    async (bad) => {
+      const fetchImpl = vi.fn();
+      const api = new HttpDevDigestApi({ baseUrl: 'http://localhost:3001', fetchImpl });
+
+      // `bad` stands in for a value that arrived through a blind `as T` cast
+      // (mcp/INSIGHTS.md, 2026-09-27) — `seg()`'s `typeof` clause is what
+      // catches the non-string cases, not just the three dot-segment strings.
+      await expect(api.getBlastRadius(bad as unknown as string)).rejects.toThrow(/Refusing to build a URL/);
+      expect(fetchImpl).not.toHaveBeenCalled();
+    },
+  );
 });

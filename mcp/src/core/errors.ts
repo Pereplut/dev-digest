@@ -98,14 +98,22 @@ export function apiUnreachableText(url: string): string {
 }
 
 /**
- * `get_blast_radius is not implemented yet. For impact analysis on this pull
- * request, call get_findings (severity: ["CRITICAL"]) and
- * get_repo_conventions instead.`
+ * `No pull request #<n> in <repo>. DevDigest only knows pull requests it has
+ * synced from GitHub — open that repository in the DevDigest UI and refresh
+ * its pull request list, then call get_blast_radius again. If the number
+ * came from a link or a branch name, check it against GitHub first: this is
+ * the PR number, not an internal id.`
+ *
+ * Verbatim from spec 0012 §6. `<n>` and `<repo>` are `get_blast_radius`'s own
+ * `pull_number` and `repo` arguments, echoed back the way
+ * `repositoryUnknownText` echoes `given`.
  */
-export function blastRadiusStubText(): string {
+export function blastPullRequestUnknownText(pullNumber: number, repo: string): string {
   return (
-    'get_blast_radius is not implemented yet. For impact analysis on this pull request, call ' +
-    'get_findings (severity: ["CRITICAL"]) and get_repo_conventions instead.'
+    `No pull request #${pullNumber} in ${repo}. DevDigest only knows pull requests it has synced ` +
+    'from GitHub — open that repository in the DevDigest UI and refresh its pull request list, ' +
+    'then call get_blast_radius again. If the number came from a link or a branch name, check it ' +
+    'against GitHub first: this is the PR number, not an internal id.'
   );
 }
 

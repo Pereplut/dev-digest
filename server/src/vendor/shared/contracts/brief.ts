@@ -30,9 +30,25 @@ export type BlastCaller = z.infer<typeof BlastCaller>;
 
 export const DownstreamImpact = z.object({
   symbol: z.string(),
+  // The declaring file of `symbol`. A bare name is not unique —
+  // `renderWithIntl` is declared in 8 files in this repo — so a consumer
+  // must key on (file, symbol) together, never on `symbol` alone, or two
+  // unrelated declarations merge. Required, not optional: nothing persists
+  // or replays a BlastRadius payload (no read/write path for `pr_brief`
+  // exists anywhere in server/src, and the only `BlastRadius.parse()` call
+  // is in tests), the producer (`blast/helpers.ts`) sets this unconditionally
+  // from a required `ChangedSymbol.file`, and its siblings in this file —
+  // `ChangedSymbol.file` and `BlastCaller.file` — are both required too.
+  file: z.string(),
   callers: z.array(BlastCaller),
   endpoints_affected: z.array(z.string()),
   crons_affected: z.array(z.string()),
+  // Additive: true only when the server actually truncated this group's
+  // callers at MAX_CALLERS_PER_SYMBOL. The client cannot know whether
+  // truncation happened just from `callers.length` (a symbol with exactly
+  // the cap's worth of REAL callers looks identical) — only the server, which
+  // saw the pre-cap count, can say so truthfully. Omitted when not capped.
+  capped: z.boolean().optional(),
 });
 export type DownstreamImpact = z.infer<typeof DownstreamImpact>;
 
@@ -40,6 +56,12 @@ export const BlastRadius = z.object({
   changed_symbols: z.array(ChangedSymbol),
   downstream: z.array(DownstreamImpact),
   summary: z.string(),
+  // Additive (spec 0012): the index this map was read from may be missing or
+  // partial. `reason` is a plain string, not an enum of DegradedReason — the
+  // contract package must not import server module types. Both optional so
+  // the payload stays minimal on the happy path and back-compat holds.
+  degraded: z.boolean().optional(),
+  reason: z.string().optional(),
 });
 export type BlastRadius = z.infer<typeof BlastRadius>;
 

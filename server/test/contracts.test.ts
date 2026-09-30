@@ -78,6 +78,7 @@ describe('AI contracts parse fixtures', () => {
         downstream: [
           {
             symbol: 'rateLimit',
+            file: 'a.ts',
             callers: [{ name: 'publicRouter', file: 'b.ts', line: 23 }],
             endpoints_affected: ['GET /x'],
             crons_affected: ['c'],
@@ -105,6 +106,65 @@ describe('AI contracts parse fixtures', () => {
         ],
       }),
     ).not.toThrow();
+  });
+
+  it('BlastRadius accepts a payload without degraded/reason (back-compat) and with them', () => {
+    const base = {
+      changed_symbols: [{ name: 'rateLimit', file: 'a.ts', kind: 'function' }],
+      downstream: [
+        {
+          symbol: 'rateLimit',
+          file: 'a.ts',
+          callers: [{ name: 'publicRouter', file: 'b.ts', line: 23 }],
+          endpoints_affected: ['GET /x'],
+          crons_affected: [],
+        },
+      ],
+      summary: '1 symbol · 1 caller · 1 endpoint · 0 crons',
+    };
+    const withoutDegraded = BlastRadius.parse(base);
+    expect(withoutDegraded.degraded).toBeUndefined();
+    expect(withoutDegraded.reason).toBeUndefined();
+
+    const withDegraded = BlastRadius.parse({ ...base, degraded: true, reason: 'index_partial' });
+    expect(withDegraded.degraded).toBe(true);
+    expect(withDegraded.reason).toBe('index_partial');
+
+    // `reason` is a plain string, not an enum — any string parses.
+    expect(() => BlastRadius.parse({ ...base, degraded: false, reason: 'anything' })).not.toThrow();
+  });
+
+  it('DownstreamImpact accepts a payload without `capped` (back-compat) and with it', () => {
+    const withoutCapped = BlastRadius.parse({
+      changed_symbols: [],
+      downstream: [
+        {
+          symbol: 'rateLimit',
+          file: 'a.ts',
+          callers: [{ name: 'publicRouter', file: 'b.ts', line: 23 }],
+          endpoints_affected: [],
+          crons_affected: [],
+        },
+      ],
+      summary: 's',
+    });
+    expect(withoutCapped.downstream[0]!.capped).toBeUndefined();
+
+    const withCapped = BlastRadius.parse({
+      changed_symbols: [],
+      downstream: [
+        {
+          symbol: 'rateLimit',
+          file: 'a.ts',
+          callers: [{ name: 'publicRouter', file: 'b.ts', line: 23 }],
+          endpoints_affected: [],
+          crons_affected: [],
+          capped: true,
+        },
+      ],
+      summary: 's',
+    });
+    expect(withCapped.downstream[0]!.capped).toBe(true);
   });
 
   it('SmartDiff (data.jsx DIFF)', () => {

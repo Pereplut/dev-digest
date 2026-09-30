@@ -99,8 +99,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   // not that. See server/INSIGHTS.md (2026-09-27).
   if (config.nodeEnv !== 'test') {
     try {
-      const reaped = await new ReviewService(container).reapStaleRuns();
-      if (reaped > 0) app.log.info({ reaped }, 'reaped stale running agent_runs on boot');
+      const reaped = await new ReviewService(container).reapOrphanedRuns();
+      if (reaped > 0) app.log.info({ reaped }, 'reaped orphaned running agent_runs on boot');
       // Same reasoning for the job queue, which is also in-process: a 'queued' or
       // 'running' row from a dead process is abandoned, not pending, and nothing
       // ever reads the table to discover otherwise.
