@@ -25,7 +25,15 @@ import * as t from '../src/db/schema.js';
 const hasDocker = await dockerAvailable();
 const d = hasDocker ? describe : describe.skip;
 
-const config = () => loadConfig({ ...process.env, NODE_ENV: 'test' } as NodeJS.ProcessEnv);
+/**
+ * NODE_ENV='development', not 'test', and deliberately so: `buildApp` skips
+ * boot reaping entirely under NODE_ENV=test, because `loadConfig` reads
+ * `databaseUrl` from the ambient environment and a test boot would otherwise
+ * reap the DEVELOPER'S database (server/INSIGHTS.md, 2026-09-27). This suite
+ * exercises the reaper, so it has to boot the way the real server does — the
+ * testcontainer `db` passed to `buildApp` is what keeps it off the dev DB.
+ */
+const config = () => loadConfig({ ...process.env, NODE_ENV: 'development' } as NodeJS.ProcessEnv);
 
 d('abandoned jobs are reaped on boot (Testcontainers pg)', () => {
   let pg: PgFixture;

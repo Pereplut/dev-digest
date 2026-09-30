@@ -94,6 +94,25 @@ export class ReviewRepository {
     return reviewRepo.latestReviewFindings(this.db, workspaceId, prId);
   }
 
+  /**
+   * One page of a run's findings, filtered by severity/category and
+   * keyset-paginated — `undefined` when the run is not in this workspace.
+   */
+  getRunFindingsPage(
+    workspaceId: string,
+    runId: string,
+    opts: {
+      severity?: string[];
+      category?: string[];
+      limit: number;
+      cursor?: { severityRank: number; id: string };
+    },
+  ): Promise<
+    { status: string | null; grounding: string | null; rows: FindingRow[]; hasMore: boolean } | undefined
+  > {
+    return reviewRepo.getRunFindingsPage(this.db, workspaceId, runId, opts);
+  }
+
   /** In-flight runs for a PR (status='running') — the server-side source of
    *  truth for "which agents are running now". Joined with the agent name. */
   activeRunsForPull(
