@@ -148,6 +148,13 @@
       "when": 1790173034721,
       "tag": "0020_opposite_tenebrous",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1790883871998,
+      "tag": "0021_jazzy_skullbuster",
+      "breakpoints": true
     }
   ]
 }
