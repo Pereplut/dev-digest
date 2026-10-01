@@ -6,6 +6,7 @@
  * User's Docker lane: `cd server && pnpm exec vitest run .it.test`
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { tmpdir } from 'node:os';
 import { eq, and, count } from 'drizzle-orm';
 import { startPg, dockerAvailable, type PgFixture } from './helpers/pg.js';
 import { buildApp } from '../src/app.js';
@@ -67,10 +68,18 @@ d('onboarding generation concurrency (Testcontainers pg)', () => {
     await pg?.stop();
   });
 
+  /**
+   * `clonePath` is load-bearing, not decoration: the precondition ladder runs
+   * `cloneRootReadable()` (an `lstat` for a directory) BEFORE it consults
+   * repoIntel, so a repo without one resolves to `no_clone` and every POST
+   * here 409s. `tmpdir()` is a directory that always exists; the allowlisted
+   * root files are absent inside it, which only makes the facts thin — it does
+   * not block the generation these tests are about.
+   */
   async function freshRepo(name: string): Promise<string> {
     const [repo] = await pg.handle.db
       .insert(t.repos)
-      .values({ workspaceId, owner: 'acme', name, fullName: `acme/${name}` })
+      .values({ workspaceId, owner: 'acme', name, fullName: `acme/${name}`, clonePath: tmpdir() })
       .returning({ id: t.repos.id });
     return repo!.id;
   }
@@ -137,7 +146,10 @@ d('onboarding generation concurrency (Testcontainers pg)', () => {
       status: 'running',
       startedAt: new Date(),
       jobId: '00000000-0000-0000-0000-000000000001',
-      generationId: 'existing-generation',
+      // `generation_id` is a uuid COLUMN. Drizzle types `uuid()` as `string`,
+      // so a readable placeholder typechecks and only fails against real
+      // Postgres ("invalid input syntax for type uuid").
+      generationId: '00000000-0000-4000-8000-00000000e119',
     });
 
     const app = await makeApp();
@@ -160,7 +172,7 @@ d('onboarding generation concurrency (Testcontainers pg)', () => {
       status: 'running',
       startedAt: new Date(Date.now() - GENERATION_STALE_MS - 1_000),
       jobId: '00000000-0000-0000-0000-000000000002',
-      generationId: 'stale-generation',
+      generationId: '00000000-0000-4000-8000-0000000057a1',
     });
 
     const app = await makeApp();

@@ -18,6 +18,9 @@ import * as t from '../src/db/schema.js';
 const hasDocker = await dockerAvailable();
 const d = hasDocker ? describe : describe.skip;
 
+/** Must be a real uuid — see the note at its insert site. */
+const DEAD_GENERATION_ID = '00000000-0000-4000-8000-00000000dead';
+
 d('onboarding boot reap (Testcontainers pg)', () => {
   let pg: PgFixture;
   let workspaceId: string;
@@ -49,11 +52,14 @@ d('onboarding boot reap (Testcontainers pg)', () => {
         status: 'running',
         startedAt: new Date(),
         jobId: null,
-        generationId: 'dead-generation',
+        // `generation_id` is a uuid COLUMN. Drizzle types `uuid()` as `string`,
+        // so a readable placeholder typechecks and only fails against real
+        // Postgres ("invalid input syntax for type uuid").
+        generationId: DEAD_GENERATION_ID,
       })
       .onConflictDoUpdate({
         target: t.onboarding.repoId,
-        set: { status: 'running', startedAt: new Date(), reason: null, jobId: null, generationId: 'dead-generation' },
+        set: { status: 'running', startedAt: new Date(), reason: null, jobId: null, generationId: DEAD_GENERATION_ID },
       });
   }
 
