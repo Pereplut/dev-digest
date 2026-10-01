@@ -29,6 +29,13 @@ test-results/
 # pr-self-review state (plan, findings, verdict, report) — per-clone, per-diff
 .claude/.pr-self-review/
 
+# /impl state (saved Development Plans, round ledgers) — per-clone, per-run
+.claude/.sdd/
+
+# Per-session agent usage rows captured for /retro; the composed retrospective
+# lives in WORKFLOW-RETRO.md and IS tracked.
+.claude/.retro/
+
 # emdash worktree config (local)
 .emdash.json
 

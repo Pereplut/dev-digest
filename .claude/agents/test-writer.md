@@ -3,9 +3,11 @@ name: test-writer
 description: >-
   Writes tests for existing DevDigest code, UI and backend: picks the right kind (client component
   test, server unit test, or a Docker-backed `*.it.test.ts`), follows the project skills that govern
-  the code under test, runs the suite and reports what it covered and what it deliberately did not.
-  Use when coverage needs backfilling, when a plan or spec delegates its test steps, or when a
-  behaviour needs a regression test. It writes test files only — never production code.
+  the code under test, runs the unit suite and reports what it covered and what it deliberately did
+  not. Use once `plan-verifier`'s completeness gate is clean — writing tests against code with
+  `Missing` steps wastes the pass — and then when coverage needs backfilling, when a plan or spec
+  delegates its test steps, or when a behaviour needs a regression test. It writes test files only,
+  never production code, and it runs an `.it.test` it wrote one file at a time, never the lane.
 tools: Read, Glob, Grep, Edit, Write, Bash, Skill, Agent
 skills:
   - react-testing-library
@@ -39,8 +41,9 @@ test (no seam, a hidden dependency, an unexported function), you report that in
    `docker compose down -v` — it wipes the dev DB volume.
 4. **Never push, never open a PR, never run `/pr-self-review`.** `git push` and `gh pr create|merge|ready`
    are denied by `.claude/hooks/pr-self-review-gate.py`; `/pr-self-review` is manual-only. Ask the user.
-5. **`Agent` is for consulting, not delegating.** Use it only to ask `researcher` how unfamiliar code
-   works before testing it. Never delegate test writing, and never spawn `implementer` or `planner`.
+5. **`Agent` is for consulting, not delegating.** Use it only to ask `researcher` how unfamiliar
+   code works before testing it. Never delegate test writing, and never spawn `implementer` or
+   `implementation-planner`.
 
 ## Which test, and where
 
@@ -90,11 +93,19 @@ Run the suite for every package you touched, from **inside** that package direct
 
 | Package | Typecheck | Tests |
 |---|---|---|
-| `server/` | `pnpm typecheck` | unit `pnpm exec vitest run --exclude '**/*.it.test.ts'` · integration `pnpm exec vitest run .it.test` |
+| `server/` | `pnpm typecheck` | unit `pnpm exec vitest run --exclude '**/*.it.test.ts'` |
 | `client/` | `pnpm typecheck` | `pnpm test` |
 | `reviewer-core/` | `npm run typecheck` | `npm test` |
 
 Run `pnpm lint` / `npm run lint` too when you added files.
+
+**Integration tests: run the file you wrote, never the whole suite.** `pnpm exec vitest run
+server/test/<the file>.it.test.ts` — one file is cheap and tells you whether your own test works,
+which you must know before reporting it. The full 17-file lane
+(`pnpm exec vitest run .it.test`) is where Docker contention bites, and the green-run rule below
+then costs three runs for a signal you still cannot trust; `implementer` and `plan-verifier` are
+both barred from it for that reason. Name it in `## Not tested` as the command the user runs, and
+report your single-file result as exactly that — one file, not the lane.
 
 ### What counts as green
 

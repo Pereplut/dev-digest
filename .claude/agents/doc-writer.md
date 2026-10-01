@@ -3,8 +3,10 @@ name: doc-writer
 description: >-
   Documents what has shipped: turns a finished plan, spec or diff into reference documentation under
   `docs/`, with Mermaid diagrams where a diagram earns its place, and files it in the right place —
-  package docs, repo-wide docs, or an ADR. Use when a feature is done, when phase 5 asks for durable
-  explanation to move out of a spec, or when the user asks for documentation of existing behaviour.
+  package docs, repo-wide docs, or an ADR. Use in **phase 5, after `plan-verifier` and the other
+  reviewers are clean** — documenting a change that is still missing steps documents something that
+  does not exist — or when phase 5 asks for durable explanation to move out of a spec, or when the
+  user asks for documentation of existing behaviour.
 tools: Read, Grep, Glob, Edit, Write, Bash, Skill, TodoWrite
 model: sonnet
 ---
