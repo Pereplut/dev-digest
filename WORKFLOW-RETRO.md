@@ -125,3 +125,126 @@ user approval. No cap hit, no agent died, no stop.
 - [x] `.claude/agents/researcher.md` — method step 7: in a fan-out, each researcher states the area
       it treated as its own, so the caller can tell corroboration from unplanned duplication
       (three unplanned overlaps this run).
+
+---
+
+### 2026-10-01 — full session · 7 agents · 728,624 tokens · stopped: success (PR #18 open)
+
+Supersedes the entry above, which covered only the first five agents. Composed from `<usage>`
+blocks still in context — **`.claude/.retro/` does not exist; the capture rule never ran.** See
+"The capture rule failed on its first session" below.
+
+| # | Agent | Label | Tokens | Tools | Duration | Outcome |
+|---|---|---|---:|---:|---:|---|
+| 1 | researcher | prompt-assembly | 90,843 | 37 | 2m 42s | returned |
+| 2 | researcher | agents-skills-repo | 82,778 | 47 | 3m 13s | returned |
+| 3 | researcher | client-surfaces | 67,038 | 43 | 3m 07s | returned |
+| 4 | spec-creator | write-0016 | 109,265 | 21 | 7m 10s | returned |
+| 5 | spec-creator | closes (resume of 4) | 140,247 | 20 | 4m 18s | returned |
+| 6 | general-purpose | security#1 round 1 | 107,753 | 22 | 4m 56s | returned |
+| 7 | general-purpose | security#1 round 2 (resume of 6) | 130,700 | 14 | 3m 56s | returned |
+| | | **total** | **728,624** | **204** | **29m 23s** | |
+
+**Shape.** One fan-out (1–3, parallel), then two resume-pairs. Both resumes were correct calls:
+#5 carried #4's spec context, and #7 re-reviewed only two moved files under `--since` instead of
+re-reading all sixteen.
+
+**Parallelism: 2.8× on the only fan-out** — 543,148 ms summed against 193,365 ms wall. The other
+four agents were genuinely sequential (each needed the previous one's output), so there is no
+missed fan-out to report.
+
+**Subagent vs. main thread.** At the one point `/context` was run — after agent 5 — subagent spend
+was 490,171 tokens against 169.5k of messages, **2.9×**, with `/context` showing the session 21%
+full and none of the subagent cost. The final ratio is **not measured**: `/context` was not re-run,
+so the current message count is unknown, and 728,624 ÷ 169,500 would divide by a stale denominator.
+
+## The capture rule failed on its first session
+
+`AGENTS.md` gained the rule mid-session: append a usage row to `.claude/.retro/<session>.runs.jsonl`
+as each `<task-notification>` arrives. **Two agents returned after that rule existed and neither was
+recorded.** `.claude/.retro/` was never created.
+
+This was predicted in `workflow-retro/SKILL.md` ("prompt discipline with no enforcement, which this
+repo knows drifts") and the prediction was confirmed within the hour, by the session that wrote it.
+The numbers survived only because nothing compacted — on a long run they would be gone, which is
+the exact failure the rule exists to prevent.
+
+*Conclusion:* the rule does not work as prose. See proposed changes.
+
+## Corrections — six, and five of them correct the coordinator
+
+| # | Claim | Corrected by | Passes it survived |
+|---|---|---|---|
+| 1 | "Project context renders third, after System and Skills" — read off a mockup | `spec-creator`, against `prompt.ts:262-311` | 1 (the brief) |
+| 2 | Brief named `PromptSectionName` as the whole contract change | `spec-creator` — `PromptAssembly` is a fixed-key record, invisible to the client without its own key | 1 |
+| 3 | The tool pin is sound | `security#1` — it was a **denylist**; verified it passed `Artifact` | 0 (caught same session) |
+| 4 | "Three of these commits are already-merged duplicates" | `git cherry` — all five patches absent from main | 1, stated to the user |
+| 5 | Retro proposal: grant the `find` permission | my own read of `INSIGHTS.md:172-176` — would have reverted a verified control | 1, written into a tracked file |
+| 6 | (attempt) mutate `spec-creator.md` to test the pin | auto-mode classifier, as self-modification | 0 |
+
+**#5 is the one that matters.** This skill's own first output contained a proposal that would have
+re-granted arbitrary execution and recursive deletion to every clone. It was caught **only because
+the user asked to apply all three proposals**, which forced a read of `settings.json`. Had they
+accepted the summary, it would have shipped. A retrospective's proposals are unverified claims, and
+nothing downstream reviews them — the rule added to the skill after this is the mitigation.
+
+**#3 is the second.** A reviewer found a real defect in a file written earlier in the same session,
+in work that had already passed its own tests. The denylist→allowlist inversion was proven by
+mutation: the old pin passed `Artifact`, the new one fails it along with `Bash` and `NotebookEdit`.
+
+## The question asked vs. the question that mattered
+
+Researcher 1 read `reviewer-core/src/prompt.ts` in full and reported the unwired `specs` slot — but
+not that the slot emits the literal header `## Project context` (`prompt.ts:301`), the exact string
+the new feature takes. `spec-creator` found it two steps later. Fixed as `researcher.md` method
+step 6 during this session.
+
+## Duplicate coverage — three overlaps, all corroborating
+
+Researchers 1 and 2 both reported `ReviewInput.specs`, `wrapUntrusted` and `safe-read.ts`; 1 and 3
+both reported the missing `design/` folder. None wasted — the unwired-slot finding carries the whole
+spec and two independent reports raised confidence in it. But no brief assigned ownership, so the
+overlap was unplanned. Fixed as `researcher.md` method step 7.
+
+## Capability denials — two, one with a cost and a root cause
+
+- **Researcher 2**, denied `find`/`ls` on `repo-intel/pipeline`, **returned 1 of 7 questions
+  unanswered**. Root cause was not the permission: `researcher.md:37` forbids `rg`/`find` while
+  `researcher.md:161`'s output template *demonstrated* `rg`. The demonstration won. Fixed.
+- **The coordinator**, blocked by the auto-mode classifier from mutating `spec-creator.md` to test
+  the new pin. Correct refusal; the test was run against in-memory copies instead, losing nothing.
+
+## Gate events — both correct, neither a nuisance
+
+`/pr-self-review` refused twice: the first push as **stale** after the fix changed content, and
+`write-verdict` as **tree-changed-since-plan** after the fix was committed. Both were real staleness,
+both resolved by re-running `plan` rather than working around the gate. One wasted operation: a
+cherry-pick of `d77a955` conflicted in four files, which was the cheapest way to *prove* it depends
+on commits not in main — informative, not waste.
+
+**Termination: success.** PR #18 open, self-review PASS (0 CRITICAL, 1 WARNING, 3 SUGGESTION).
+
+## Not measured
+
+- **Current main-thread token count.** `/context` was run once, after agent 5; the final figure is
+  unknown and was deliberately not extrapolated.
+- **Dollar cost.** No pricing table in this repo.
+- **Read-overlap between the two resume pairs.** No `file:line` citation comparison was done
+  between #4/#5 or #6/#7, so how much of their 270,947 combined tokens was re-reading is unknown.
+- **Whether 2.8×/2.9× are typical.** Two sessions is not a baseline.
+
+## Proposed changes
+
+- [ ] **`.claude/hooks/` — add a `SubagentStop` hook that writes the usage row**, and delete the
+      `AGENTS.md` prose rule it replaces. Evidence: the rule was added mid-session and ignored by
+      the same session, twice. `workflow-retro/SKILL.md` already names this as the remedy if rows
+      go missing. *This adds an automatic hook: it runs on every subagent return, in every session.*
+- [ ] **`.claude/agents/spec-creator.md:24-27`** — it asserts `Skill` "cannot run the scripts a
+      skill ships (that needs the `Bash` you lack)" with no evidence, and
+      `drizzle-orm-patterns/SKILL.md:4` declares `allowed-tools: … Bash …`. Measure it
+      (`claude -p --agent spec-creator` invoking that skill, from a fresh process), then state the
+      measured answer or drop the claim. Tracked as the open WARNING on PR #18.
+- [ ] **`.claude/agents/spec-creator.md:26-27`** — a third copy of the tool-pin claim, still
+      describing the retired denylist semantics. Found by `security#1` but not filed (unchanged
+      file). Point it at the test rather than restating it, per the same rule applied to
+      `spec-scope-gate.py` this session.
