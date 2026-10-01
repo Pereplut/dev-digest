@@ -63,7 +63,8 @@ export interface Facts {
 export interface BuildFactsInput {
   repoFullName: string;
   repoId: string;
-  clonePath: string;
+  /** `null` when the repo has no readable clone — root files are skipped entirely. */
+  clonePath: string | null;
   /** From the service's single `getTopFilesByRank(repoId, READING_PATH_LIMIT + 1)` call (decision 14). */
   rankedPaths: string[];
   findings: FirstTasksFinding[];
@@ -98,9 +99,11 @@ export async function buildFacts(input: BuildFactsInput): Promise<BuildFactsResu
 
   // ---- root files, read only through the allowlist chokepoint (AC-35) ----
   const rootFiles = new Map<string, string>();
-  for (const path of ROOT_FILE_ALLOWLIST) {
-    const content = await readTextFileInClone(input.clonePath, path, ROOT_FILE_MAX_BYTES);
-    if (content !== null) rootFiles.set(path, content);
+  if (input.clonePath !== null) {
+    for (const path of ROOT_FILE_ALLOWLIST) {
+      const content = await readTextFileInClone(input.clonePath, path, ROOT_FILE_MAX_BYTES);
+      if (content !== null) rootFiles.set(path, content);
+    }
   }
   const dockerComposePresent = rootFiles.has('docker-compose.yml');
 
