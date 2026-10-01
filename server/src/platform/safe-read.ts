@@ -28,6 +28,21 @@ export function isSafeRelativePath(path: string): boolean {
 }
 
 /**
+ * Does the clone root exist and look like a directory? The onboarding
+ * precondition ladder's `no_clone` rung (AC-5): a null `clone_path` is checked
+ * by the caller before this is even reached, so this covers the "set but
+ * unstattable" half — deleted after indexing, or never actually cloned.
+ *
+ * `lstat`, not `stat` — same choice `readTextFileInClone` makes below: a
+ * `clone_path` that is itself a symlink answers `false` (conservative: treated
+ * as `no_clone`) rather than following it.
+ */
+export async function cloneRootReadable(cloneRoot: string): Promise<boolean> {
+  const stats = await lstat(cloneRoot).catch(() => null);
+  return stats?.isDirectory() ?? false;
+}
+
+/**
  * Read a repo file, returning null instead of throwing when it is missing,
  * unsafe or too large. `GitClient.readFile` throws on ENOENT, and probing for a
  * file that may not exist is the common case for both callers.

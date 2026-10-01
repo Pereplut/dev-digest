@@ -134,3 +134,41 @@ describe('RepoIntel facade — degraded contract (flag on, but no data)', () => 
     await expect(svc.getCallerSignatures('r1', [])).resolves.toEqual([]);
   });
 });
+
+/**
+ * `getCriticalPaths`' limit caps CHAINS, not roots (spec 0017, decision 6):
+ * the walk drops any chain shorter than 2 and dedupes identical chains, so a
+ * roots-based cap can under-report real truncation.
+ */
+describe('RepoIntel facade — getCriticalPaths chain limit', () => {
+  it('finds a 6th chain beyond five short/duplicate top roots', async () => {
+    // Five top-ranked roots each form a chain shorter than 2 (dropped), or
+    // duplicate another root's chain (deduped) — a roots-based cap of 5 would
+    // see nothing past them. A 6th, lower-ranked root yields a real 2-hop chain.
+    const ranked = [
+      { path: 'root1.ts', rank: 100 }, // no outgoing edge → chain length 1, dropped
+      { path: 'root2.ts', rank: 90 }, // no outgoing edge → dropped
+      { path: 'root3.ts', rank: 80 }, // no outgoing edge → dropped
+      { path: 'dupA.ts', rank: 70 }, // → shared.ts
+      { path: 'dupB.ts', rank: 60 }, // → shared.ts (different chain, not a dedupe key collision, but also short)
+      { path: 'findme.ts', rank: 50 }, // → other.ts : the real 6th chain
+    ];
+    const edges = [
+      { fromFile: 'dupA.ts', toFile: 'shared.ts' },
+      { fromFile: 'dupB.ts', toFile: 'shared.ts' },
+      { fromFile: 'findme.ts', toFile: 'other.ts' },
+    ];
+    const container = {
+      config: { repoIntelEnabled: true },
+      db: {} as never,
+    } as never;
+    const repo = {
+      getEdges: async () => edges,
+      getRankedPaths: async () => ranked,
+    } as unknown as RepoIntelRepository;
+    const svc = new RepoIntelService(container, repo);
+
+    const chains = await svc.getCriticalPaths('r1', 3);
+    expect(chains).toContainEqual(['findme.ts', 'other.ts']);
+  });
+});
