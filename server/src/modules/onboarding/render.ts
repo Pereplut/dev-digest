@@ -29,7 +29,12 @@ export const SECTION_FALLBACK_BODIES: Record<OnboardingSectionKind, string> = {
   critical_paths: 'No critical dependency chains are available yet for this repository.',
   run_locally: 'No run instructions are available yet for this repository.',
   reading_path: 'No reading order is available yet for this repository.',
-  first_tasks: NO_SIGNALS_STATEMENT,
+  // NOT `NO_SIGNALS_STATEMENT`. This table is AC-30's fallback for ANY
+  // un-generated section; AC-40's "no signals were found" sentence is only
+  // true when all three sources are empty. Conflating them printed "no
+  // actionable onboarding signals were found" directly above a list of four
+  // of them, on every repository that had signals but no generation yet.
+  first_tasks: 'These tasks come from open findings, pending conventions and untested high-rank files.',
 };
 
 const MANAGER_CMD_RE = /^(pnpm|npm run|yarn|npx)\s+(\S+)/;
@@ -207,7 +212,14 @@ function renderOneSection(
   }
 
   const generated = body.length > 0;
-  if (!generated) body = SECTION_FALLBACK_BODIES[kind];
+  if (!generated) {
+    // AC-40 (no signals at all) and AC-30 (nothing generated) are different
+    // claims and need different sentences — see SECTION_FALLBACK_BODIES.
+    body =
+      kind === 'first_tasks' && facts.firstTasks.items.length === 0
+        ? NO_SIGNALS_STATEMENT
+        : SECTION_FALLBACK_BODIES[kind];
+  }
 
   return {
     kind,

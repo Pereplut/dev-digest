@@ -11,6 +11,7 @@ import {
   renderSections,
 } from '../src/modules/onboarding/render.js';
 import { SECTION_KINDS } from '../src/modules/onboarding/constants.js';
+import { NO_SIGNALS_STATEMENT } from '../src/modules/onboarding/first-tasks.js';
 
 function baseFacts(over: Partial<Facts> = {}): Facts {
   return {
@@ -308,8 +309,30 @@ describe('renderSections', () => {
       draftWith('first_tasks', 'There are many great tasks to pick up right now!'),
     );
     expect(firstTasks!.generated).toBe(false);
-    expect(firstTasks!.body).toBe(SECTION_FALLBACK_BODIES.first_tasks);
+    // AC-40's own sentence, NOT the generic AC-30 fallback. This assertion
+    // used to read `SECTION_FALLBACK_BODIES.first_tasks` and passed only
+    // because the two were the same string — which is the conflation that
+    // printed "no actionable onboarding signals were found" above a list of
+    // four of them on any repo with signals but no generation.
+    expect(firstTasks!.body).toBe(NO_SIGNALS_STATEMENT);
     expect(firstTasks!.items).toEqual([]);
+  });
+
+  it('first_tasks: items present but nothing generated does NOT claim there are no signals (AC-30 vs AC-40)', () => {
+    const facts = baseFacts({
+      firstTasks: {
+        items: [{ text: 'Open finding in src/config.ts:12.', anchor: 'src/config.ts:12' }],
+        truncated: false,
+      },
+    });
+    // No draft at all — the skeleton path, which is what every repo serves
+    // before its first generation.
+    const [, , , , firstTasks] = renderSections(facts, FACT_PATHS, null);
+
+    expect(firstTasks!.generated).toBe(false);
+    expect(firstTasks!.items).toHaveLength(1);
+    expect(firstTasks!.body).not.toBe(NO_SIGNALS_STATEMENT);
+    expect(firstTasks!.body).toBe(SECTION_FALLBACK_BODIES.first_tasks);
   });
 
   it('every deterministic fallback body is self-consistent: no path-like token outside the (empty) fact set', () => {

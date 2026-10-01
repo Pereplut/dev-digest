@@ -4,7 +4,7 @@
   "steps": [
     { "cmd": ["open", "{BASE}/"], "label": "load the app root" },
     { "cmd": ["wait", "--url", "/pulls"], "label": "land on the seeded repo's PR list" },
-    { "cmd": ["find", "role", "link", "click", "--name", "Onboarding Tour"], "label": "open the tour via the sidebar nav item" },
+    { "cmd": ["find", "text", "Onboarding Tour", "click"], "label": "open the tour via the sidebar nav item" },
     { "cmd": ["wait", "--load", "networkidle"], "label": "tour data settles" },
     { "cmd": ["wait", "--url", "/tour"], "label": "navigated to the tour route" },
     { "cmd": ["wait", "--text", "Architecture"], "label": "architecture section heading renders" },
