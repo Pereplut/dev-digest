@@ -150,6 +150,51 @@ function validDraftSections() {
   return kinds.map((kind) => ({ kind, body: 'Grounded body text with no claims to check.', diagram: null, links: [] }));
 }
 
+describe('OnboardingService.startGeneration — precondition gating (AC-10, AC-11)', () => {
+  /** An index row in the exact shape AC-8 keys `no_source_files` on. */
+  const noSourceFiles = () => indexState({ filesIndexed: 0, reason: 'no_files' });
+  const withClone = () =>
+    stubRepo({
+      getRepoBasics: vi.fn().mockResolvedValue({ id: 'r1', fullName: 'acme/widgets', clonePath: tmpdir() }),
+      claimGeneration: vi.fn().mockResolvedValue(true),
+      setJobId: vi.fn().mockResolvedValue(undefined),
+      markFailed: vi.fn().mockResolvedValue(undefined),
+    });
+
+  /**
+   * AC-11's POST half. The render half (two sections pre-degraded) is covered
+   * in onboarding-render.test.ts, but nothing asserted that the POST is
+   * actually ACCEPTED in this state — `no_source_files` is deliberately absent
+   * from BLOCKING_REASONS, and that omission is the whole criterion. A route
+   * test cannot cover it: it stubs the service, so it never runs the ladder.
+   */
+  it('AC-11: no_source_files is NOT blocking — the POST is accepted and a job is enqueued', async () => {
+    const enqueue = vi.fn().mockResolvedValue({ id: 'job-nsf', done: Promise.resolve() });
+    const container = stubContainer({ indexState: noSourceFiles() });
+    (container as unknown as { jobs: unknown }).jobs = { enqueue };
+
+    const service = new OnboardingService(container, withClone());
+    const res = await service.startGeneration('ws1', 'r1');
+
+    expect(res.jobId).toBe('job-nsf');
+    expect(enqueue).toHaveBeenCalledTimes(1);
+  });
+
+  /** The paired negative: a genuinely blocking reason still refuses. */
+  it('AC-10: not_indexed IS blocking — ConflictError, and nothing is enqueued', async () => {
+    const enqueue = vi.fn();
+    const container = stubContainer({ indexState: indexState({ status: 'failed' }) });
+    (container as unknown as { jobs: unknown }).jobs = { enqueue };
+
+    const service = new OnboardingService(container, withClone());
+
+    await expect(service.startGeneration('ws1', 'r1')).rejects.toMatchObject({
+      details: { reason: 'not_indexed' },
+    });
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+});
+
 describe('OnboardingService.getTour', () => {
   it('AC-4: never generated → status not_generated, five sections, all generated:false', async () => {
     const service = new OnboardingService(
