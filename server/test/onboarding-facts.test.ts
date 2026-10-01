@@ -8,6 +8,8 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildFacts } from '../src/modules/onboarding/facts.js';
+import { buildOnboardingMessages } from '../src/modules/onboarding/prompt.js';
+import { renderSections } from '../src/modules/onboarding/render.js';
 import {
   ENV_KEYS_LIMIT,
   README_EXCERPT_CHARS,
@@ -105,6 +107,48 @@ describe('buildFacts', () => {
     });
     expect(facts.envKeys).toContain('SECRET');
     expect(JSON.stringify(facts)).not.toContain('hunter2-marker');
+  });
+
+  it('AC-36 end-to-end: a distinctive .env.example value never reaches the assembled prompt or any rendered section body', async () => {
+    // The parser being right about `envKeys` (the test above) and the value
+    // leaking by a different route — through the assembled prompt messages,
+    // or through a rendered section body/items/commands — are different
+    // facts. This drives the real downstream pipeline (buildOnboardingMessages,
+    // renderSections), not just `facts` itself.
+    const MARKER = 'hunter2-marker-9f3a';
+    const dir = await mkdtemp(join(tmpdir(), 'dd-onboarding-secret-'));
+    try {
+      await writeFile(join(dir, 'package.json'), JSON.stringify({ scripts: { dev: 'vite' } }));
+      await writeFile(join(dir, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n');
+      await writeFile(join(dir, '.env.example'), `# comment\nDATABASE_URL=\nSECRET=${MARKER}\n`);
+      await writeFile(join(dir, 'README.md'), 'A short readme with no secrets.');
+
+      const { facts, factPaths } = await buildFacts({
+        repoFullName: 'acme/widgets',
+        repoId: 'r1',
+        clonePath: dir,
+        rankedPaths: [],
+        findings: [],
+        candidates: [],
+        preDegradedReason: null,
+        container: stubContainer(),
+      });
+      expect(facts.envKeys).toContain('SECRET');
+
+      const messages = await buildOnboardingMessages(facts);
+      const assembled = messages.map((m) => m.content).join('\n');
+      expect(assembled).not.toContain(MARKER);
+
+      const sections = renderSections(facts, factPaths, null);
+      for (const section of sections) {
+        expect(section.body).not.toContain(MARKER);
+        expect(JSON.stringify(section.items)).not.toContain(MARKER);
+        expect(JSON.stringify(section.commands)).not.toContain(MARKER);
+        expect(section.diagram ?? '').not.toContain(MARKER);
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it('derives pnpm from pnpm-lock.yaml and renders bare pnpm commands (AC-37)', async () => {

@@ -148,6 +148,35 @@ describe("OnboardingTour — layout, headings and collapsibles (AC-47, AC-48, AC
   });
 });
 
+describe("OnboardingTour — diagram fallback inside a section (AC-75)", () => {
+  it("renders the section body plus the diagram-unavailable line, and no svg, when a section's diagram does not render", async () => {
+    // The simplest trigger named in the spec's own analysis (AC-75's
+    // decision row): a source that fails MermaidDiagram's keyword regex
+    // never imports mermaid at all, so this stays fully synchronous and
+    // exercises the real wiring from OnboardingTour -> TourSection ->
+    // MermaidDiagram's `fallback` prop (TourSection.tsx:43), which
+    // MermaidDiagram.test.tsx cannot reach on its own.
+    const tour = makeTour({
+      sections: SECTION_KINDS.map((k) =>
+        k === "architecture" ? makeSection(k, { diagram: "see the drawing above" }) : makeSection(k),
+      ),
+    });
+    stubFetch({ tour });
+    renderTour({ tour });
+
+    expect(await screen.findByText("Body for architecture.")).toBeInTheDocument();
+    const diagramUnavailable = await screen.findByText(messages.tour.diagramUnavailable);
+    expect(diagramUnavailable).toBeInTheDocument();
+    // Scoped to the section's body container (not the whole section): the
+    // header's own chevron icon is an <svg>, so "no svg anywhere in the
+    // section" would be a false positive. commands is empty for architecture
+    // here, so CommandList renders nothing, leaving only a diagram-produced
+    // svg (there is none) as a possible match in this container.
+    const bodyContainer = diagramUnavailable.closest("div")!;
+    expect(bodyContainer.querySelector("svg")).toBeNull();
+  });
+});
+
 describe("OnboardingTour — status text (AC-50, AC-51, AC-54)", () => {
   const cases: { status: OnboardingStatus; reason: OnboardingReason | null; expect: string }[] = [
     { status: "not_generated", reason: null, expect: "This tour has not been generated yet." },
