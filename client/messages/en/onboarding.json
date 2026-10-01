@@ -12,5 +12,58 @@
     "errorFallback": "Could not add repository",
     "footer": "API keys live in Settings",
     "footerEsc": "to close"
+  },
+  "tour": {
+    "breadcrumb": "Onboarding Tour",
+    "kinds": {
+      "architecture": "Architecture",
+      "critical_paths": "Critical Paths",
+      "run_locally": "Run Locally",
+      "reading_path": "Reading Path",
+      "first_tasks": "First Tasks"
+    },
+    "subline": {
+      "withCount": "Generated from index of {count, plural, one {# file} other {# files}}",
+      "noIndex": "No index available yet"
+    },
+    "lastRefreshed": "Last refreshed {age}",
+    "age": {
+      "justNow": "just now",
+      "minutes": "{count, plural, one {# minute ago} other {# minutes ago}}",
+      "hours": "{count, plural, one {# hour ago} other {# hours ago}}",
+      "days": "{count, plural, one {# day ago} other {# days ago}}"
+    },
+    "status": {
+      "not_generated": "This tour has not been generated yet.",
+      "running": "Generating the tour…",
+      "partial": "The tour was only partially generated.",
+      "failed": "The last generation failed."
+    },
+    "stillRunning": "Still generating after a long wait — reload the page to check again.",
+    "reason": {
+      "flag_off": "Repository intelligence is turned off for this repository.",
+      "no_clone": "This repository has not been cloned yet.",
+      "not_indexed": "This repository has not been indexed yet.",
+      "no_source_files": "No supported source files were found in this repository.",
+      "index_incomplete": "The index did not produce enough data for a tour.",
+      "generation_failed": "The last regeneration failed."
+    },
+    "failedShowingAge": "Showing the version generated {age}.",
+    "droppedRefs": "{count, plural, one {# reference was removed because it could not be verified.} other {# references were removed because they could not be verified.}}",
+    "chips": {
+      "fallback": "Not generated"
+    },
+    "readingPathOrder": "Ordered by how central each file is to the import graph, not by recent activity.",
+    "diagramUnavailable": "Diagram unavailable.",
+    "reindex": "Re-index",
+    "regenerate": "Regenerate",
+    "regenerating": "Regenerating…",
+    "copy": "Copy “{command}”",
+    "copied": "Copied",
+    "loading": "Loading the tour…",
+    "error": {
+      "title": "Couldn't load the onboarding tour",
+      "body": "The onboarding tour failed to render. The DevDigest engine may be unreachable."
+    }
   }
 }
