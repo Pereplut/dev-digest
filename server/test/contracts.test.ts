@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   Review,
   Finding,
@@ -9,6 +11,8 @@ import {
   SmartDiff,
   Conformance,
   Onboarding,
+  OnboardingSectionKind,
+  OnboardingReason,
   EvalRun,
   MemoryItem,
   PrIntentRecord,
@@ -131,7 +135,20 @@ describe('AI contracts parse fixtures', () => {
     ).not.toThrow();
     expect(() =>
       Onboarding.parse({
-        sections: [{ kind: 'architecture', title: 'T', body: 'b', links: [] }],
+        sections: [
+          {
+            kind: 'architecture',
+            title: 'T',
+            body: 'b',
+            links: [],
+            generated: true,
+            degraded_reason: null,
+            dropped_refs: 0,
+            truncated: false,
+            items: [],
+            commands: [],
+          },
+        ],
       }),
     ).not.toThrow();
     expect(() =>
@@ -290,5 +307,57 @@ describe('platform DTOs', () => {
 
     expect(PrIntentResponse.parse({ intent: null }).intent).toBeNull();
     expect(PrIntentResponse.parse({ intent: record }).intent?.category).toBe('unknown');
+  });
+});
+
+/** Spec 0017, AC-1 / AC-2: the five-kind enum and the six-value reason enum. */
+describe('Onboarding contract (spec 0017)', () => {
+  it('OnboardingSectionKind accepts all five kinds and rejects an unknown one', () => {
+    for (const kind of ['architecture', 'critical_paths', 'run_locally', 'reading_path', 'first_tasks']) {
+      expect(() => OnboardingSectionKind.parse(kind)).not.toThrow();
+    }
+    expect(() => OnboardingSectionKind.parse('routes_and_apis')).toThrow();
+  });
+
+  it('OnboardingReason accepts all six reasons and rejects an unknown one', () => {
+    for (const reason of [
+      'flag_off',
+      'no_clone',
+      'not_indexed',
+      'no_source_files',
+      'index_incomplete',
+      'generation_failed',
+    ]) {
+      expect(() => OnboardingReason.parse(reason)).not.toThrow();
+    }
+    expect(() => OnboardingReason.parse('unknown_reason')).toThrow();
+  });
+
+  /**
+   * `server/src/vendor/shared` is canonical and `client/src/vendor/shared` is a
+   * separate, already-drifted copy (root INSIGHTS.md:30-38). The two must agree
+   * on the Onboarding region only — a whole-file diff is already non-empty for
+   * unrelated reasons, so this extracts just the `// ---- Onboarding` block up
+   * to the next `// ----` section marker and compares those bytes.
+   */
+  it('the Onboarding block is byte-identical in both vendored contract copies', () => {
+    const extractOnboardingBlock = (source: string): string => {
+      const start = source.indexOf('// ---- Onboarding');
+      if (start === -1) throw new Error('Onboarding section marker not found');
+      const next = source.indexOf('// ----', start + 1);
+      const end = next === -1 ? source.length : next;
+      return source.slice(start, end);
+    };
+
+    const serverSource = readFileSync(
+      join(import.meta.dirname, '../src/vendor/shared/contracts/knowledge.ts'),
+      'utf8',
+    );
+    const clientSource = readFileSync(
+      join(import.meta.dirname, '../../client/src/vendor/shared/contracts/knowledge.ts'),
+      'utf8',
+    );
+
+    expect(extractOnboardingBlock(serverSource)).toBe(extractOnboardingBlock(clientSource));
   });
 });
