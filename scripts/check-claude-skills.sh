@@ -92,29 +92,21 @@ for name in $skill_dirs; do
   # The 2>&1 capture is deliberate — swallowing stderr would report "every skill is
   # unparseable" on a machine with no PyYAML, which is fail-closed but names the wrong
   # cause. Distinguish the two.
-  # `safe_load` blocks code execution but still resolves anchors and aliases, so an
-  # alias-expansion frontmatter ("billion laughs") expands until the process runs out
-  # of memory. This loop runs in CI on every PR touching `.claude/**`, so the input is
-  # attacker-reachable and the impact is a hung or OOM-killed runner. Two bounds, since
-  # either alone is escapable: reject anchors/aliases outright — no skill frontmatter
-  # has ever needed one — and cap the parse at 5s so an unanticipated expansion still
-  # terminates. `timeout` exits 124, which the case below names rather than reporting
-  # as a parse error.
-  case "$fm" in
-    *'&'*|*'*'*)
-      if echo "$fm" | grep -qE '(^|[[:space:]])[&*][A-Za-z0-9_-]+'; then
-        echo "YAML ANCHOR/ALIAS: $skill frontmatter uses a YAML anchor or alias. Not supported here — they exist in this check only as an expansion-bomb vector; write the value out."
-        fail=1
-        continue
-      fi
-      ;;
-  esac
-  yaml_err=$(echo "$fm" | timeout 5 python3 -c 'import sys,yaml; yaml.safe_load(sys.stdin.read())' 2>&1) || {
-    yaml_rc=$?
-    case "$yaml_rc:$yaml_err" in
-      124:*)
-        echo "FRONTMATTER PARSE TIMED OUT: '$skill' did not parse within 5s. A hand-written skill does not do this; an expansion bomb does. Inspect the file before re-running."
-        ;;
+  # NOT bounded against an "alias expansion bomb", and deliberately so. A guard for
+  # exactly that shipped on 2026-10-01 and was reverted the same day once the premise
+  # was measured instead of assumed: PyYAML resolves a repeated alias to the SAME
+  # object, not a copy, so there is no amplification to bound. A 12-level, fanout-9
+  # bomb (9**12 = 282,429,536,481 logical nodes) parses in 0.002s using 12 MB, and
+  # `safe_load("a: &a [1,2]\nb: [*a, *a]")` gives `b[0] is b[1] is a`. Billion-laughs
+  # is a real class for a deep-copying parser; it is not one for this one. The
+  # reverted guard also rejected valid YAML, missed flow-style anchors anyway
+  # (`a0: [&a0 "x"]` has neither line-start nor whitespace before `&`), and added a
+  # `timeout` dependency whose absence exits 127 into the wrong case arm and reports
+  # every skill as unparseable — the failure the paragraph above exists to prevent.
+  # If the loader is ever swapped for one that copies, bound it then, and in Python
+  # (`signal.alarm`) rather than on coreutils.
+  yaml_err=$(echo "$fm" | python3 -c 'import sys,yaml; yaml.safe_load(sys.stdin.read())' 2>&1) || {
+    case "$yaml_err" in
       *ModuleNotFoundError*|*"No module named 'yaml'"*)
         echo "CANNOT CHECK FRONTMATTER: PyYAML is not installed, so '$skill' was not parsed (pip install pyyaml)"
         ;;

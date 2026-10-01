@@ -220,10 +220,19 @@ class AgentContractTest(unittest.TestCase):
     #     (2) `spec-authoring`, which loaded cleanly, left the toolset identical
     #         -> SKILL_LOADED_TOOLSET_UNCHANGED.
     #     So `allowed-tools` grants permission for tools already in the roster; it
-    #     does not add one. Residual, deliberately unclosed: probe (1)'s skill
-    #     returned an error rather than loading, and probe (2)'s skill declares no
-    #     `allowed-tools`, so a successfully-loading skill that DOES declare them
-    #     has not been observed. Re-measure before widening this reasoning.
+    #     does not add one — permission and roster are orthogonal here, measured
+    #     from the other side too (root INSIGHTS.md:163-170: `claude -p` denied
+    #     `Write`/`Edit` by permission while both sat in the roster).
+    #     REOPEN THIS if a frontmatter key appears that extends a subagent's
+    #     ROSTER. `allowed-tools` is measured not to, so it is not that key.
+    #     SECOND ROUTE, not closed by the above and not live today: a skill with
+    #     `context: fork` + `agent:` runs as a subagent with its own tool set. That
+    #     write would arrive under the forked agent's type, and `main()` returns
+    #     early unless `agent_type == "spec-creator"` — so the hook does not merely
+    #     miss it, it declines to look. No installed skill declares those keys
+    #     (checked across `.claude/skills/` and `~/.claude/`), but skills also
+    #     arrive by vendoring and from `~/.claude/plugins/`, which this repo cannot
+    #     see — so no test here can hold that line, and none pretends to.
     KNOWN_SAFE = {"Read", "Grep", "Glob", "Write", "Edit", "Skill", "TodoWrite"}
 
     def _tools(self):
