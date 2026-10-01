@@ -1,6 +1,6 @@
 ---
 title: Onboarding Generator
-status: approved
+status: in-progress
 packages: [server, client, e2e]
 ---
 
@@ -691,7 +691,7 @@ Obligations:
 | Phase | Date | Note |
 |---|---|---|
 | Initiation | | request read, specs + INSIGHTS checked |
-| Planning | | spec approved, decisions |
-| Implementation | | |
-| Validation | | typecheck · lint · tests · e2e · manual |
-| Completion | | status done, docs, insights wrap-up |
+| Planning | 2026-10-01 | spec approved, decisions; Development Plan (revision 2) authored, multi-agent execution chosen |
+| Implementation | 2026-10-01 | wave 1 (contracts, `c5b09ba`) and wave 2a (server, in progress in the same tree) landed in parallel with wave 2b (client tour page + e2e flow, this commit range) |
+| Validation | 2026-10-01 | wave 2b: `client/` typecheck 0 errors, `pnpm lint` 0 errors / 5 pre-existing warnings, `pnpm test` 298 passed / 44 files / 0 skipped; `e2e/` typecheck + lint 0 errors. Not yet run by any agent (user's lane): the Docker `.it.test` suite, `./scripts/e2e.sh`, the manual dev-app pass, `plan-verifier`, architecture/security review, `/pr-self-review` |
+| Completion | | pending — wave 2a, the gates above and the user's verification lanes are still outstanding |
