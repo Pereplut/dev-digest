@@ -30,11 +30,17 @@ THE CEILING — what this actually guarantees, stated instead of a list of gaps,
 a promise that everything absent from it is covered:
 
   It closes the file-writing tools for one named agent. That is a real boundary ONLY while
-  `spec-creator` holds no tool that writes by another route. Today its frontmatter grants
-  `Read, Grep, Glob, Write, Edit, TodoWrite` — no `Bash` (a redirect writes anywhere and no
-  token check survives contact with the shell), no `Agent` (it could delegate the write), no
-  `NotebookEdit`. `test_spec_scope_gate.py` pins that tool list, because widening it silently
-  removes the boundary and this hook cannot see the frontmatter.
+  `spec-creator` holds no tool that writes by another route — `Bash` (a redirect writes anywhere
+  and no token check survives contact with the shell), `Agent` (it could delegate the write),
+  `NotebookEdit`, or anything else that reaches the filesystem. This hook cannot see the
+  frontmatter, so `test_spec_scope_gate.py`'s `KNOWN_SAFE` holds the assessed tool set and fails
+  on anything newly granted.
+
+  That set is deliberately NOT restated here. An earlier draft of this docstring listed the tools
+  inline and was wrong within a day — it omitted `Skill`, which the agent had been granted — while
+  the test, which reads the frontmatter, stayed correct. Root INSIGHTS.md, 2026-10-01: a list
+  restated in prose drifts from the thing it describes, and nothing checks that two paragraphs
+  agree. Read the frontmatter or the test; both are derived from reality.
 
   It does not police CONTENT. The agent is told never to write `status: approved` — that stays a
   prompt rule. A content guard keyed on a spelling is the thing this repo has already documented as

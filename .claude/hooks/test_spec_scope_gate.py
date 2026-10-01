@@ -192,7 +192,15 @@ class AgentContractTest(unittest.TestCase):
     If one of these fails, the boundary is gone — not merely untidy.
     """
 
-    WRITE_CAPABLE = {"Bash", "Agent", "Task", "NotebookEdit", "SlashCommand", "KillShell"}
+    # An ALLOWLIST, deliberately — the inverse of this set was a denylist of
+    # write-capable tool names, and it let anything nobody had thought of through
+    # silently. `Artifact` alone (its `read_file`/`read_asset` actions save to disk)
+    # would have passed, as would a `Skill` that dispatches a background subagent.
+    # Root INSIGHTS.md, 2026-09-23: "seven rounds of blacklisting flags lost;
+    # narrowing the allowlist was the fix" — the same shape, applied to tool names.
+    # A newly granted tool now FAILS this test until someone assesses it, which is
+    # the only direction that is safe to get wrong.
+    KNOWN_SAFE = {"Read", "Grep", "Glob", "Write", "Edit", "Skill", "TodoWrite"}
 
     def _tools(self):
         with open(AGENT_FILE, encoding="utf-8") as fh:
@@ -205,12 +213,14 @@ class AgentContractTest(unittest.TestCase):
         self.assertTrue(self._tools())
 
     def test_the_agent_holds_no_tool_that_writes_by_another_route(self):
-        overlap = self._tools() & self.WRITE_CAPABLE
+        unassessed = self._tools() - self.KNOWN_SAFE
         self.assertFalse(
-            overlap,
-            f"spec-creator was granted {sorted(overlap)}. Any of these writes files without going "
-            "through Write/Edit, so spec-scope-gate.py no longer bounds this agent. Either remove "
-            "the tool or stop claiming the boundary in .claude/agents/README.md.",
+            unassessed,
+            f"spec-creator was granted {sorted(unassessed)}, which nobody has assessed against this "
+            "boundary. spec-scope-gate.py bounds Write/Edit only; a tool that reaches the filesystem "
+            "by another route (Bash, Agent/Task, NotebookEdit, Artifact's file-saving actions) "
+            "removes the boundary without touching this hook. Assess the tool, then either add it to "
+            "KNOWN_SAFE with a reason or stop claiming the boundary in .claude/agents/README.md.",
         )
 
     def test_the_hook_is_registered_in_settings(self):
