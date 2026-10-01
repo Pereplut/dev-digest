@@ -92,19 +92,10 @@ for name in $skill_dirs; do
   # The 2>&1 capture is deliberate — swallowing stderr would report "every skill is
   # unparseable" on a machine with no PyYAML, which is fail-closed but names the wrong
   # cause. Distinguish the two.
-  # NOT bounded against an "alias expansion bomb", and deliberately so. A guard for
-  # exactly that shipped on 2026-10-01 and was reverted the same day once the premise
-  # was measured instead of assumed: PyYAML resolves a repeated alias to the SAME
-  # object, not a copy, so there is no amplification to bound. A 12-level, fanout-9
-  # bomb (9**12 = 282,429,536,481 logical nodes) parses in 0.002s using 12 MB, and
-  # `safe_load("a: &a [1,2]\nb: [*a, *a]")` gives `b[0] is b[1] is a`. Billion-laughs
-  # is a real class for a deep-copying parser; it is not one for this one. The
-  # reverted guard also rejected valid YAML, missed flow-style anchors anyway
-  # (`a0: [&a0 "x"]` has neither line-start nor whitespace before `&`), and added a
-  # `timeout` dependency whose absence exits 127 into the wrong case arm and reports
-  # every skill as unparseable — the failure the paragraph above exists to prevent.
-  # If the loader is ever swapped for one that copies, bound it then, and in Python
-  # (`signal.alarm`) rather than on coreutils.
+  # Deliberately unbounded: PyYAML resolves a repeated alias to the same object, so
+  # there is nothing here to amplify. A bound shipped and was reverted the same day —
+  # root INSIGHTS.md, 2026-10-01, for the measurement and what it cost. If the loader
+  # is ever swapped for one that copies, bound it then, in Python (`signal.alarm`).
   yaml_err=$(echo "$fm" | python3 -c 'import sys,yaml; yaml.safe_load(sys.stdin.read())' 2>&1) || {
     case "$yaml_err" in
       *ModuleNotFoundError*|*"No module named 'yaml'"*)

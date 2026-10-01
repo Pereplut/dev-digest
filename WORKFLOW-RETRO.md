@@ -224,6 +224,31 @@ on commits not in main — informative, not waste.
 
 **Termination: success.** PR #18 open, self-review PASS (0 CRITICAL, 1 WARNING, 3 SUGGESTION).
 
+## Reviewer self-assessment, and the one pattern worth carrying
+
+`security#1` ran four rounds and raised six findings. Its own closing read, which it volunteered:
+**the only finding that survived contact with measurement unchanged was the first one** — the
+denylist tool pin, which it had verified against the code. **Both findings it graded from category
+knowledge were wrong, and wrong in the same direction:** it reasoned "this pattern is a known class"
+instead of reproducing it.
+
+- `unbounded-yaml-parse-of-pr-input` — retracted by its own measurement. PyYAML shares the aliased
+  object; `9**12` nodes parse in 0.002s/12 MB. The guard it prompted was reverted the same day, and
+  cost a commit, a round, a rejected-valid-YAML bug, a bypassable grep and a `timeout` dependency
+  that misreports all 17 skills when absent.
+- `ceiling-note-outweighs-the-code-it-guards` — it then caught that the *revert's* 13-line
+  explanation was itself category bait: "billion laughs / expansion bomb / OOM-killed runner" next
+  to `safe_load` pattern-matches to the error it had just made.
+
+**The coordinator repeated the failure.** The bad finding was implemented without reproducing it
+either — the second failure is the implementer's, not the reviewer's. A finding is a claim; a
+reviewer reasoning from a category and an implementer acting on it are two independent chances to
+catch the same error, and here both were spent.
+
+*Transferable rule:* a resource-exhaustion or expansion claim gets reproduced against the actual
+library before anything is built from it. One `is` check and one timed parse settled this one.
+Recorded with the measurement in root `INSIGHTS.md`, 2026-10-01.
+
 ## Not measured
 
 - **Current main-thread token count.** `/context` was run once, after agent 5; the final figure is
