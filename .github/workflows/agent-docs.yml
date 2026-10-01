@@ -1,21 +1,46 @@
 name: agent-docs
 
-# Every AGENTS.md must keep its CLAUDE.md import stub, so Claude Code keeps
-# reading the same instructions as every other agent.
+# Two things nothing else in the repo can catch, because nothing imports them:
+#   - every AGENTS.md must keep its CLAUDE.md import stub, so Claude Code reads the
+#     same instructions as every other agent;
+#   - every spec in the current template must keep its shape (spec 0013's AC-1, AC-2,
+#     AC-3, AC-5). Specs are markdown, so typecheck, lint, the test suites AND
+#     /pr-self-review are all blind to them — `skill-map.json` skips `**/*.md`.
 on:
   push:
     branches: [main]
     paths:
       - "**/AGENTS.md"
       - "**/CLAUDE.md"
+      - "specs/**"
+      - "*/specs/**"
       - "scripts/check-agent-docs.sh"
+      - "scripts/check-specs.sh"
+      - "scripts/check_specs.py"
+      - "scripts/test_check_specs.py"
+      - "**/INSIGHTS.md"
+      - "scripts/insights-for.sh"
+      - "scripts/insights_for.py"
+      - "scripts/test_insights_for.py"
       - ".github/workflows/agent-docs.yml"
   pull_request:
     paths:
       - "**/AGENTS.md"
       - "**/CLAUDE.md"
+      - "specs/**"
+      - "*/specs/**"
       - "scripts/check-agent-docs.sh"
+      - "scripts/check-specs.sh"
+      - "scripts/check_specs.py"
+      - "scripts/test_check_specs.py"
+      - "**/INSIGHTS.md"
+      - "scripts/insights-for.sh"
+      - "scripts/insights_for.py"
+      - "scripts/test_insights_for.py"
       - ".github/workflows/agent-docs.yml"
+
+permissions:
+  contents: read
 
 jobs:
   check:
@@ -24,3 +49,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check AGENTS.md / CLAUDE.md pairing
         run: bash scripts/check-agent-docs.sh
+      - name: Spec checker's own tests
+        run: python3 -m unittest discover -s scripts -p 'test_check_specs.py'
+      - name: Insights router's own tests
+        run: python3 -m unittest discover -s scripts -p 'test_insights_for.py'
+      - name: Check spec structure
+        run: bash scripts/check-specs.sh
