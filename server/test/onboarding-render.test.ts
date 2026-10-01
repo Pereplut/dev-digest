@@ -31,6 +31,7 @@ function baseFacts(over: Partial<Facts> = {}): Facts {
     criticalPaths: [['src/app.ts', 'src/server.ts']],
     criticalPathsTruncated: false,
     firstTasks: { items: [{ text: 'Open finding in src/app.ts:10.', anchor: 'src/app.ts:10' }], truncated: false },
+    firstTasksContext: { findings: [], candidates: [] },
     preDegradedReason: null,
     ...over,
   };

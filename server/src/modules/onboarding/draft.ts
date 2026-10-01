@@ -23,3 +23,6 @@ export const Draft = z.object({
   sections: z.array(DraftSection).length(5),
 });
 export type Draft = z.infer<typeof Draft>;
+
+/** The schema name passed to `completeStructured` — also the mock's lookup key. */
+export const ONBOARDING_DRAFT_SCHEMA_NAME = 'OnboardingDraft';

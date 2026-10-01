@@ -307,8 +307,8 @@ describe('buildFacts', () => {
       repoId: 'r1',
       clonePath: root,
       rankedPaths: ['src/ranked.ts'],
-      findings: [{ file: 'src/finding-only.ts', startLine: 5 }],
-      candidates: [{ id: 'c1', evidencePath: 'src/evidence-only.ts', evidenceStartLine: 2 }],
+      findings: [{ file: 'src/finding-only.ts', startLine: 5, title: 'Missing null check' }],
+      candidates: [{ id: 'c1', evidencePath: 'src/evidence-only.ts', evidenceStartLine: 2, rule: 'Always use async/await' }],
       preDegradedReason: null,
       container: stubContainer({
         chains: [['src/chain-only.ts', 'src/chain-sibling.ts']],

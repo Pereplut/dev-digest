@@ -14,12 +14,17 @@ import { FIRST_TASKS_LIMIT } from './constants.js';
 export interface FirstTasksFinding {
   file: string;
   startLine: number;
+  /** Untrusted — model output from an earlier review (AC-41). Not rendered
+   * into the deterministic item text; carried for the PROMPT only (prompt.ts). */
+  title: string;
 }
 
 export interface FirstTasksCandidate {
   id: string;
   evidencePath: string;
   evidenceStartLine: number | null;
+  /** Untrusted — model-extracted convention text (AC-41). Prompt-only, same as `title` above. */
+  rule: string;
 }
 
 export interface BuildFirstTasksInput {

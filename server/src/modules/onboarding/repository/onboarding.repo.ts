@@ -47,12 +47,14 @@ export function toStoredTour(row: OnboardingRow): StoredTour {
 export interface OpenFindingRow {
   file: string;
   startLine: number;
+  title: string;
 }
 
 export interface PendingCandidateRow {
   id: string;
   evidencePath: string;
   evidenceStartLine: number | null;
+  rule: string;
 }
 
 /** The repo facts the service needs. Mirrors conventions' own `getRepoBasics` (decision 7). */
@@ -209,10 +211,15 @@ export class OnboardingRepository {
     return rows.length;
   }
 
-  /** Open findings for `first_tasks` (AC-38, AC-39): `findings → reviews → pull_requests`. */
+  /**
+   * Open findings for `first_tasks` (AC-38, AC-39): `findings → reviews →
+   * pull_requests`. `title` rides along for the prompt (AC-41 names "finding
+   * titles" as untrusted content to wrap) — the deterministic item text
+   * built from `file`/`startLine` never includes it.
+   */
   async listOpenFindings(repoId: string, limit: number): Promise<OpenFindingRow[]> {
     return this.db
-      .select({ file: t.findings.file, startLine: t.findings.startLine })
+      .select({ file: t.findings.file, startLine: t.findings.startLine, title: t.findings.title })
       .from(t.findings)
       .innerJoin(t.reviews, eq(t.findings.reviewId, t.reviews.id))
       .innerJoin(t.pullRequests, eq(t.reviews.prId, t.pullRequests.id))
@@ -227,13 +234,17 @@ export class OnboardingRepository {
       .limit(limit);
   }
 
-  /** Pending, evidence-proved convention candidates for `first_tasks` (AC-66). */
+  /**
+   * Pending, evidence-proved convention candidates for `first_tasks`
+   * (AC-66). `rule` rides along for the prompt (AC-41's "convention rules").
+   */
   async listPendingValidCandidates(repoId: string, limit: number): Promise<PendingCandidateRow[]> {
     const rows = await this.db
       .select({
         id: t.conventions.id,
         evidencePath: t.conventions.evidencePath,
         evidenceStartLine: t.conventions.evidenceStartLine,
+        rule: t.conventions.rule,
       })
       .from(t.conventions)
       .where(
@@ -246,6 +257,11 @@ export class OnboardingRepository {
       )
       .orderBy(desc(t.conventions.confidence))
       .limit(limit);
-    return rows.map((r) => ({ id: r.id, evidencePath: r.evidencePath as string, evidenceStartLine: r.evidenceStartLine }));
+    return rows.map((r) => ({
+      id: r.id,
+      evidencePath: r.evidencePath as string,
+      evidenceStartLine: r.evidenceStartLine,
+      rule: r.rule,
+    }));
   }
 }

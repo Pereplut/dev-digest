@@ -17,6 +17,7 @@ import { Container, type ContainerOverrides } from './platform/container.js';
 import { AppError } from './platform/errors.js';
 import { modules } from './modules/index.js';
 import { ReviewService } from './modules/reviews/service.js';
+import { OnboardingRepository } from './modules/onboarding/repository/onboarding.repo.js';
 
 // Attach the DI container to every request/instance.
 declare module 'fastify' {
@@ -106,6 +107,12 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
       // ever reads the table to discover otherwise.
       const reapedJobs = await container.jobs.reapOrphanedJobs();
       if (reapedJobs > 0) app.log.info({ reapedJobs }, 'reaped abandoned jobs on boot');
+      // Same single-instance assumption (AC-18): a 'running' onboarding
+      // generation from a dead process has no handler left to finish it.
+      const reapedOnboarding = await new OnboardingRepository(container.db).reapRunning();
+      if (reapedOnboarding > 0) {
+        app.log.info({ reapedOnboarding }, 'reaped stale running onboarding generations on boot');
+      }
     } catch (err) {
       app.log.warn({ err: (err as Error).message }, 'stale-run reaping failed (non-fatal)');
     }

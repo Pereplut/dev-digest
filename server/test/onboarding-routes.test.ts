@@ -118,3 +118,42 @@ describe('GET /repos/:id/onboarding', () => {
     await app.close();
   });
 });
+
+describe('POST /repos/:id/onboarding', () => {
+  it('AC-12: an accepted POST responds 202 with a job_id', async () => {
+    const startGeneration = vi.fn().mockResolvedValue({ jobId: 'job-123' });
+    const { app } = buildTestApp();
+    await app.register(onboardingRoutes, { service: { startGeneration } as unknown as OnboardingService });
+
+    const res = await app.inject({ method: 'POST', url: '/repos/11111111-1111-1111-1111-111111111111/onboarding' });
+    expect(res.statusCode).toBe(202);
+    expect(res.json()).toEqual({ job_id: 'job-123' });
+    await app.close();
+  });
+
+  it.each(['flag_off', 'no_clone', 'not_indexed', 'index_incomplete'] as const)(
+    'AC-10: a ConflictError with reason %s becomes 409 with that reason',
+    async (reason) => {
+      const { ConflictError } = await import('../src/platform/errors.js');
+      const startGeneration = vi.fn().mockRejectedValue(new ConflictError('blocked', { reason }));
+      const { app } = buildTestApp();
+      await app.register(onboardingRoutes, { service: { startGeneration } as unknown as OnboardingService });
+
+      const res = await app.inject({ method: 'POST', url: '/repos/11111111-1111-1111-1111-111111111111/onboarding' });
+      expect(res.statusCode).toBe(409);
+      expect((res.json() as { error: { details: { reason: string } } }).error.details.reason).toBe(reason);
+      await app.close();
+    },
+  );
+
+  it('AC-19: a 202 may carry a null job_id (the concurrent-loser window)', async () => {
+    const startGeneration = vi.fn().mockResolvedValue({ jobId: null });
+    const { app } = buildTestApp();
+    await app.register(onboardingRoutes, { service: { startGeneration } as unknown as OnboardingService });
+
+    const res = await app.inject({ method: 'POST', url: '/repos/11111111-1111-1111-1111-111111111111/onboarding' });
+    expect(res.statusCode).toBe(202);
+    expect(res.json()).toEqual({ job_id: null });
+    await app.close();
+  });
+});

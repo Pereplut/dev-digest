@@ -56,6 +56,13 @@ export interface Facts {
   criticalPaths: string[][];
   criticalPathsTruncated: boolean;
   firstTasks: FirstTasksResult;
+  /**
+   * The same findings/candidates `buildFirstTasks` merged into `items`, kept
+   * here WITH their untrusted `title`/`rule` text — for the prompt only
+   * (prompt.ts wraps each individually, AC-41). The deterministic item text
+   * never carries them.
+   */
+  firstTasksContext: { findings: FirstTasksFinding[]; candidates: FirstTasksCandidate[] };
   /** Set only under `no_source_files` (ANSWERED 1) — render pre-degrades two sections. */
   preDegradedReason: OnboardingReason | null;
 }
@@ -160,6 +167,11 @@ export async function buildFacts(input: BuildFactsInput): Promise<BuildFactsResu
   for (const item of firstTasks.items) {
     if (item.anchor) rec(item.anchor.split(':')[0]!);
   }
+  // Record every candidate's evidence_path too, even ones the merge cap left
+  // out of `items` — the AC-85 fact path set is what reaches the PROMPT, and
+  // `firstTasksContext` below is prompt-only, broader than `items`.
+  for (const f of input.findings) rec(f.file);
+  for (const c of input.candidates) rec(c.evidencePath);
 
   const facts: Facts = {
     repoFullName: input.repoFullName,
@@ -176,6 +188,10 @@ export async function buildFacts(input: BuildFactsInput): Promise<BuildFactsResu
     criticalPaths,
     criticalPathsTruncated,
     firstTasks,
+    firstTasksContext: {
+      findings: input.findings,
+      candidates: input.candidates,
+    },
     preDegradedReason: input.preDegradedReason,
   };
 
