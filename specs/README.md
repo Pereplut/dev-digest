@@ -87,3 +87,4 @@ exempt by construction. What it deliberately does not check is in its own docstr
 | [0014-implementation-planner](0014-implementation-planner.md) | done | .claude, specs |
 | [0015-impl-skill](0015-impl-skill.md) | in-progress | .claude, scripts, specs |
 | [0016-project-context](0016-project-context.md) | draft | server, client, reviewer-core |
+| [0017-onboarding-generator](0017-onboarding-generator.md) | approved | server, client, e2e |
