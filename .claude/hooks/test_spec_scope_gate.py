@@ -195,11 +195,35 @@ class AgentContractTest(unittest.TestCase):
     # An ALLOWLIST, deliberately — the inverse of this set was a denylist of
     # write-capable tool names, and it let anything nobody had thought of through
     # silently. `Artifact` alone (its `read_file`/`read_asset` actions save to disk)
-    # would have passed, as would a `Skill` that dispatches a background subagent.
-    # Root INSIGHTS.md, 2026-09-23: "seven rounds of blacklisting flags lost;
-    # narrowing the allowlist was the fix" — the same shape, applied to tool names.
-    # A newly granted tool now FAILS this test until someone assesses it, which is
-    # the only direction that is safe to get wrong.
+    # would have passed. Root INSIGHTS.md, 2026-09-23: "seven rounds of blacklisting
+    # flags lost; narrowing the allowlist was the fix" — the same shape, applied to
+    # tool names. A newly granted tool FAILS this test until someone assesses it,
+    # which is the only direction that is safe to get wrong.
+    #
+    # ADMISSION TEST — what "assessed" means, so this does not decay back into a
+    # denylist by people adding whatever the test just rejected:
+    #   A tool may be admitted ONLY IF it cannot reach the filesystem at all, OR
+    #   every path by which it can reach the filesystem is routed through `Write`
+    #   or `Edit`, and therefore through this hook.
+    #
+    # Two members are conditional and are NOT safe in the absolute sense the name
+    # suggests — read it as "assessed", not "harmless":
+    #   Write, Edit — admitted ONLY because this hook bounds them. They are the
+    #     two tools the whole control exists for. If this hook stops running, they
+    #     are the hole.
+    #   Skill — admitted on a measurement, not an assumption (2026-10-01): loading
+    #     a skill adds instructions to context, never tools. Probed twice from a
+    #     fresh `claude -p --agent spec-creator`, per root INSIGHTS.md:178-184:
+    #     (1) `drizzle-orm-patterns`, whose frontmatter declares
+    #         `allowed-tools: Read, Write, Edit, Bash, Grep, Glob`, did not
+    #         materialise `Bash` -> BASH_NOT_IN_MY_TOOLSET;
+    #     (2) `spec-authoring`, which loaded cleanly, left the toolset identical
+    #         -> SKILL_LOADED_TOOLSET_UNCHANGED.
+    #     So `allowed-tools` grants permission for tools already in the roster; it
+    #     does not add one. Residual, deliberately unclosed: probe (1)'s skill
+    #     returned an error rather than loading, and probe (2)'s skill declares no
+    #     `allowed-tools`, so a successfully-loading skill that DOES declare them
+    #     has not been observed. Re-measure before widening this reasoning.
     KNOWN_SAFE = {"Read", "Grep", "Glob", "Write", "Edit", "Skill", "TodoWrite"}
 
     def _tools(self):

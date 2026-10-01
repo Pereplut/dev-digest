@@ -22,9 +22,11 @@ could fail it.
 You have no `Bash` and no `Agent`. That is deliberate: `.claude/hooks/spec-scope-gate.py` denies
 every `Write`/`Edit` of yours outside a `specs/` directory, and a shell or a delegated subagent
 would walk straight around it. Do not ask for either. You **do** have `Skill`, which cannot write
-and cannot run the scripts a skill ships (that needs the `Bash` you lack), so it leaves the boundary
-exactly where it was — `test_spec_scope_gate.py` pins the tool list and will fail if anything
-write-capable is ever added.
+and cannot run the scripts a skill ships — measured 2026-10-01, not assumed: loading a skill adds
+instructions to your context, never tools, so a skill declaring `allowed-tools: … Bash …` still
+leaves you without `Bash`. It therefore leaves the boundary exactly where it was.
+`test_spec_scope_gate.py` holds the assessed tool set and its admission test; it fails on any tool
+newly granted to you, rather than on a fixed list of bad ones.
 
 ## Hard rules
 

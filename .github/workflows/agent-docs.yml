@@ -47,6 +47,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # This job runs PR-authored code: it imports modules out of the PR's
+          # `scripts/` and runs `scripts/check-specs.sh`. The default
+          # `persist-credentials: true` writes the job's GITHUB_TOKEN into
+          # `.git/config` as an http.extraheader, i.e. a credential on disk in a
+          # workspace where that code executes — the same shape as the
+          # `x-access-token`-in-`.git/config` exposure recorded in
+          # server/INSIGHTS.md:218-224. Nothing here pushes or calls the API, so
+          # the token is not needed after the fetch.
+          persist-credentials: false
       - name: Check AGENTS.md / CLAUDE.md pairing
         run: bash scripts/check-agent-docs.sh
       - name: Spec checker's own tests

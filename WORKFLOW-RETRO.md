@@ -239,12 +239,15 @@ on commits not in main — informative, not waste.
       `AGENTS.md` prose rule it replaces. Evidence: the rule was added mid-session and ignored by
       the same session, twice. `workflow-retro/SKILL.md` already names this as the remedy if rows
       go missing. *This adds an automatic hook: it runs on every subagent return, in every session.*
-- [ ] **`.claude/agents/spec-creator.md:24-27`** — it asserts `Skill` "cannot run the scripts a
-      skill ships (that needs the `Bash` you lack)" with no evidence, and
-      `drizzle-orm-patterns/SKILL.md:4` declares `allowed-tools: … Bash …`. Measure it
-      (`claude -p --agent spec-creator` invoking that skill, from a fresh process), then state the
-      measured answer or drop the claim. Tracked as the open WARNING on PR #18.
-- [ ] **`.claude/agents/spec-creator.md:26-27`** — a third copy of the tool-pin claim, still
-      describing the retired denylist semantics. Found by `security#1` but not filed (unchanged
-      file). Point it at the test rather than restating it, per the same rule applied to
-      `spec-scope-gate.py` this session.
+- [x] **`.claude/agents/spec-creator.md:24-27`** — **measured, and the claim was right.** Two probes
+      from a fresh `claude -p --agent spec-creator`: `drizzle-orm-patterns`
+      (`allowed-tools: … Bash …`) did not materialise `Bash` → `BASH_NOT_IN_MY_TOOLSET`;
+      `spec-authoring`, which loaded cleanly, left the toolset identical →
+      `SKILL_LOADED_TOOLSET_UNCHANGED`. Loading a skill adds instructions, never tools, so
+      `allowed-tools` grants permission for tools already in the roster rather than adding one.
+      The sentence now carries the measurement instead of asserting the comfortable answer, and
+      `KNOWN_SAFE` records why `Skill` is admitted. **Residual, left open on purpose:** probe 1's
+      skill errored rather than loading and probe 2's declares no `allowed-tools`, so a
+      successfully-loading skill that *does* declare them has still not been observed.
+- [x] **`.claude/agents/spec-creator.md:26-27`** — the third copy of the tool-pin claim now points
+      at the test and its admission rule instead of restating denylist semantics.

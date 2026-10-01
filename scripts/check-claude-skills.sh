@@ -92,8 +92,29 @@ for name in $skill_dirs; do
   # The 2>&1 capture is deliberate — swallowing stderr would report "every skill is
   # unparseable" on a machine with no PyYAML, which is fail-closed but names the wrong
   # cause. Distinguish the two.
-  yaml_err=$(echo "$fm" | python3 -c 'import sys,yaml; yaml.safe_load(sys.stdin.read())' 2>&1) || {
-    case "$yaml_err" in
+  # `safe_load` blocks code execution but still resolves anchors and aliases, so an
+  # alias-expansion frontmatter ("billion laughs") expands until the process runs out
+  # of memory. This loop runs in CI on every PR touching `.claude/**`, so the input is
+  # attacker-reachable and the impact is a hung or OOM-killed runner. Two bounds, since
+  # either alone is escapable: reject anchors/aliases outright — no skill frontmatter
+  # has ever needed one — and cap the parse at 5s so an unanticipated expansion still
+  # terminates. `timeout` exits 124, which the case below names rather than reporting
+  # as a parse error.
+  case "$fm" in
+    *'&'*|*'*'*)
+      if echo "$fm" | grep -qE '(^|[[:space:]])[&*][A-Za-z0-9_-]+'; then
+        echo "YAML ANCHOR/ALIAS: $skill frontmatter uses a YAML anchor or alias. Not supported here — they exist in this check only as an expansion-bomb vector; write the value out."
+        fail=1
+        continue
+      fi
+      ;;
+  esac
+  yaml_err=$(echo "$fm" | timeout 5 python3 -c 'import sys,yaml; yaml.safe_load(sys.stdin.read())' 2>&1) || {
+    yaml_rc=$?
+    case "$yaml_rc:$yaml_err" in
+      124:*)
+        echo "FRONTMATTER PARSE TIMED OUT: '$skill' did not parse within 5s. A hand-written skill does not do this; an expansion bomb does. Inspect the file before re-running."
+        ;;
       *ModuleNotFoundError*|*"No module named 'yaml'"*)
         echo "CANNOT CHECK FRONTMATTER: PyYAML is not installed, so '$skill' was not parsed (pip install pyyaml)"
         ;;
