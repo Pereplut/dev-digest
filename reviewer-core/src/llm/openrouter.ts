@@ -87,7 +87,7 @@ export class OpenRouterProvider implements LLMProvider {
         // second `RequestOptions` argument, separate from the request body.
         // When the signal fires mid-flight the SDK aborts the HTTP request
         // itself, instead of the socket lingering until the provider answers.
-        { signal: req.signal },
+        { ...(req.signal ? { signal: req.signal } : {}) },
       );
 
       // OpenRouter can return HTTP 200 with no `choices` (an upstream provider

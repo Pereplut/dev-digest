@@ -190,6 +190,22 @@ export class ReviewRunExecutor {
     // for a single-pass review, and does nothing for a chunk already
     // in-flight). registerAbort aborts immediately if cancellation was
     // already requested before this line runs (queued-agent race).
+    //
+    // The signal reaches the HTTP call itself in every provider the container
+    // can build — enforced at the adapters by `test/llm-adapter-signal.test.ts`
+    // and `reviewer-core/test/openrouter.test.ts`, not promised by the port,
+    // which deliberately does not enumerate its implementors. Honoured on the
+    // `completeStructured` path only; `complete()` and `embed()` have no signal
+    // on their port types.
+    //
+    // One `completeStructured` call on the review path is NOT covered, by
+    // ordering rather than plumbing: `deriveIntent` (:119) runs before this
+    // controller exists, so a cancel during intent classification leaves that
+    // request running until its provider bounds it. Deliberately not stating
+    // that bound as a number — it is per attempt, not per call, and OpenRouter
+    // does not honour `req.timeoutMs` at all (server/INSIGHTS.md, 2026-09-27).
+    // Covering it needs an abort registered against the PR, not the run, since
+    // intent is derived once for all agents.
     const abortController = new AbortController();
     const unregisterAbort = this.container.runBus.registerAbort(runId, abortController);
 

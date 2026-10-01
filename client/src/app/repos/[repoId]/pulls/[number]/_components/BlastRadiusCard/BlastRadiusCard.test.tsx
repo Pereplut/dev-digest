@@ -103,6 +103,11 @@ const sameNamePopulated: BlastRadius = {
 
 describe("BlastRadiusCard", () => {
   it("shows skeleton rows while isLoading, and nothing from the callers tree", () => {
+    // Data AND loading together, deliberately: with `current` left undefined the
+    // tree could never render, so the second assertion held whether or not the
+    // `isLoading` branch existed. Populated, it fails the moment loading stops
+    // taking precedence over available data.
+    blastData.current = populated;
     blastData.loading = true;
     renderCard();
     expect(screen.getByRole("status", { name: "Reading the code index…" })).toBeInTheDocument();
@@ -112,13 +117,25 @@ describe("BlastRadiusCard", () => {
   it("renders nothing when there is no data (error path)", () => {
     blastData.current = undefined;
     blastData.loading = false;
+    // `toBeEmptyDOMElement`, not a pair of negative title queries: the contract is
+    // `if (!blast) return null`, and absence-of-title is weaker than absence-of-
+    // anything. An error banner or the EmptyState ("Nothing downstream") carries no
+    // title, so a title-only assertion would stay green under this test's own name.
     const { container } = renderCard();
     expect(container).toBeEmptyDOMElement();
+    // Kept alongside, not instead: the populated test below asserts the positive
+    // form of this exact query, so a pass here means the role really is absent
+    // rather than the name never having matched.
+    expect(screen.queryByRole("region", { name: "Blast radius" })).not.toBeInTheDocument();
   });
 
   it("renders the summary chips and one row per changed symbol", () => {
     blastData.current = populated;
     renderCard();
+    // The positive form of the error path's negative query. Without this, that
+    // test could pass because the name never matches anything, rather than
+    // because the region is genuinely absent (client/INSIGHTS.md:120-124).
+    expect(screen.getByRole("region", { name: "Blast radius" })).toBeInTheDocument();
     expect(screen.getByText("2 changed symbols")).toBeInTheDocument();
     expect(screen.getByText("2 callers")).toBeInTheDocument();
     expect(screen.getByText("2 endpoints")).toBeInTheDocument();

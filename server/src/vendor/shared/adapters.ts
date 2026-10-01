@@ -69,8 +69,16 @@ export interface StructuredRequest<T> {
   sessionId?: string;
   /**
    * Cancellation signal for the underlying HTTP request. A provider that
-   * supports it (OpenRouterProvider) aborts the in-flight call when this
-   * fires, instead of running to completion after the caller has moved on.
+   * supports it aborts the in-flight call rather than running to completion
+   * after the caller has moved on, and **must not retry an abort**. Honoured on
+   * `completeStructured` only: `CompletionRequest` has no `signal`, so
+   * `complete()` and `embed()` cannot be cancelled — their timeout bounds the
+   * await, not the HTTP call, which keeps running and keeps being billed.
+   *
+   * Mechanism is per-adapter and deliberately not restated here: a port that
+   * quotes an implementor's internals goes stale the moment they move.
+   * `server/INSIGHTS.md` (2026-09-30) records it, and
+   * `server/test/llm-adapter-signal.test.ts` is where a change to it fails.
    */
   signal?: AbortSignal;
 }
