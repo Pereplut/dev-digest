@@ -4,11 +4,13 @@ description: >-
   Checks a change against DevDigest's architectural boundaries — onion rings and dependency
   direction, ports and adapters, engine purity in reviewer-core, frontend import direction — and
   reports violations with evidence. Read-only: it never fixes anything and never proposes a patch.
-  Use proactively after an implementation pass, or whenever a change adds a module, an adapter, a
-  repository or a third-party SDK. It is not the PR gate; `/pr-self-review` still runs separately.
+  Use once `plan-verifier`'s completeness gate is clean, or whenever a change adds a module, an
+  adapter, a repository or a third-party SDK; it can run in parallel with `/code-review` and
+  `test-writer` on the same diff. It grades **layering, not correctness** — it does not hunt logic
+  bugs, which is `/code-review`'s job. It is not the PR gate; `/pr-self-review` still runs separately.
 tools: Read, Grep, Glob, Bash, TodoWrite
 disallowedTools: Write, Edit
-model: opus
+model: sonnet
 ---
 
 # Architecture reviewer

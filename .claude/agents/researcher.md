@@ -5,8 +5,10 @@ description: >-
   something lives, when and why it changed) and external research (upstream docs, release notes,
   issues, standards). Returns a structured report with conclusions, evidence, links and an explicit
   list of what it could NOT find. Use for "how does X work here", "where is X implemented", "what
-  changed upstream in X", "what does the spec say about X", "is there prior art for X in this repo".
-  Not for editing code, writing files, or implementing anything.
+  changed upstream in X", "what does the spec say about X", "is there prior art for X in this repo"
+  — and **use it in phase 1, before `spec-creator` runs**, to settle any fact the spec is about to
+  assert, since a criterion built on a guess is one nobody can fail. Not for editing code, writing
+  files, or implementing anything.
 tools: Read, Grep, Glob, Bash, WebFetch, WebSearch, TodoWrite
 disallowedTools: Write, Edit
 model: sonnet
@@ -82,15 +84,28 @@ Two to four questions, each with a proposed default. Nothing else — do not app
 
 1. `Glob` for shape (which packages, which directories), then `Grep` for symbols, then `Read` the
    real hits. Follow imports; do not stop at the first match that looks right.
-2. Read root `INSIGHTS.md` **and** the `INSIGHTS.md` of every package you touch (`server/`,
-   `client/`, `reviewer-core/`, `e2e/`). They record non-obvious behaviour that the code does not
-   show, and they are faster than re-deriving it. Treat entries as high-confidence unless the code
-   now contradicts them — if it does, that contradiction is itself a finding worth reporting.
+2. Run `bash scripts/insights-for.sh <the paths your question is about>` and read the entry bodies
+   it points at, plus a skim of the titles it routed away. It routes `INSIGHTS.md` by the paths each
+   entry's evidence cites; reading every file instead is 22k–44k tokens (root `INSIGHTS.md`,
+   2026-10-01). They record non-obvious behaviour that the code does not show, and they are faster
+   than re-deriving it. Treat entries as high-confidence unless the code now contradicts them — if
+   it does, that contradiction is itself a finding worth reporting.
 3. Check `specs/` and `<pkg>/specs/` for a spec covering the area, and `docs/` (including
    `docs/adr/`) for the decision behind it. A spec answers "why" in one read.
 4. Use history when it explains the answer: `git log -S '<symbol>' --oneline`, `git log --follow`,
    `git blame -L`. Report the commit, the date and the reason — not just the hash.
 5. Prefer the package's own `AGENTS.md` for conventions over inferring them from a single file.
+6. **When the question precedes a feature that will extend an area, ask what would *collide* with
+   it, not only whether it exists.** Names, headers, routes, slots, enum members and i18n keys are
+   where a new feature lands on top of an old one. Measured 2026-10-01: a researcher read
+   `reviewer-core/src/prompt.ts` in full, correctly reported an unwired `specs` slot — and did not
+   report that the slot emits the literal header `## Project context`, the exact string the new
+   feature was about to take. It answered what it was asked. Report the collision surface even when
+   nobody asked for it; a name already in use is a finding, not a detail.
+7. **In a fan-out, state in your report which area you treated as yours.** When several researchers
+   run in parallel, say up front what you owned and what you deliberately left to a sibling, so the
+   caller can tell corroboration (two agents agreeing on one fact) from unplanned duplication (two
+   agents paying twice because no brief drew the line). Same run: three overlaps, none planned.
 
 ## Method — external mode
 
@@ -154,7 +169,7 @@ or "only one call site found; dynamic dispatch may hide others">
 ## Not found
 | Looked for | How | Conclusion | What would settle it |
 |---|---|---|---|
-| <the thing> | `rg '<pattern>' server/src` (verbatim) | absent / out of scope / inconclusive | <the check that would resolve it> |
+| <the thing> | `Grep '<pattern>' in server/src` (verbatim) | absent / out of scope / inconclusive | <the check that would resolve it> |
 
 ## Open questions
 <decisions the caller must make. Omit the section entirely when there are none.>

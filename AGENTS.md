@@ -27,7 +27,8 @@ All packages are TypeScript on Node ≥ 22.
 | `server/src/vendor/shared/` | `@devdigest/shared`: canonical Zod contracts (client keeps a vendored copy) | — | — | [shared AGENTS.md](server/src/vendor/shared/AGENTS.md) | [index.ts header](server/src/vendor/shared/index.ts) |
 
 Also at the root:
-- `scripts/`: `dev.sh`, `e2e.sh`, `check-agent-docs.sh`, `check-claude-skills.sh`, `git-hooks/pre-push` (opt-in PR gate)
+- `design/`: UI mockups, one folder per feature — the input `spec-creator` turns into a spec
+- `scripts/`: `dev.sh`, `e2e.sh`, `check-agent-docs.sh`, `check-claude-skills.sh`, `check-specs.sh` (spec structure — sections, `AC-N` identifiers, test-plan coverage, index row), `insights-for.sh` (routes `INSIGHTS.md` to the paths you are touching), `git-hooks/pre-push` (opt-in PR gate)
 - `.github/workflows/`: one CI workflow per suite
 - `.claude/`: skills, [agents](.claude/agents/README.md), the insights hook and the pr-self-review gate
 - `docs/`, `specs/`: cross-package docs and specs
@@ -109,20 +110,70 @@ Every task goes through these phases in order. For spec'd features, log each pha
 
 1. **Initiation:** understand the request.
    - Check `specs/` and `<pkg>/specs/` for an existing spec.
-   - Read the root [INSIGHTS.md](INSIGHTS.md) and the `INSIGHTS.md` of every package you will touch.
+   - **Settle the open facts before the spec asserts them** —
+     [`researcher`](.claude/agents/researcher.md), in repo mode for how this codebase actually
+     works and external mode for what an upstream library or standard really says. A spec built on
+     a guess produces acceptance criteria nobody can fail, and `spec-creator` is told not to invent
+     one. `specs/0008-intent-layer.md`'s Planning row records the shape that worked: three
+     `researcher` runs before the spec, not after.
+   - **Route the insights, don't read all of them.** `bash scripts/insights-for.sh <paths…>`
+     (or `--base origin/main`) prints the `INSIGHTS.md` entries whose evidence cites the paths you
+     are touching, with `file:start-end` so you can `Read` just those — plus the **title of every
+     entry it routed away**, so nothing is hidden and you can pull any body on a hunch. Measured
+     2026-10-01: reading everything is 22k–44k tokens and 62–71% of an agent's whole intake; routed,
+     the same task reads ~5–10k.
+   - Skim the routed-away titles. The filter matches cited paths, so a universal lesson that happens
+     to cite one file is under-routed; the handful that apply to every task carry `**Applies:**
+     always` and are returned regardless.
    - Treat entries as high-confidence guidance unless the code now says otherwise.
 2. **Planning:** write or update the spec (`status: draft` → `approved`).
-   - Agree on decisions with the user.
-   - Plan the files, tests and verification.
+   - The [`spec-creator`](.claude/agents/spec-creator.md) agent writes it: acceptance criteria in
+     EARS form, edge cases, input provenance, untrusted inputs. It reads mockups from `design/`
+     and reports what they leave open; it may write nothing outside a `specs/` directory
+     (`.claude/hooks/spec-scope-gate.py`) and never sets `status: approved` itself.
+   - **Run `bash scripts/check-specs.sh` after it.** The agent has no `Bash` and cannot check its
+     own output, so it can file a spec that fails the structural rules — sections, unique `AC-N`,
+     every identifier enumerated in `## Test plan`, index row — and not know.
+   - Agree on decisions with the user. Only the user approves a spec.
+   - Plan the files, tests and verification — that is
+     [`implementation-planner`](.claude/agents/implementation-planner.md), after the spec, never
+     before it. It refuses to plan until a spec governing the task reads `status: approved` or
+     `in-progress`, and it never writes, drafts or numbers one.
+   - Its plan ends with a recommended **execution mode** — the subagent chain in
+     [.claude/agents/README.md](.claude/agents/README.md), or one single-agent pass. The choice is
+     the user's; the session asks with `AskUserQuestion` before implementation starts.
 3. **Implementation:** code and tests (`status: in-progress`), following the conventions above.
    - When a non-obvious dependency, fix, measured fact, odd finding, tool quirk, or LLM/review-engine behavior is confirmed, record it right away with the [`engineering-insights`](.claude/skills/engineering-insights/SKILL.md) skill.
    - Each record is dated, has `file:line` evidence, and goes in the INSIGHTS.md of the module you worked in.
 4. **Validation:** run typecheck, lint and tests for every touched package (see Verify).
-   - Run `./scripts/e2e.sh` when the UI or seed changed.
+   - **Review in this order.** [`plan-verifier`](.claude/agents/plan-verifier.md) first — it is
+     read-only, cheapest, and the only thing that can see a planned step which produced no diff. A
+     `Missing` or `Contradicted` item goes back to the implementer before anything else runs.
+     Then, in parallel on the same diff: [`architecture-reviewer`](.claude/agents/architecture-reviewer.md)
+     for layering, `/code-review` for correctness, and
+     [`test-writer`](.claude/agents/test-writer.md) for coverage the implementer did not own.
+     A clean `architecture-reviewer` report says nothing about bugs — that is `/code-review`'s question.
+   - **Three commands are the user's, not an agent's:** `cd server && pnpm exec vitest run .it.test`
+     (Docker contention makes a single run uninformative, so `implementer` and `plan-verifier` are
+     both barred and `test-writer` runs only the file it wrote), `./scripts/e2e.sh` when the UI or
+     seed changed, and `/pr-self-review` before any push.
    - Do a manual check on the dev app for user-visible changes.
 5. **Completion:**
-   - Set the spec to `status: done` and move durable explanations into `docs/`.
+   - Set the spec to `status: done`, once `plan-verifier` has confirmed the work is actually
+     complete — `done` on a spec with `Missing` items is the one status nobody can detect later.
+   - **Move durable explanation into `docs/` with [`doc-writer`](.claude/agents/doc-writer.md)**,
+     after the reviewers are clean. It writes only under `docs/`, files by the placement table
+     there, and knows the split that matters: `docs/` is how things **are**, `specs/` is how they
+     **will be**, `INSIGHTS.md` is what **surprised** someone. Skip it only when the change left
+     nothing a future reader would need explained — and say that rather than skipping silently.
    - Run the `engineering-insights` wrap-up (automatic; don't wait to be asked).
+   - **Whenever a subagent's `<task-notification>` arrives, append its usage row** to
+     `.claude/.retro/<session-id>.runs.jsonl` — `{order, agent, label, tokens, tools, ms,
+     parallel_with, outcome}`. Do it as each one lands, not at the end: measured 2026-10-01, a
+     condensed transcript kept 21 agent returns but **1** `<usage>` block, and a handback message
+     carries no usage data at all. Numbers not captured live are gone. The user then reviews a run
+     with [`workflow-retro`](.claude/skills/workflow-retro/SKILL.md) (`/retro`), which is
+     manual-only and so cannot record anything itself.
    - Before opening, pushing or merging a PR, the user runs `/pr-self-review` ([skill](.claude/skills/pr-self-review/SKILL.md)).
      It is manual-only (`disable-model-invocation: true`), so an agent asks the user to run it rather than invoking it.
      It reviews every local change with the skills that match each file. Any `CRITICAL` blocks the PR:

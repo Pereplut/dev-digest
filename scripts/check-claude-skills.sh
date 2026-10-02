@@ -31,6 +31,7 @@ github-workflow-automation
 # Present here, but authored in-repo rather than vendored via the lockfile.
 KNOWN_DIR_WITHOUT_LOCK='
 engineering-insights
+impl
 mermaid-diagram
 onion-architecture
 pr-self-review
@@ -38,6 +39,8 @@ react-best-practices
 react-code-organization
 react-testing-library
 security
+spec-authoring
+workflow-retro
 '
 
 in_list() { echo "$2" | tr -d ' ' | grep -qx "$1"; }
@@ -76,6 +79,32 @@ for name in $skill_dirs; do
   # key only, never the value's shape.
   echo "$fm" | grep -qE '^description:[[:space:]]*\S' || {
     echo "NO DESCRIPTION: $skill frontmatter has no non-empty 'description:' (Claude Code uses it to decide relevance)"
+    fail=1
+  }
+
+  # ...and it must actually PARSE as YAML. The grep above only proves the key is
+  # present and non-empty, which is not the same thing: a bare scalar containing a
+  # `: ` ("Trigger terms: spec, ...") satisfies the grep and then fails every real
+  # parser, so the skill would silently not load. Caught exactly that way on
+  # 2026-10-01 while adding spec-authoring.
+  # `safe_load`, never `load`: bare `yaml.load` resolves `!!python/object/apply:` tags,
+  # which is arbitrary code execution from a file any PR can add.
+  # The 2>&1 capture is deliberate — swallowing stderr would report "every skill is
+  # unparseable" on a machine with no PyYAML, which is fail-closed but names the wrong
+  # cause. Distinguish the two.
+  # Deliberately unbounded: PyYAML resolves a repeated alias to the same object, so
+  # there is nothing here to amplify. A bound shipped and was reverted the same day —
+  # root INSIGHTS.md, 2026-10-01, for the measurement and what it cost. If the loader
+  # is ever swapped for one that copies, bound it then, in Python (`signal.alarm`).
+  yaml_err=$(echo "$fm" | python3 -c 'import sys,yaml; yaml.safe_load(sys.stdin.read())' 2>&1) || {
+    case "$yaml_err" in
+      *ModuleNotFoundError*|*"No module named 'yaml'"*)
+        echo "CANNOT CHECK FRONTMATTER: PyYAML is not installed, so '$skill' was not parsed (pip install pyyaml)"
+        ;;
+      *)
+        echo "UNPARSEABLE FRONTMATTER: $skill frontmatter is not valid YAML (a bare value containing ': ' is the usual cause — use a '>-' folded scalar)"
+        ;;
+    esac
     fail=1
   }
 

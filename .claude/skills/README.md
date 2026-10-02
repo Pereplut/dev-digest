@@ -19,9 +19,12 @@ Reusable AI skills that provide specialized knowledge and workflows. They live i
 | [zod](zod/SKILL.md) | Full-stack | Zod schema validation, parsing, error handling, type inference |
 | [typescript-expert](typescript-expert/SKILL.md) | Full-stack | Type-level programming, performance, tooling, migrations |
 | [security](security/SKILL.md) | Full-stack | OWASP Top 10:2025, auth, injection, uploads, secrets |
+| [spec-authoring](spec-authoring/SKILL.md) | Shared | How to write a requirement a tester could fail: EARS patterns, which criteria are mechanically checkable, test-plan coverage rules, edge cases, provenance, untrusted input |
 | [mermaid-diagram](mermaid-diagram/SKILL.md) | Shared | Mermaid diagrams in markdown (flowcharts, sequence, ERD, …) |
 | [pr-self-review](pr-self-review/SKILL.md) | Workflow | Before a PR: routes every locally changed file to the skills above (UI skills on `client/`, backend/architecture skills on `server/` + `reviewer-core/`) and records a verdict; any CRITICAL blocks `gh pr create` / `git push` / `gh pr merge` via a PreToolUse gate |
+| [impl](impl/SKILL.md) | Workflow | Runs phases 3–5 from an approved spec plus an on-disk Development Plan: implementer(s), the `plan-verifier` completeness gate, `architecture-reviewer` + `/code-review` (+ `test-writer` under `--tests`), a bounded fix loop with a round ledger, then `doc-writer` and the insights wrap-up. Manual-only; never runs `/pr-self-review`, `git push` or `gh pr create/merge/ready` |
 | [engineering-insights](engineering-insights/SKILL.md) | Workflow | After each code task, record dependencies, fixes, measured facts, odd findings (dated, `file:line`) in the module's `INSIGHTS.md` |
+| [workflow-retro](workflow-retro/SKILL.md) | Workflow | After a multi-agent run, record how the *orchestration* went in `WORKFLOW-RETRO.md`: agents, order, tokens, parallelism, who corrected whom, duplicated work, tool denials — plus proposed changes the user approves. Manual-only (`/retro`); never edits `.claude/agents/**`, never reports an unmeasured number |
 
 ### Lockfile drift (known, 2026-09-18)
 

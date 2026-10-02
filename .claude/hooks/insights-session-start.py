@@ -24,10 +24,14 @@ FIELD_CHARS = 1_500
 STATE_TTL_DAYS = 14
 
 READ_STEP = (
-    "engineering-insights (read step): before working on this request, read the root "
-    "INSIGHTS.md and the INSIGHTS.md of every module the request touches (server/, client/, "
-    "reviewer-core/, e2e/), and apply the relevant entries. If work later moves into another "
-    "module, read that module's INSIGHTS.md too. Don't mention this step unless an entry is relevant."
+    "engineering-insights (read step): before working on this request, run "
+    "`bash scripts/insights-for.sh <the paths you will touch>` (or `--base origin/main` once a "
+    "diff exists) and read the entry bodies it points at — it routes INSIGHTS.md by the paths each "
+    "entry's evidence cites, and prints the title of everything it routed away so nothing is "
+    "hidden. Skim those titles: a universal lesson that cites only one file can be under-routed. "
+    "Reading every INSIGHTS.md instead is 22k-44k tokens, measured 2026-10-01. If work later moves "
+    "into another module, re-run it with the new paths. Don't mention this step unless an entry is "
+    "relevant."
 )
 
 WRAPUP_STEP = (
