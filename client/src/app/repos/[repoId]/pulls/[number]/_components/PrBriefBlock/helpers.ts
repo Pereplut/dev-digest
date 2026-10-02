@@ -13,7 +13,7 @@ import type { MissingInputName } from "@devdigest/shared";
  * so any PR large enough to trip the 8k budget rendered the raw identifier
  * ("Generated without smart_diff") on screen.
  */
-const INPUT_LABEL_KEY: Record<MissingInputName, string> = {
+const INPUT_LABEL_KEY = {
   intent: "block.intent",
   blast: "block.blast",
   specs: "block.specs",
@@ -22,7 +22,15 @@ const INPUT_LABEL_KEY: Record<MissingInputName, string> = {
   blast_callers: "block.blastCallers",
   pr_body: "block.prBody",
   diff_stats: "block.diffStats",
-};
+} satisfies Record<MissingInputName, string>;
+
+/**
+ * The same table read through a widened view, so the lookup below needs no type
+ * assertion: `satisfies` above keeps the completeness check (a missing key is
+ * TS2741, a typo'd key TS2561), while this alias lets an arbitrary `string` be
+ * looked up and come back possibly-undefined, which is what the fallback wants.
+ */
+const LOOKUP: Readonly<Record<string, string | undefined>> = INPUT_LABEL_KEY;
 
 /**
  * Maps a `missing_inputs[].input` value to its translated label. The fallback
@@ -31,6 +39,6 @@ const INPUT_LABEL_KEY: Record<MissingInputName, string> = {
  * above makes it unreachable.
  */
 export function missingInputLabel(t: (key: string) => string, input: string): string {
-  const key = INPUT_LABEL_KEY[input as MissingInputName] as string | undefined;
+  const key = LOOKUP[input];
   return key ? t(key) : input;
 }

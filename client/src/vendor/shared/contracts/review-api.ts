@@ -154,16 +154,24 @@ export type SmartDiffResponse = z.infer<typeof SmartDiffResponse>;
 
 // ---- PR Brief (spec 0018) ----
 
-/** One input the brief generator did without, and why (when known). */
 /**
  * Every value `missing_inputs[].input` can carry. A closed union, not a string:
  * the client maps each one to a label, and a `Record<MissingInputName, string>`
  * turns a forgotten label into a compile error instead of a raw identifier on
  * screen ("Generated without smart_diff").
  *
- * The first four are inputs that were absent; the rest are fact blocks dropped
- * by the token budget — keep in step with `TRUNCATION_ORDER`
- * (`server/src/modules/brief/constants.ts`).
+ * The groups overlap, so count carefully when auditing this list:
+ * - `intent` and `blast` are emitted only when the input was absent.
+ * - `specs` and `issue` are emitted for **either** reason — absent, or dropped
+ *   by the token budget.
+ * - `smart_diff`, `blast_callers`, `pr_body` and `diff_stats` are emitted only
+ *   as budget drops.
+ *
+ * The last six are exactly `TRUNCATION_ORDER`
+ * (`server/src/modules/brief/constants.ts`); keep them in step. Drift in that
+ * direction is caught by `tsc` — the service pushes `FactBlockName` values into
+ * a `MissingInput[]` — but the client's vendored copy of this file is not, so
+ * mirror any change.
  */
 export const MissingInputName = z.enum([
   'intent',
@@ -177,6 +185,7 @@ export const MissingInputName = z.enum([
 ]);
 export type MissingInputName = z.infer<typeof MissingInputName>;
 
+/** One input the brief generator did without, and why (when known). */
 export const MissingInput = z.object({
   input: MissingInputName,
   reason: z.string().optional(),

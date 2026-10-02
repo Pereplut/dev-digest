@@ -49,9 +49,11 @@ export function PrBriefBlock({ prId, finishedReview, onFocusFile }: PrBriefBlock
   // `isLoading` is load-bearing, not cosmetic. While the cached GET is in
   // flight `brief` is null, so without it the control reads "Generate brief"
   // and is enabled on a PR that already HAS one — and a click in that window
-  // spends a model call, which AC-19/AC-34 exist to prevent. No component test
-  // can catch this: they all stub the hook to resolve synchronously, so the
-  // in-flight state never exists in the suite.
+  // spends a model call, which AC-19/AC-34 exist to prevent. It took a human
+  // reading the destructure to find: every test here stubbed the hook to
+  // resolve synchronously, so the in-flight state did not exist in the suite
+  // until the regression test in `PrBriefBlock.test.tsx` created it. That test
+  // is the reason this line cannot be quietly dropped — do not delete it.
   //
   // `isLoading`, not `isFetching`: a background refetch of an already-cached
   // brief must not blank the block.
