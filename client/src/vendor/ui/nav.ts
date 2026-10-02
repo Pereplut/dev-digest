@@ -23,6 +23,10 @@ export const NAV: NavGroup[] = [
     section: "WORKSPACE",
     items: [
       { key: "pulls", label: "Pull Requests", icon: "GitPullRequest", href: "/repos/:repoId/pulls", gKey: "p" },
+      // DevDigest spec 0017 (Onboarding Generator): same documented exception as
+      // the 0006/0007 comment below — a new top-level page may add its nav item
+      // here. No `gKey`: the shortcut registry (`SHORTCUTS`) is untouched.
+      { key: "onboarding-tour", label: "Onboarding Tour", icon: "Workflow", href: "/repos/:repoId/tour" },
     ],
   },
   {

@@ -187,5 +187,12 @@ export interface RepoIntel {
     n: number,
     opts?: { exclude?: string[] },
   ): Promise<string[]>;
-  getCriticalPaths(repoId: string): Promise<string[][]>;
+  /**
+   * `chainLimit` caps the number of CHAINS returned, not roots walked — the
+   * walk drops any chain shorter than 2 and dedupes identical chains, so a
+   * roots-based cap can under-report real truncation (onboarding spec 0017,
+   * decision 6). Defaults to the historical root count so the one existing
+   * caller (`repo-intel-facade-degraded.test.ts`) is unaffected.
+   */
+  getCriticalPaths(repoId: string, chainLimit?: number): Promise<string[][]>;
 }

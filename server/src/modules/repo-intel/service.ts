@@ -697,10 +697,15 @@ export class RepoIntelService implements RepoIntel {
 
   /**
    * Dependency chains from the highest-ranked files (onboarding reading-path).
-   * For each of the top roots, greedily follow the highest-ranked import target
-   * up to BFS_DEPTH hops. Pure read over `file_edges` + `file_rank`.
+   * Walks the ranked files, greedily following the highest-ranked import
+   * target up to BFS_DEPTH hops per root, UNTIL `chainLimit` chains are found
+   * — not just the top `CRITICAL_PATH_ROOTS` roots. A roots-based cap would
+   * under-report truncation: the walk drops any chain shorter than 2 and
+   * dedupes identical chains, so e.g. six top roots can yield five (or fewer)
+   * chains while a sixth real chain exists further down the ranking (spec
+   * 0017, decision 6). Pure read over `file_edges` + `file_rank`.
    */
-  async getCriticalPaths(repoId: string): Promise<string[][]> {
+  async getCriticalPaths(repoId: string, chainLimit: number = CRITICAL_PATH_ROOTS): Promise<string[][]> {
     if (!this.container.config.repoIntelEnabled) return [];
     const edges = await this.repo.getEdges(repoId);
     if (edges.length === 0) return [];
@@ -716,10 +721,10 @@ export class RepoIntelService implements RepoIntel {
       else adj.set(e.fromFile, [e.toFile]);
     }
 
-    const roots = ranked.slice(0, CRITICAL_PATH_ROOTS).map((r) => r.path);
     const paths: string[][] = [];
     const seenPaths = new Set<string>();
-    for (const root of roots) {
+    for (const { path: root } of ranked) {
+      if (paths.length >= chainLimit) break;
       const chain = [root];
       const inChain = new Set(chain);
       let cur = root;
@@ -742,7 +747,7 @@ export class RepoIntelService implements RepoIntel {
   }
 }
 
-/** How many top-ranked files seed `getCriticalPaths` dependency chains. */
+/** Default chain cap — the historical root count, kept as `getCriticalPaths`' default. */
 const CRITICAL_PATH_ROOTS = 5;
 
 /**
