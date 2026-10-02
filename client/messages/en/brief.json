@@ -1,0 +1,29 @@
+{
+  "block": {
+    "title": "PR Brief",
+    "intent": "PR intent",
+    "blast": "Blast radius",
+    "specs": "Linked specs",
+    "issue": "Linked issue",
+    "risks": "Risk areas",
+    "focus": "Review focus — read these first",
+    "smartDiff": "Changed files by role",
+    "blastCallers": "Blast radius callers",
+    "prBody": "PR description",
+    "diffStats": "Diff statistics"
+  },
+  "generate": "Generate brief",
+  "refresh": "Refresh",
+  "busy": "Generating…",
+  "loading": "Loading…",
+  "stale": "Out of date — the PR has new commits",
+  "noRisks": "No risks identified.",
+  "unavailable": "Generated without {label}",
+  "unavailableHint": "({reason})",
+  "severity": {
+    "high": "High",
+    "medium": "Medium",
+    "low": "Low"
+  },
+  "expandRisk": "{open, select, true {Hide explanation} other {Show explanation}}"
+}

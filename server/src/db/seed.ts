@@ -10,6 +10,7 @@ import {
 } from './seed-prompts.js';
 import { SEED_SKILLS, SEED_AGENT_SKILLS } from './seed-skills.js';
 import { SEED_CONVENTIONS } from './seed-conventions.js';
+import { SEED_PR_BRIEF_ENVELOPE } from './seed-brief.js';
 import { conventionFingerprint } from '../modules/conventions/helpers.js';
 
 /** Default provider/model for the built-in reviewer agents. */
@@ -344,6 +345,17 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
         }
       }
     }
+  }
+
+  // ---- seeded PR brief (spec 0018) ----
+  // Idempotent on the table's own PK (pr_id): a re-seed never duplicates or
+  // overwrites a brief a real generation may since have replaced. Reuses the
+  // `seededPr` binding resolved above — no fourth PR lookup needed.
+  if (seededPr) {
+    await db
+      .insert(t.prBrief)
+      .values({ prId: seededPr.id, json: SEED_PR_BRIEF_ENVELOPE })
+      .onConflictDoNothing();
   }
 
   // ---- extracted convention candidates (spec 0007) ----

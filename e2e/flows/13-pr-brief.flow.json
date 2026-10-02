@@ -1,0 +1,24 @@
+{
+  "name": "PR Brief renders the seeded envelope and its review-focus deep link",
+  "description": "Spec 0018. From PR #482's Overview tab, confirms the seeded pr_brief row renders its summary (inside VerdictBanner, since this PR has a finished review), its risk list and its review-focus list, and that the degraded blast input is named as unavailable — all without ever activating Generate brief. Then activates the first review-focus row and confirms it lands on Files changed with that file's card expanded. Read-only: Generate brief is never clicked, and nothing triggers a model call — the envelope is seed data (server/src/db/seed-brief.ts), not a generated one.",
+  "steps": [
+    { "cmd": ["open", "{BASE}/"], "label": "load the app root" },
+    { "cmd": ["wait", "--url", "/pulls"], "label": "land on the PR list" },
+    { "cmd": ["find", "text", "Add rate limiting to public API endpoints", "click"], "label": "open the PR row" },
+    { "cmd": ["wait", "--url", "/pulls/482"], "label": "navigate to the PR detail route" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "PR detail data settles" },
+
+    { "cmd": ["wait", "--text", "Adds a token-bucket rate limiter and applies it to the public API and webhook endpoints to block abuse from unauthenticated clients."], "label": "the seeded brief summary renders inside VerdictBanner (PR #482 has a finished review, AC-46)" },
+    { "cmd": ["wait", "--text", "RISK AREAS"], "label": "the risk list section heading renders (SectionLabel-style text is CSS-uppercased)" },
+    { "cmd": ["wait", "--text", "Rate limiter state is kept in memory only"], "label": "the first seeded risk title renders (AC-46)" },
+    { "cmd": ["wait", "--text", "REVIEW FOCUS — READ THESE FIRST"], "label": "the review-focus section heading renders (also CSS-uppercased)" },
+    { "cmd": ["wait", "--text", "src/middleware/ratelimit.ts:1"], "label": "the first seeded review-focus row renders (AC-46)" },
+    { "cmd": ["wait", "--text", "Generated without Blast radius"], "label": "the unavailable text names the missing blast input (AC-47 — the seeded repo has no clone_path and no index row)" },
+
+    { "cmd": ["scrollintoview", "section[aria-labelledby=\"pr-brief-heading\"] ul:last-of-type button:first-of-type"], "label": "bring the first review-focus row into view (find/click doesn't scroll the app's inner container)" },
+    { "cmd": ["find", "text", "New token-bucket limiter — read this first to understand the throttling strategy.", "click"], "label": "activate the first review-focus row" },
+    { "cmd": ["wait", "--url", "tab=diff"], "label": "navigates to the Files changed tab (AC-48)" },
+    { "cmd": ["wait", "--text", "FILES CHANGED"], "label": "Files changed tab is showing (SectionLabel text is CSS-uppercased)" },
+    { "cmd": ["wait", "--text", "src/middleware/ratelimit.ts"], "label": "the deep-linked file's card is on screen and expanded (AC-48)" }
+  ]
+}

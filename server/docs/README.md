@@ -10,3 +10,4 @@ planned work goes in [`../specs/`](../specs/README.md).
 | [`findings-counts.md`](findings-counts.md) | The PR list's open finding counts per severity for the latest run with a review |
 | [`intent-layer.md`](intent-layer.md) | Why a PR was opened: the cheap-model classifier, its server-computed confidence band, quote verification, and the two untrusted hops |
 | [`prompt-logging.md`](prompt-logging.md) | The `prompt assembled` debug record: what each section contributes, and why no section text is ever logged |
+| [`pr-brief.md`](pr-brief.md) | PR Brief generation: the one-call pipeline, the budget and grounding filters, and why the stored envelope is a deliberate schema overflow |

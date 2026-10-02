@@ -56,6 +56,7 @@ export function FileCard({
   commenting,
   defaultOpen,
   findings,
+  focusPath,
 }: {
   file: PrFile;
   commenting?: DiffCommentApi;
@@ -66,11 +67,32 @@ export function FileCard({
    */
   defaultOpen?: boolean;
   findings?: DiffFindingApi;
+  /**
+   * The Review focus deep link (spec 0018): when this equals `file.path`, the
+   * card opens and scrolls into view on mount — overriding `defaultOpen`, since
+   * a reviewer who followed the link needs to see this file even inside a
+   * Smart Diff group collapsed by default.
+   */
+  focusPath?: string | null;
 }) {
   const t = useTranslations("shell");
+  const isFocusTarget = focusPath != null && focusPath === file.path;
   const [open, setOpen] = React.useState(
-    defaultOpen ?? (file.additions ?? 0) + (file.deletions ?? 0) <= AUTO_EXPAND_MAX_LINES
+    isFocusTarget
+      ? true
+      : defaultOpen ?? (file.additions ?? 0) + (file.deletions ?? 0) <= AUTO_EXPAND_MAX_LINES
   );
+  const rootRef = React.useRef<HTMLDivElement | null>(null);
+  React.useEffect(() => {
+    if (isFocusTarget) {
+      setOpen(true);
+      rootRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    // Mount-time behaviour only (AC-43): `DiffTab` unmounts on every tab
+    // switch, so there is no "second click while already on this tab" case to
+    // re-trigger here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const lines = React.useMemo(() => parsePatch(file.patch), [file.patch]);
 
   // Group this file's comments into threads, then split into ones we can anchor
@@ -114,7 +136,7 @@ export function FileCard({
   const dotColor = worst ? (SEV_COLOR[worst] ?? SEV_COLOR_FALLBACK) : null;
 
   return (
-    <div style={s.fileCard}>
+    <div ref={rootRef} style={s.fileCard}>
       {/* A real <button>: this header holds only icons and text, so it can be
           one — giving focus, Enter/Space and the right role for free. */}
       <button

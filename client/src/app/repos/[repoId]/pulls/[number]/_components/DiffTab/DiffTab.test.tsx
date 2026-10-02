@@ -45,6 +45,9 @@ beforeEach(() => {
   smartDiffData.loading = false;
 });
 
+// jsdom has no scrollIntoView (spec 0018's Review focus deep link, AC-43).
+Element.prototype.scrollIntoView = vi.fn();
+
 function comment(over: Partial<PrReviewComment> = {}): PrReviewComment {
   return {
     id: 1,
@@ -334,5 +337,37 @@ describe("DiffTab — findings", () => {
     expect(screen.queryByRole("button", { name: /comments/i })).not.toBeInTheDocument();
     // Grouping still works with no review at all.
     expect(screen.getByText("Core logic")).toBeInTheDocument();
+  });
+});
+
+describe("DiffTab — Review focus deep link (spec 0018)", () => {
+  beforeEach(() => {
+    (Element.prototype.scrollIntoView as ReturnType<typeof vi.fn>).mockClear();
+  });
+
+  it("expands the matching file and scrolls to it on mount, overriding the auto-collapse heuristic (AC-43)", () => {
+    // Big enough that the default heuristic would NOT auto-expand it, so a
+    // true override — not a coincidence of the fixture being small — is what
+    // this test actually proves.
+    const bigFile = { ...file("src/ratelimit.ts"), additions: 300, deletions: 0 };
+    renderTab({ files: [bigFile], focusPath: "src/ratelimit.ts" });
+    const header = screen.getByRole("button", { name: /src\/ratelimit\.ts/ });
+    expect(header).toHaveAttribute("aria-expanded", "true");
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders the diff unchanged, with no error, when the file matches nothing (AC-44)", () => {
+    renderTab({ focusPath: "does/not/exist.ts" });
+    expect(screen.getByText("src/ratelimit.ts")).toBeInTheDocument();
+    expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it("expands a COLLAPSED_ROLES group before expanding the file inside it (AC-45)", () => {
+    smartDiffData.current = SMART;
+    renderTab({ focusPath: "pnpm-lock.yaml" }); // lives in the "boilerplate" group
+    const groupHeader = screen.getByRole("button", { name: /^Boilerplate/ });
+    expect(groupHeader).toHaveAttribute("aria-expanded", "true");
+    const fileHeader = screen.getByRole("button", { name: /pnpm-lock\.yaml/ });
+    expect(fileHeader).toHaveAttribute("aria-expanded", "true");
   });
 });

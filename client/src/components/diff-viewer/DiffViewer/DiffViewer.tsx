@@ -17,12 +17,15 @@ export function DiffViewer({
   commenting,
   findings,
   defaultOpen,
+  focusPath,
 }: {
   files: PrFile[];
   commenting?: DiffCommentApi;
   findings?: DiffFindingApi;
   /** Overrides each card's auto-expand heuristic — Smart Diff collapses whole roles. */
   defaultOpen?: boolean;
+  /** The Review focus deep link (spec 0018): the path to open and scroll to. */
+  focusPath?: string | null;
 }) {
   const t = useTranslations("shell");
   if (!files || files.length === 0) {
@@ -39,6 +42,7 @@ export function DiffViewer({
           commenting={commenting}
           findings={findings}
           defaultOpen={defaultOpen}
+          focusPath={focusPath}
         />
       ))}
     </div>

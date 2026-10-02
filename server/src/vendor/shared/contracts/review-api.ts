@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { Finding, Verdict } from './findings.js';
-import { Intent, SmartDiff } from './brief.js';
+import { Intent, PrBrief, SmartDiff } from './brief.js';
 
 /**
  * A2 — Review-Core API surface contracts. These extend the core
@@ -151,3 +151,59 @@ export type PrIntentResponse = z.infer<typeof PrIntentResponse>;
 /** Smart-diff response for a PR (the SmartDiff). */
 export const SmartDiffResponse = SmartDiff;
 export type SmartDiffResponse = z.infer<typeof SmartDiffResponse>;
+
+// ---- PR Brief (spec 0018) ----
+
+/**
+ * Every value `missing_inputs[].input` can carry. A closed union, not a string:
+ * the client maps each one to a label, and a `Record<MissingInputName, string>`
+ * turns a forgotten label into a compile error instead of a raw identifier on
+ * screen ("Generated without smart_diff").
+ *
+ * The groups overlap, so count carefully when auditing this list:
+ * - `intent` and `blast` are emitted only when the input was absent.
+ * - `specs` and `issue` are emitted for **either** reason — absent, or dropped
+ *   by the token budget.
+ * - `smart_diff`, `blast_callers`, `pr_body` and `diff_stats` are emitted only
+ *   as budget drops.
+ *
+ * The last six are exactly `TRUNCATION_ORDER`
+ * (`server/src/modules/brief/constants.ts`); keep them in step. Drift in that
+ * direction is caught by `tsc` — the service pushes `FactBlockName` values into
+ * a `MissingInput[]` — but the client's vendored copy of this file is not, so
+ * mirror any change.
+ */
+export const MissingInputName = z.enum([
+  'intent',
+  'blast',
+  'specs',
+  'issue',
+  'smart_diff',
+  'blast_callers',
+  'pr_body',
+  'diff_stats',
+]);
+export type MissingInputName = z.infer<typeof MissingInputName>;
+
+/** One input the brief generator did without, and why (when known). */
+export const MissingInput = z.object({
+  input: MissingInputName,
+  reason: z.string().optional(),
+});
+export type MissingInput = z.infer<typeof MissingInput>;
+
+/** `PrBrief` persisted for a PR (the PrBrief plus transport/provenance fields). */
+export const PrBriefEnvelope = PrBrief.extend({
+  head_sha: z.string(),
+  generated_at: z.string(),
+  model: z.string(),
+  missing_inputs: z.array(MissingInput),
+});
+export type PrBriefEnvelope = z.infer<typeof PrBriefEnvelope>;
+
+/** `GET /pulls/:id/brief`. `brief` is null when nothing has been generated for this PR yet. */
+export const PrBriefResponse = z.object({
+  brief: PrBriefEnvelope.nullable(),
+  stale: z.boolean(),
+});
+export type PrBriefResponse = z.infer<typeof PrBriefResponse>;
