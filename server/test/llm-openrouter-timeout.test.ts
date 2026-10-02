@@ -139,8 +139,14 @@ describe('TimeBoundedOpenRouterProvider', () => {
       inner({
         completeStructured: vi.fn((req: StructuredRequest<unknown>) => {
           seen = req.signal;
+          // Fail loudly, not by hanging. With `req.signal?.addEventListener`,
+          // an adapter that stopped forwarding a signal would register nothing,
+          // never settle, and surface as a generic 5s test timeout — the exact
+          // failure mode the rest of this test exists to avoid.
+          const signal = req.signal;
+          if (!signal) throw new Error('adapter did not forward a signal');
           return new Promise<StructuredResult<never>>((_, reject) => {
-            req.signal?.addEventListener('abort', () => reject(req.signal!.reason), { once: true });
+            signal.addEventListener('abort', () => reject(signal.reason), { once: true });
           });
         }),
       }),
