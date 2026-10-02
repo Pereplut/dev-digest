@@ -137,8 +137,19 @@ export interface ReviewInput {
    * Cancellation checkpoint, called before each (expensive) chunk LLM call.
    * Supply a function that THROWS to abort mid-run (the caller owns the error
    * type, e.g. the server's RunCancelledError); the engine stays agnostic.
+   * This only stops the loop BETWEEN chunks — it does not touch a call already
+   * in flight. Pair it with `signal` to abort an in-flight HTTP request too.
    */
   checkCancelled?: () => void;
+  /**
+   * Cancellation signal for the LLM call itself. Forwarded to every
+   * `llm.completeStructured` call (single-pass has one; map-reduce has one per
+   * file) so a provider that honours `AbortSignal` (OpenRouterProvider) stops
+   * an in-flight HTTP request the moment the caller aborts, rather than the
+   * request running to completion after the run was cancelled. `AbortSignal`
+   * is a web/Node global, not an import — this adds no dependency.
+   */
+  signal?: AbortSignal;
 }
 
 export interface ReviewOutcome {
@@ -246,6 +257,7 @@ export async function reviewPullRequest(input: ReviewInput): Promise<ReviewOutco
       messages: a.messages,
       maxRetries,
       ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+      ...(input.signal ? { signal: input.signal } : {}),
     });
     tokensIn += res.tokensIn;
     tokensOut += res.tokensOut;

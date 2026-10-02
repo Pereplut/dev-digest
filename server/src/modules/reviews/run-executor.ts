@@ -185,6 +185,30 @@ export class ReviewRunExecutor {
     // had resolved before the failure.
     let skills: LoadedSkill[] = [];
 
+    // Real cancellation: aborted the moment the user cancels, not just at the
+    // next between-chunk checkpoint (`checkCancelled` below never even fires
+    // for a single-pass review, and does nothing for a chunk already
+    // in-flight). registerAbort aborts immediately if cancellation was
+    // already requested before this line runs (queued-agent race).
+    //
+    // The signal reaches the HTTP call itself in every provider the container
+    // can build — enforced at the adapters by `test/llm-adapter-signal.test.ts`
+    // and `reviewer-core/test/openrouter.test.ts`, not promised by the port,
+    // which deliberately does not enumerate its implementors. Honoured on the
+    // `completeStructured` path only; `complete()` and `embed()` have no signal
+    // on their port types.
+    //
+    // One `completeStructured` call on the review path is NOT covered, by
+    // ordering rather than plumbing: `deriveIntent` (:119) runs before this
+    // controller exists, so a cancel during intent classification leaves that
+    // request running until its provider bounds it. Deliberately not stating
+    // that bound as a number — it is per attempt, not per call, and OpenRouter
+    // does not honour `req.timeoutMs` at all (server/INSIGHTS.md, 2026-09-27).
+    // Covering it needs an abort registered against the PR, not the run, since
+    // intent is derived once for all agents.
+    const abortController = new AbortController();
+    const unregisterAbort = this.container.runBus.registerAbort(runId, abortController);
+
     try {
       // Resolve the agent's LLM provider. (container.llm throws if the provider
       // key is missing — caught below and persisted as a failed run.)
@@ -287,6 +311,9 @@ export class ReviewRunExecutor {
         checkCancelled: () => {
           if (this.container.runBus.isCancelled(runId)) throw new RunCancelledError();
         },
+        // Aborts the CURRENT LLM HTTP request the instant cancel() fires,
+        // instead of leaving the provider socket open until it answers.
+        signal: abortController.signal,
       });
       const { tokensIn, tokensOut, costUsd, grounding } = outcome;
 
@@ -401,10 +428,20 @@ export class ReviewRunExecutor {
       this.container.runBus.complete(runId);
 
       return { review, findings: findingRows, grounding, raw: outcome.review };
-    } catch (err) {
+    } catch (rawErr) {
+      // An aborted LLM request (the signal fired mid-call) surfaces as
+      // whatever error shape the provider's HTTP client throws on abort — not
+      // as our own RunCancelledError. `abortController.signal.aborted` is the
+      // reliable signal here: it is only ever true because THIS run's cancel()
+      // fired, so any error caught while it holds means "the user cancelled",
+      // not "the provider failed". Normalize to RunCancelledError so the rest
+      // of this method (and executeRuns' log-level branch, one caller up) has
+      // exactly one cancellation shape to check, whether cancellation was
+      // caught here or at the between-chunk `checkCancelled` checkpoint.
+      const cancelled = rawErr instanceof RunCancelledError || abortController.signal.aborted;
+      const err = cancelled && !(rawErr instanceof RunCancelledError) ? new RunCancelledError() : rawErr;
       // Failure/cancel: persist status + the error text + the log-so-far so the
       // run (and WHY it failed) is visible on the UI after a reload.
-      const cancelled = err instanceof RunCancelledError;
       const status = cancelled ? 'cancelled' : 'failed';
       const msg = cancelled ? 'Cancelled by user' : (err as Error).message;
       runLog.error(cancelled ? 'Run cancelled by user' : `Run failed: ${msg}`);
@@ -427,6 +464,8 @@ export class ReviewRunExecutor {
         .catch(() => undefined);
       this.container.runBus.complete(runId);
       throw err;
+    } finally {
+      unregisterAbort();
     }
   }
 

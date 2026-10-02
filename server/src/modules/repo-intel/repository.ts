@@ -126,6 +126,16 @@ export interface FullSymbolRow {
 export interface ResolvedCallerRow {
   fromPath: string;
   toSymbol: string;
+  /**
+   * The file this reference resolved to (spec 0012 fix). `references.declFile`
+   * is a nullable column, but `getResolvedCallers` narrows it to non-null
+   * before returning (see the filter there) rather than asserting it here —
+   * the guarantee is established where the query is, not trusted at every
+   * call site. Lets a caller be attributed to the EXACT declaration of
+   * `toSymbol` it reached, so two same-named declarations in different files
+   * don't merge.
+   */
+  declFile: string;
   line: number;
   rank: number;
 }
@@ -561,10 +571,11 @@ export class RepoIntelRepository {
     names: string[],
   ): Promise<ResolvedCallerRow[]> {
     if (declFiles.length === 0 || names.length === 0) return [];
-    return this.db
+    const rows = await this.db
       .select({
         fromPath: t.references.fromPath,
         toSymbol: t.references.toSymbol,
+        declFile: t.references.declFile,
         line: t.references.line,
         rank: t.fileRank.rank,
       })
@@ -583,6 +594,12 @@ export class RepoIntelRepository {
           inArray(t.references.toSymbol, names),
         ),
       );
+    // `declFile` is non-null in every row here: the WHERE clause's
+    // `inArray(references.declFile, declFiles)` is a SQL `IN`, which NULL
+    // never satisfies. This narrows the return type to match that guarantee
+    // explicitly — it drops nothing in practice — rather than leaving callers
+    // to assert it themselves.
+    return rows.filter((r): r is ResolvedCallerRow => r.declFile !== null);
   }
 
   /** Per-file facts (endpoints/crons) for the given files. */

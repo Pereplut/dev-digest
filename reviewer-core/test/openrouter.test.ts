@@ -58,6 +58,28 @@ function stubClient(provider: OpenRouterProvider, responses: unknown[]): CreateA
   return calls;
 }
 
+/**
+ * Like `stubClient`, but also records the SDK's second `RequestOptions`
+ * argument (where `signal` travels — separate from the request body) so a
+ * test can assert on it.
+ */
+function stubClientWithOptions(
+  provider: OpenRouterProvider,
+  responses: unknown[],
+): { bodies: CreateArgs[]; options: CreateArgs[] } {
+  const bodies: CreateArgs[] = [];
+  const options: CreateArgs[] = [];
+  const create = async (args: CreateArgs, opts?: CreateArgs) => {
+    bodies.push(args);
+    options.push(opts ?? {});
+    if (responses.length === 0) throw new Error('stub: create() called more times than expected');
+    return responses.shift();
+  };
+  (provider as unknown as { client: { chat: { completions: { create: typeof create } } } }).client =
+    { chat: { completions: { create } } };
+  return { bodies, options };
+}
+
 /*
  * The impl declares fetch's own parameters on purpose. vi.fn infers the mock's
  * type from what it is given, so a zero-arg impl would type mock.mock.calls as
@@ -269,5 +291,34 @@ describe('OpenRouterProvider — completeStructured', () => {
     expect(openaiCalls[0]).not.toHaveProperty('session_id');
     expect(openaiCalls[0]).not.toHaveProperty('usage');
     expect(openaiCalls[0]!.max_tokens).toBe(256);
+  });
+
+  it('forwards the request signal as the SDK RequestOptions, not a body field', async () => {
+    const p = new OpenRouterProvider('k');
+    const { options } = stubClientWithOptions(p, [completion('{"verdict":"approve","n":0}')]);
+    const controller = new AbortController();
+
+    await p.completeStructured(request({ signal: controller.signal }));
+
+    expect(options[0]!.signal).toBe(controller.signal);
+  });
+
+  it('propagates an abort as a rejection instead of returning a result', async () => {
+    // Simulates what the OpenAI SDK does on an aborted request: reject with
+    // an abort-shaped error rather than resolving. completeStructured must
+    // not swallow it into a repair/retry loop.
+    const p = new OpenRouterProvider('k');
+    const controller = new AbortController();
+    const abortError = Object.assign(new Error('Request was aborted.'), { name: 'APIUserAbortError' });
+    (
+      p as unknown as { client: { chat: { completions: { create: () => Promise<never> } } } }
+    ).client = {
+      chat: { completions: { create: () => Promise.reject(abortError) } },
+    };
+    controller.abort();
+
+    await expect(p.completeStructured(request({ signal: controller.signal }))).rejects.toThrow(
+      'Request was aborted.',
+    );
   });
 });

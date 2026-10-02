@@ -3,7 +3,7 @@ import {
   agentDisabledText,
   apiErrorText,
   apiUnreachableText,
-  blastRadiusStubText,
+  blastPullRequestUnknownText,
   bothRunIdAndRepoText,
   repositoryUnknownText,
   runStillExecutingText,
@@ -112,14 +112,16 @@ describe('core/errors — the six tool-error texts', () => {
     expect(text).toContain('./scripts/dev.sh');
   });
 
-  it('blast radius stub: names the next action (call get_findings + get_repo_conventions instead)', () => {
-    const text = blastRadiusStubText();
+  it('blast pull request unknown: verbatim spec 0012 §6 text, naming the recovery', () => {
+    const text = blastPullRequestUnknownText(4242, 'acme/web');
     expect(text).toBe(
-      'get_blast_radius is not implemented yet. For impact analysis on this pull request, call ' +
-        'get_findings (severity: ["CRITICAL"]) and get_repo_conventions instead.',
+      'No pull request #4242 in acme/web. DevDigest only knows pull requests it has synced from ' +
+        'GitHub — open that repository in the DevDigest UI and refresh its pull request list, then ' +
+        'call get_blast_radius again. If the number came from a link or a branch name, check it ' +
+        'against GitHub first: this is the PR number, not an internal id.',
     );
-    expect(text).toContain('get_findings');
-    expect(text).toContain('get_repo_conventions');
+    expect(text).toContain('call get_blast_radius again');
+    expect(text).toContain('this is the PR number, not an internal id');
   });
 
   it('apiErrorText keeps the API message, so nothing is swallowed', () => {

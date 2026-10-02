@@ -136,6 +136,73 @@ describe('reviewPullRequest (engine)', () => {
     expect(seen.every((s) => s === 'sess-abc')).toBe(true);
   });
 
+  it('forwards an AbortSignal to every LLM call, so a provider can cancel an in-flight request', async () => {
+    const seenSignals: (AbortSignal | undefined)[] = [];
+    const recorder: LLMProvider = {
+      id: 'openrouter',
+      async completeStructured<T>(req: StructuredRequest<T>): Promise<StructuredResult<T>> {
+        seenSignals.push(req.signal);
+        return {
+          data: fixture as unknown as T,
+          model: req.model,
+          tokensIn: 0,
+          tokensOut: 0,
+          costUsd: 0,
+          raw: '',
+          attempts: 1,
+        };
+      },
+      async listModels() {
+        return [];
+      },
+      async complete() {
+        throw new Error('not used');
+      },
+      async embed() {
+        return [];
+      },
+    };
+    const diff = await new MockGitClient().diff();
+    const controller = new AbortController();
+    await reviewPullRequest({ systemPrompt: 's', model: 'm', diff, llm: recorder, signal: controller.signal });
+
+    expect(seenSignals.length).toBeGreaterThan(0);
+    expect(seenSignals.every((s) => s === controller.signal)).toBe(true);
+  });
+
+  it('omits signal from the request when the caller passes none', async () => {
+    const seenSignals: (AbortSignal | undefined)[] = [];
+    const recorder: LLMProvider = {
+      id: 'openrouter',
+      async completeStructured<T>(req: StructuredRequest<T>): Promise<StructuredResult<T>> {
+        seenSignals.push(req.signal);
+        return {
+          data: fixture as unknown as T,
+          model: req.model,
+          tokensIn: 0,
+          tokensOut: 0,
+          costUsd: 0,
+          raw: '',
+          attempts: 1,
+        };
+      },
+      async listModels() {
+        return [];
+      },
+      async complete() {
+        throw new Error('not used');
+      },
+      async embed() {
+        return [];
+      },
+    };
+    const diff = await new MockGitClient().diff();
+    await reviewPullRequest({ systemPrompt: 's', model: 'm', diff, llm: recorder });
+
+    expect(seenSignals.length).toBeGreaterThan(0);
+    expect(seenSignals.every((s) => s === undefined)).toBe(true);
+  });
+
   it('sums per-call cost into the run total; one unknown price makes it null', async () => {
     const priced = (costFor: (call: number) => number | null) => {
       let calls = 0;

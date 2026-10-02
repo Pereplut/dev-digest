@@ -34,6 +34,7 @@ export type {
 
 export type { Review, Finding, Severity, Verdict } from "@devdigest/shared";
 export type { PrBrief, SmartDiff, SmartDiffGroup, SmartDiffRole } from "@devdigest/shared";
+export type { BlastRadius, ChangedSymbol, BlastCaller, DownstreamImpact } from "@devdigest/shared";
 export type {
   OnboardingTour,
   OnboardingSection,

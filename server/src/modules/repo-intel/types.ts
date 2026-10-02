@@ -65,6 +65,14 @@ export interface BlastCallerRow {
   symbol: string;
   /** Which changed symbol this caller reaches. */
   viaSymbol: string;
+  /**
+   * The file that DECLARES `viaSymbol` — not this caller's own `file` above.
+   * A bare name is not unique (spec 0012 fix): `renderWithIntl` is declared
+   * in 8 files in this repo alone, so grouping/capping downstream must key on
+   * (viaFile, viaSymbol) together, never on viaSymbol alone, or two
+   * same-named declarations in different files merge into one caller list.
+   */
+  viaFile: string;
   /** 1-based line of the reference (representative; for the BlastRadius view). */
   line: number;
   /** file_rank.rank of the caller file (0 in the degraded/ripgrep path). */
@@ -144,7 +152,18 @@ export interface RepoIntel {
   getIndexState(repoId: string): Promise<IndexState>;
 
   // --- Reads --------------------------------------------------------------
-  getBlastRadius(repoId: string, changedFiles: string[]): Promise<BlastResult>;
+  /**
+   * `opts.indexOnly` (spec 0012 AC12): when true, a caller that cannot serve
+   * from the persistent index gets the degraded literal back instead of the
+   * best-effort fallback that parses the clone at request time. Only
+   * `blast/service.ts` (an HTTP-reachable route) sets it; every other caller
+   * keeps the pre-existing fallback behaviour.
+   */
+  getBlastRadius(
+    repoId: string,
+    changedFiles: string[],
+    opts?: { indexOnly?: boolean },
+  ): Promise<BlastResult>;
   getRepoMap(repoId: string, tokenBudget?: number): Promise<RepoMapResult>;
   getFileRank(repoId: string, paths: string[]): Promise<FileRankRow[]>;
   getSymbolsInFiles(repoId: string, paths: string[]): Promise<SymbolRow[]>;

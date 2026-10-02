@@ -15,7 +15,7 @@ Five tools, no `devdigest_` prefix (a client namespaces them itself):
 | `review_pull_request` | Start a review; returns a `run_id` per agent immediately (async). |
 | `get_findings` | Read findings for one run or a whole pull request; paginated, concise by default. |
 | `get_repo_conventions` | Read the house-style rules DevDigest extracted from a repo. |
-| `get_blast_radius` | **Stub.** Registered but not implemented — every call returns an error naming the alternative. |
+| `get_blast_radius` | Which symbols a pull request changes, which callers reach them, and which HTTP endpoints/cron jobs sit behind those callers — reads a finished code index, no LLM call. |
 
 Two transports share one tool registry: **stdio** (primary — no port, no
 Origin/Host surface) and **Streamable HTTP** (optional, for a client that
@@ -145,7 +145,7 @@ Then a real query. `--tool-arg` takes `key=value`; repeat the flag for more:
 … --method tools/call --tool-name get_findings \
   --tool-arg repo=acme/payments-api --tool-arg pull_number=482 --tool-arg severity=CRITICAL
 
-# the stub — always an error, by design
+# which symbols/callers/endpoints a pull request's changes reach
 … --method tools/call --tool-name get_blast_radius \
   --tool-arg repo=acme/payments-api --tool-arg pull_number=482
 ```
@@ -267,7 +267,10 @@ flowchart TB
   calls the port and pipes the result through a ring-1 projection directly.
   Only `review_pull_request` and `get_findings` have genuine multi-step
   orchestration (slug → repo id → pull id → start; run → findings + status),
-  so only they get a `tools/*.ts` file.
+  so only they get a `tools/*.ts` file. `get_blast_radius` follows the same
+  slug → repo id → pull id shape but stays ring-4-calls-port-directly, since
+  its only remaining step is one more port call (`getBlastRadius`), not
+  orchestration.
 - **The token budget is ring 1.** `response_format` projection,
   severity/category filtering, truncation and pagination are pure functions —
   see `core/project.ts` and its tests.
@@ -300,7 +303,9 @@ batch); the `run_id` path omits that clause. See `core/errors.ts`'s
 ## Testing
 
 `npm test` (vitest): ring-1 projection units (concise vs detailed, severity
-filter, truncation, pagination — no network, no SDK); all five tools driven
-through `MockDevDigestApi` (no network); `get_blast_radius` asserting
-`isError: true`; one test per error text; a token-budget ceiling on the
-serialised tool definitions; and a determinism check on `tools/list` ordering.
+filter, truncation, pagination, blast-radius projection — no network, no SDK);
+all five tools driven through `MockDevDigestApi` (no network), including
+`get_blast_radius` returning a real map, a degraded one, and its unknown-pull-
+request and unknown-repo error texts; one test per error text; a token-budget
+ceiling on the serialised tool definitions; and a determinism check on
+`tools/list` ordering.

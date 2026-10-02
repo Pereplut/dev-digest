@@ -221,13 +221,23 @@ export class RepoIntelService implements RepoIntel {
    * every caller gets `rank: 0` and HTTP impact is detected by re-reading the
    * clone (not the index). T2 promotes this path to the persistent layer.
    */
-  async getBlastRadius(repoId: string, changedFiles: string[]): Promise<BlastResult> {
+  async getBlastRadius(
+    repoId: string,
+    changedFiles: string[],
+    opts?: { indexOnly?: boolean },
+  ): Promise<BlastResult> {
     // T3: serve from the persistent index when it's built. Falls through to the
-    // ripgrep best-effort below when the flag is off / index is absent.
+    // ripgrep best-effort below when the flag is off / index is absent — UNLESS
+    // the caller opted into `indexOnly`, in which case it gets the degraded
+    // literal instead. That best-effort path reads the clone at request time
+    // (`readClone` below); `indexOnly` exists so an HTTP route can guarantee it
+    // never triggers that read (spec 0012 AC12).
     if (this.container.config.repoIntelEnabled && changedFiles.length > 0) {
       const persistent = await this.tryPersistentBlast(repoId, changedFiles);
       if (persistent) return persistent;
     }
+
+    if (opts?.indexOnly) return this.degradedBlastIndexOnly(repoId);
 
     const empty: BlastResult = {
       changedSymbols: [],
@@ -283,6 +293,7 @@ export class RepoIntelService implements RepoIntel {
           file: r.fromPath,
           symbol: callerName,
           viaSymbol: sym.name,
+          viaFile: sym.file, // `sym` is this loop's changed symbol — its own decl file
           line: r.line,
           rank: 0, // ripgrep/degraded path has no persistent rank
         });
@@ -305,6 +316,27 @@ export class RepoIntelService implements RepoIntel {
       degraded: true,
       reason: 'no_data',
     };
+  }
+
+  /**
+   * `getBlastRadius(..., { indexOnly: true })` bailout when
+   * `tryPersistentBlast` couldn't serve: reads `getIndexState` only — no
+   * clone, no `codeIndex` — and reports the same reason `tryPersistentBlast`
+   * itself bailed on, so the route's degraded marker is honest rather than a
+   * blanket `'no_data'`.
+   */
+  private async degradedBlastIndexOnly(repoId: string): Promise<BlastResult> {
+    const empty: BlastResult = { changedSymbols: [], callers: [], impactedEndpoints: [] };
+    if (!this.container.config.repoIntelEnabled) {
+      return { ...empty, degraded: true, reason: 'flag_off' };
+    }
+    const state = await this.repo.tryGetIndexState(repoId);
+    if (!state) return { ...empty, degraded: true, reason: 'no_data' };
+    // `tryPersistentBlast` accepts 'full'/'partial'; reaching here with either
+    // of those means it returned null for another reason (e.g. no changed
+    // files), so `degradedReason` (set only for 'degraded'/'failed' rows) may
+    // be absent — 'no_data' is the honest fallback.
+    return { ...empty, degraded: true, reason: state.degradedReason ?? 'no_data' };
   }
 
   /**
@@ -362,13 +394,17 @@ export class RepoIntelService implements RepoIntel {
         enclosingFromRows(symsByFile.get(c.fromPath) ?? [], c.line) ??
         c.fromPath.split('/').pop() ??
         c.fromPath;
-      const key = `${c.fromPath}|${enclosing}|${c.toSymbol}`;
+      // `c.declFile` is included in the dedup key too: two references from the
+      // same enclosing caller to the SAME symbol NAME declared in two
+      // different files are two distinct callers, not one.
+      const key = `${c.fromPath}|${enclosing}|${c.toSymbol}|${c.declFile}`;
       if (seenCaller.has(key)) continue;
       seenCaller.add(key);
       callers.push({
         file: c.fromPath,
         symbol: enclosing,
         viaSymbol: c.toSymbol,
+        viaFile: c.declFile,
         line: c.line,
         rank: c.rank,
       });
@@ -387,7 +423,7 @@ export class RepoIntelService implements RepoIntel {
 
     return {
       changedSymbols,
-      callers: callers.slice(0, MAX_CALLERS_PER_SYMBOL),
+      callers: capCallersPerDeclaration(callers, MAX_CALLERS_PER_SYMBOL),
       impactedEndpoints: [...endpoints],
       factsByFile,
       degraded: false,
@@ -747,6 +783,26 @@ function enclosingFromRows(rows: FullSymbolRow[], line: number): string | null {
     .filter((s) => !s.name.includes('.') && (s.line ?? 0) <= line)
     .sort((a, b) => (b.line ?? 0) - (a.line ?? 0))[0];
   return hit?.name ?? null;
+}
+
+/**
+ * Cap `max` callers per `(viaFile, viaSymbol)` declaration. `callers` is
+ * already rank-sorted descending (see the `.sort()` right before this is
+ * called), so a single pass that drops rows once a declaration's count
+ * reaches `max` both enforces the cap and preserves that rank order in the
+ * flattened output.
+ */
+function capCallersPerDeclaration(callers: BlastCallerRow[], max: number): BlastCallerRow[] {
+  const seenPerDeclaration = new Map<string, number>();
+  const capped: BlastCallerRow[] = [];
+  for (const c of callers) {
+    const declKey = `${c.viaFile}|${c.viaSymbol}`;
+    const count = seenPerDeclaration.get(declKey) ?? 0;
+    if (count >= max) continue;
+    seenPerDeclaration.set(declKey, count + 1);
+    capped.push(c);
+  }
+  return capped;
 }
 
 // ---------------------------------------------------------------------------
