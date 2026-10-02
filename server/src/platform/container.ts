@@ -21,6 +21,7 @@ import { OpenAIProvider } from '../adapters/llm/openai.js';
 import { AnthropicProvider } from '../adapters/llm/anthropic.js';
 import { OpenAIEmbedder } from '../adapters/embedder/openai.js';
 import { OpenRouterProvider } from '@devdigest/reviewer-core';
+import { TimeBoundedOpenRouterProvider } from '../adapters/llm/openrouter.js';
 import { estimateCost } from '../adapters/llm/pricing.js';
 import { PriceBook } from './price-book.js';
 import { ConfigError } from './errors.js';
@@ -218,10 +219,16 @@ export class Container {
       // prices (with the static table as a fallback) rather than a hardcoded one.
       const key = await this.secrets.get('OPENROUTER_API_KEY');
       if (!key) throw new ConfigError('OPENROUTER_API_KEY is not configured');
-      return new OpenRouterProvider(key, {
-        estimateCost: (model, tokensIn, tokensOut) =>
-          this.priceBook.estimate(model, tokensIn, tokensOut),
-      });
+      // Wrapped in the time bound every other provider already has. The inner
+      // provider's own SDK `timeout` does not hold — see the adapter's header
+      // and server/INSIGHTS.md (2026-09-27). This is the DEFAULT review path,
+      // so an unbounded call here is an unbounded review.
+      return new TimeBoundedOpenRouterProvider(
+        new OpenRouterProvider(key, {
+          estimateCost: (model, tokensIn, tokensOut) =>
+            this.priceBook.estimate(model, tokensIn, tokensOut),
+        }),
+      );
     }
     const key = await this.secrets.get('ANTHROPIC_API_KEY');
     if (!key) throw new ConfigError('ANTHROPIC_API_KEY is not configured');
