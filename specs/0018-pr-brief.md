@@ -54,14 +54,20 @@ to answer them sit unused.
 - **Line-level navigation.** A Review focus item carries `file:line` as *text*; the deep link is
   file-level only. Nothing scrolls to the line.
 - **`PrHistory` / "Prior PRs touching these files".** The mockup renders this panel under Blast
-  radius; it is out of scope. `PrHistory` stays unreferenced, and no criterion mentions it.
+  radius; it is not built, and nothing on screen comes from it. The one place `history` appears is
+  the stored envelope, where it is **always** `{ history: [] }` (AC-58) — `PrBrief.history` is a
+  required contract field (`contracts/brief.ts:140-146`) and the empty array exists only to satisfy
+  it. That is neither scope creep nor an unimplemented field: no code ever populates it, and no
+  criterion reads it.
 - **A job queue.** Generation is a synchronous `POST`. No polling, no `job_id`, no `JobRunner` —
   unlike spec 0017's onboarding generator, which this feature deliberately does not copy.
 - **A Project Context Folder.** Spec 0016 is still `draft` with no module, table or route. The
   brief's spec input is the Intent Layer's existing `pr_intent.sources` rows only.
 - **A migration.** `pr_brief` already exists; `server/src/db/migrations/**` is do-not-touch and is
   not touched.
-- **Snapshotting intent or blast into the envelope.** Those stay live behind their own endpoints.
+- **Rendering the envelope's snapshot.** The stored envelope *does* carry `intent` and `blast` (the
+  contract requires them), but nothing displays them: the Overview cards keep reading their own live
+  endpoints (AC-59, AC-60). The snapshot exists for provenance and replay only.
 - **Automatic regeneration.** A stale brief is labelled, never silently refreshed.
 - **An MCP tool.** `mcp/` is not touched.
 - **Changing `Risk`'s shape.** `{kind, title, explanation, severity, file_refs}` ships as it is.
@@ -74,7 +80,10 @@ to answer them sit unused.
 | Generation transport | Synchronous `POST /pulls/:id/brief`: one model call, result returned in the response. Module shape follows `server/src/modules/blast/` + `conventions/`, not `onboarding/`. | No queue, no polling, no `202`. The request is bounded by the LLM timeout (see `## Non-functional`), and a double-click is the client's problem to prevent (AC-25). |
 | Read transport | `GET /pulls/:id/brief` returns the cached brief or an explicit "none yet" state. | A PR with no brief is a 200 with `brief: null`, not a 404 — the client renders the Generate state from data, not from an error. |
 | Staleness | `GET` returns the cached brief with `stale: true` when the stored `head_sha` differs from the PR's current head. | The UI shows an out-of-date hint beside the refresh button. Opening a PR page never spends a model call (AC-19, AC-34). |
-| Cached envelope | `pr_brief.json` stores `{ summary, risks, review_focus, head_sha, generated_at, model, missing_inputs[] }`. | Intent and blast are **not** snapshotted; they stay live behind `/intent` and `/blast`. A replayed brief can therefore sit beside a newer blast map, by design. |
+| Cached envelope (**reversed 2026-10-02**) | `pr_brief.json` stores the **full `PrBrief` shape** — `intent`, `blast`, `risks` (the existing `Risks` *wrapper object*, not a bare `Risk[]`) and `history` — **plus** `summary`, `review_focus[]`, `head_sha`, `generated_at`, `model` and `missing_inputs[]`. | The earlier decision ("snapshot none of them") would have made `PrBrief.parse()` reject this feature's own envelope: all four fields are required at `contracts/brief.ts:140-146`. The user chose to keep `PrBrief` as it is rather than relax it, so the envelope grew instead (AC-12, AC-57). `history` is always empty (AC-58). The six added fields are *not* part of `PrBrief`; Zod strips unknown keys rather than rejecting them, so `PrBrief.parse(json)` still succeeds — nothing may make that schema `.strict()`. The wrapper type for the six, and the `{ brief, stale }` GET response, are declared in `contracts/review-api.ts` (both copies) as `PrBriefEnvelope` and `PrBriefResponse`, following the precedent already set there by `PrIntentRecord`/`PrIntentResponse` (`:131-149`) and `SmartDiffResponse` (`:152`) — that file is where this repo keeps API response DTOs built over a `brief.ts` primitive. This leaves AC-24/AC-25 intact: `PrBrief` itself gains `summary` and `review_focus` and nothing else. |
+| What the snapshot is for | Provenance and replay. It is **not rendered anywhere**: `PrIntentCard` and `BlastRadiusCard` keep reading `GET /pulls/:id/intent` and `GET /pulls/:id/blast` live, exactly as they do today (AC-59, AC-60). | Without this stated, "Intent and Blast radius sit alongside" is ambiguous between live and snapshotted. **Accepted cost:** the envelope stores data that nothing reads, and on a stale brief the snapshot can differ from the live cards rendered beside it — the cards win on screen, and the difference is invisible. |
+| `missing_inputs[]` element type | `{ input: string; reason?: string }`, not a bare string. The client renders `input` and appends `reason` when present (AC-32). | AC-17 requires the `blast` entry to carry its degraded reason, which a plain string cannot hold. AC-5, AC-16, AC-17 and AC-18 all read in terms of `input`. |
+| Cross-module access | The brief module shall not import another module's `service.ts` or `repository/**`. It reads through container ports (`container.reviewRepo`, `container.repoIntel`) and composes facts with the siblings' **pure helpers** `buildBlastRadius` (`server/src/modules/blast/helpers.ts:68`) and `buildSmartDiff` (`server/src/modules/smart-diff/helpers.ts:39`). | `no-cross-module-internals` (`server/.dependency-cruiser.cjs:88-97`, severity `error`) matches `^src/modules/[^/]+/(service\|repository)` and **not** `helpers`, and `tsPreCompilationDeps: true` (`:149`) makes even a type-only import count. So the earlier provenance row endorsing a direct `SmartDiffService.forPull` call was unachievable: `pnpm arch` (folded into `pnpm lint`) would have failed the build. Both helper signatures were checked against this constraint on 2026-10-02 and neither needs a value only a sibling service can produce: `buildBlastRadius(result: BlastResult)` (`blast/helpers.ts:68`) takes what `container.repoIntel.getBlastRadius()` returns, and `buildSmartDiff(files, findings)` (`smart-diff/helpers.ts:39`) takes what `container.reviewRepo`'s file and finding reads return. AC-56. |
 | Contract | `PrBrief` in `server/src/vendor/shared/contracts/brief.ts` gains `summary: string` and `review_focus: { file, line, reason }[]`, mirrored byte-identically into `client/src/vendor/shared/contracts/brief.ts`. The two files were diffed on 2026-10-02 and are byte-identical today, so AC-25 preserves a verified premise rather than asserting a hoped-for one. | A cross-package change: server typecheck + tests, `reviewer-core` typecheck, client typecheck (shared `AGENTS.md`). |
 | A risk with one good and one invented `file_ref` | Strip the invented ref; keep the risk (AC-9). | A true claim about a real file is not discarded because of one bad citation. The accepted cost: a risk can ship having lost half its evidence, with nothing on screen saying so. |
 | Overview with no finished review | No `VerdictBanner`. `summary` renders as a plain paragraph inside the block (AC-49); the banner appears only once a finished review exists (AC-39). | `VerdictBanner.verdict` is required and typed `request_changes\|approve\|comment` with `VERDICT_META[verdict] ?? VERDICT_META.comment` as its only fallback, so rendering it unreviewed would put a neutral "Comment" verdict chip on a PR nobody reviewed — a verdict the product never made. |
@@ -83,9 +92,9 @@ to answer them sit unused.
 | Refresh control placement | The refresh control and the stale hint live in the block's `SectionLabel` right slot (AC-53, AC-36), **not** inside the verdict banner where the mockup draws the refresh glyph. | A deliberate deviation from `design/pr-brief/pr-overview-brief-generated.png`: the banner does not exist before generation, and does not exist at all on a PR with no finished review, so a control hosted there would vanish in exactly the two states that need it. |
 | Empty review-focus list | The `REVIEW FOCUS` section is hidden entirely when `review_focus` is empty (AC-55). No `noFocus` message and no key for one. | Every `client/messages/en/*.json` ships in the RSC payload of every route whether used or not (`client/INSIGHTS.md:52-58`; 12 unused namespaces were 44% of that payload), so a key for a state the spec does not require is a cost paid on every page. Asymmetric with `noRisks` (AC-31) on purpose — zero risks is a *finding*, zero focus items is an absence. |
 | e2e seeds, never generates | The flow seeds a `pr_brief` row and asserts the rendered brief; it never clicks Generate brief (AC-46, AC-47). | No flow in `e2e/flows/` triggers a model call — `09-conventions.flow.json:3` says so outright, and `10-onboarding-tour.flow.json:3` is read-only and asserts a degraded state instead of clicking Regenerate. `scripts/e2e.sh` binds no mock provider. The generation path is covered by server tests, not by the browser. |
-| Spec input | The Intent Layer's existing spec links: `pr_intent.sources` rows with `kind: 'spec'`, extracted and read at `server/src/modules/reviews/intent.ts:141-156`. | No Project Context Folder dependency. A PR whose review never ran has no spec sources, which is a `missing_inputs` entry (AC-17), not an error. |
+| Spec input | The Intent Layer's existing spec links: the `ref` of each `pr_intent.sources` row with `kind: 'spec'` and status `used`, extracted at `server/src/modules/reviews/intent.ts:141-156`. **Paths only** — the Intent Layer reads a spec's contents to classify intent but persists only the path, `chars` and `truncated` (`reviews.ts:88-94`). | No Project Context Folder dependency, and no clone read added here. A PR whose review never ran has no spec sources, which is a `missing_inputs` entry (AC-18), not an error. |
 | Input budget | 8 000 tokens of model input, counted with `container.tokenizer.count()` (js-tiktoken `cl100k_base`, `server/src/adapters/tokenizer/index.ts:32`). Lowest-priority facts truncate first; what was dropped is recorded. | AC-4 and AC-5. The counted population is defined once in `## Non-functional` and nowhere else. |
-| i18n | A new namespace file `client/messages/en/brief.json`, carrying at least `block.intent`, `block.blast`, `block.risks`, `noRisks`, `unavailable`, `unavailableHint`. | No wiring: the loader registers one namespace per filename (`client/src/i18n/request.ts:16-30`). The file needs a key for every state a criterion requires and **no key beyond them** — every `messages/en/*.json` ships in the RSC payload of every route whether it is used or not (`client/INSIGHTS.md:52-58`). |
+| i18n | A new namespace file `client/messages/en/brief.json`, carrying at least `block.intent`, `block.blast`, `block.risks`, `noRisks`, `unavailable`, `unavailableHint`. `block.intent` and `block.blast` are the **human-readable labels for `missing_inputs[].input`** (AC-32) — they name an input the brief did without, and are not headings for the live Intent and Blast cards, which carry their own copy in `prReview.json` and are untouched by this feature (AC-59, AC-60). | No wiring: the loader registers one namespace per filename (`client/src/i18n/request.ts:16-30`). The file needs a key for every state a criterion requires and **no key beyond them** — every `messages/en/*.json` ships in the RSC payload of every route whether it is used or not (`client/INSIGHTS.md:52-58`). |
 | Deep link | `?tab=diff&file=<path>`, alongside the existing `?tab` and `?order` params (`page.tsx:60-70`, `DiffTab.tsx:36-42`). `DiffTab` reads `file`, forces that `FileCard` open and scrolls to it. | `DiffViewer`/`FileCard` take a single `defaultOpen` boolean today (`DiffViewer.tsx:19-41`, `FileCard.tsx:57-72`); a **per-path** open signal is new surface on both. |
 | Model | Always `resolveFeatureModel(container, workspaceId, 'risk_brief')` (`server/src/modules/settings/feature-models.ts:51-57`). Never a literal model id. | The Settings UI's `risk_brief` selector stops being inert. |
 | Grounding | A code-side filter over `files[].path` ∪ blast-map paths, run before persistence. It stands in for `groundFindings()`, which is a findings-shaped API and does not apply here. | AC-8, AC-9, AC-10. The model is never trusted to name a path. |
@@ -125,11 +134,16 @@ to answer them sit unused.
   to that single `completeStructured` call shall be `≤ 8000`.
 - **AC-5** — IF the assembled facts exceed 8 000 tokens, THEN the service shall drop whole fact
   blocks in the fixed priority order given in `## Non-functional` and shall append one
-  `missing_inputs[]` entry naming each dropped block.
-- **AC-6** — The brief service shall wrap the PR title, the PR body, the linked issue text and
-  every spec file's content with `wrapUntrusted()` (`server/src/platform/prompt.ts`) before they
+  `missing_inputs[]` entry whose `input` names each dropped block.
+- **AC-6** — The brief service shall wrap the PR title, the PR body, each spec file **path** and the
+  linked issue **reference** with `wrapUntrusted()` (`server/src/platform/prompt.ts`) before they
   enter the prompt. A failing run is any of those four strings present in `messages` outside a
-  wrapper delimiter.
+  wrapper delimiter. Paths and references, not documents: `IntentSourceRow` is
+  `{kind, ref, chars, truncated, status}` with **no text field**
+  (`server/src/db/schema/reviews.ts:88-94`), so `pr_intent.sources` persists spec paths and never
+  spec contents; and the linked issue is a bare `#123` match on the PR body, by spec 0008's decision
+  D4, with no second GitHub call (`server/src/modules/reviews/intent.ts:115-120`). This feature adds
+  neither a clone read nor a GitHub call to recover either body.
 - **AC-7** — The brief service shall pass a Zod schema to `completeStructured` that requires
   `summary: string`, `risks[]` of `Risk` and `review_focus[]` of `{ file, line, reason }`, so that a
   response missing any of them is re-asked and then rejected by the port.
@@ -154,8 +168,15 @@ to answer them sit unused.
 ### Persistence and failure
 
 - **AC-12** — WHEN generation succeeds, the brief service shall write exactly one `pr_brief` row for
-  that `pr_id` whose `json` carries `summary`, `risks`, `review_focus`, `head_sha`, `generated_at`,
-  `model` and `missing_inputs`, with `head_sha` equal to the pull request's current head SHA.
+  that `pr_id` whose `json` carries all ten envelope fields — `intent`, `blast`, `risks` (as the
+  `Risks` wrapper object), `history`, `summary`, `review_focus`, `head_sha`, `generated_at`, `model`
+  and `missing_inputs` — with `head_sha` equal to the pull request's current head SHA.
+- **AC-57** — WHEN generation succeeds, the stored `json` shall satisfy `PrBrief.parse()` without
+  modification to that schema. A failing run is a parse error, or a diff that makes `PrBrief`
+  `.strict()` or relaxes any of its four required fields to pass.
+- **AC-58** — The brief service shall write `history` as `{ history: [] }` in every envelope it
+  persists. A failing run is a non-empty `history` array, which would mean something started
+  populating a Non-goal.
 - **AC-13** — WHEN a `pr_brief` row already exists for the pull request, the brief service shall
   overwrite it, leaving exactly one row for that `pr_id`.
 - **AC-14** — IF the model call fails or exceeds `BRIEF_TIMEOUT_MS` (60 000 ms), THEN the brief
@@ -164,19 +185,22 @@ to answer them sit unused.
   a 500 / `internal_error` response — which is what a bare `Error` produces
   (`server/src/app.ts:187-196`), and therefore what an un-wrapped provider failure looks like.
 - **AC-15** — WHEN a generation completes, the brief service shall emit one structured log record
-  carrying `model`, the counted input tokens, `dropped_risks` and `dropped_focus`, so that the
-  single-call and budget claims are observable outside the tests.
+  carrying `model`, the counted input tokens, `dropped_risks`, `dropped_focus` and `missing_inputs`
+  as the flat list of its entries' `input` values, so that the single-call and budget claims are
+  observable outside the tests. The `reason` strings stay out of the log line: they are rendered to
+  the reader (AC-32) and repeating them here would put a degraded-index message into every log
+  record for nobody to act on.
 
 ### Missing inputs
 
 - **AC-16** — IF no `pr_intent` row exists for the pull request, THEN the brief service shall still
-  generate and shall include an `intent` entry in `missing_inputs[]`.
-- **AC-17** — IF `GET /pulls/:id/blast` reports `degraded: true`, THEN the brief service shall still
-  generate, shall send the blast `summary` string it did receive, and shall include a `blast` entry
-  in `missing_inputs[]` carrying the degraded `reason`.
+  generate and shall include a `missing_inputs[]` entry with `input: 'intent'`.
+- **AC-17** — IF the blast facts report `degraded: true`, THEN the brief service shall still
+  generate, shall send the blast `summary` string it did receive, and shall include a
+  `missing_inputs[]` entry with `input: 'blast'` whose `reason` is the degraded reason it received.
 - **AC-18** — IF the pull request has no linked issue and no `pr_intent.sources` row with
-  `kind: 'spec'` and status `used`, THEN the brief service shall include `issue` and `specs` entries
-  in `missing_inputs[]` respectively.
+  `kind: 'spec'` and status `used`, THEN the brief service shall include `missing_inputs[]` entries
+  with `input: 'issue'` and `input: 'specs'` respectively.
 - **AC-19** — IF `files[]` is empty and the blast map is empty, THEN the brief service shall persist
   an envelope with a non-empty `summary`, `risks: []` and `review_focus: []` — every model-named
   path being ungrounded by AC-8 and AC-9.
@@ -229,7 +253,8 @@ to answer them sit unused.
   label on the disabled control and a `Skeleton` in place of the risk and review-focus lists
   (`Skeleton` as used at `DiffTab.tsx:188-190`).
 - **AC-32** — IF `missing_inputs[]` is non-empty, THEN the PR Brief block shall render the
-  `unavailable` message naming each missing input.
+  `unavailable` message naming each entry's `input`, appending that entry's `reason` where one is
+  present.
 - **AC-33** — WHEN a brief is present, the Overview tab shall continue to render `PrIntentCard` and
   `BlastRadiusCard` alongside the PR Brief block.
 - **AC-34** — WHEN the PR detail page mounts with a cached brief, the client shall issue
@@ -252,6 +277,23 @@ to answer them sit unused.
 - **AC-41** — The PR Brief block's modules shall contain no value import from `@devdigest/shared`,
   so that `pnpm build` succeeds; the severity union shall be mirrored locally as an `as const`
   literal, as `BlastRadiusCard/helpers.ts:5-12` does.
+
+- **AC-59** — The PR Brief block shall render no value taken from the envelope's `intent`, `blast`
+  or `history` fields. A failing run is a snapshot-only string (one absent from the live endpoints'
+  responses) found in the block's output.
+- **AC-60** — `PrIntentCard` and `BlastRadiusCard` shall continue to source their content from
+  `GET /pulls/:id/intent` and `GET /pulls/:id/blast`, not from the brief envelope. A failing run is
+  either card rendering with those requests stubbed out but a brief present.
+
+### Server — module boundaries
+
+- **AC-56** — The `brief` module shall import no other module's `service.ts` or `repository/**`,
+  composing blast and smart-diff facts through `buildBlastRadius`
+  (`server/src/modules/blast/helpers.ts:68`) and `buildSmartDiff`
+  (`server/src/modules/smart-diff/helpers.ts:39`) and reading data through container ports. A
+  failing run is a `no-cross-module-internals` error from `pnpm arch`
+  (`server/.dependency-cruiser.cjs:88-97`), which a type-only import also triggers
+  (`tsPreCompilationDeps: true`, `:149`).
 
 ### Client — the deep link
 
@@ -289,6 +331,16 @@ to answer them sit unused.
   nothing forbids `0`. Navigation is file-level (Non-goal), so an out-of-range line would be display
   text only — but `src/config.ts:0` is a visible lie, so AC-52 drops the item at grounding time
   rather than rendering it.
+- **A spec the model is told about but never shown.** `pr_intent.sources` stores a spec **path**,
+  not its text (`reviews.ts:88-94`), and the linked issue is a bare `#123` reference
+  (`intent.ts:115-120`). So the prompt says *a document called `specs/0012-blast-radius.md` is
+  attached to this PR* while showing none of it. The model may therefore reference a spec it has not
+  read, and may infer content from a filename. Accepted: the alternative is a clone read and a
+  GitHub call this feature does not add. The path is still untrusted (AC-6) — a short attacker-chosen
+  string is still an attacker-chosen string.
+- **A snapshot that disagrees with the live cards.** A stale brief's stored `intent`/`blast` can
+  differ from what `PrIntentCard` and `BlastRadiusCard` fetch beside it. The cards win, because
+  nothing renders the snapshot (AC-59, AC-60), and the divergence is invisible by design.
 - **A path the model invents.** AC-8, AC-9, AC-10. The failure mode this feature exists to prevent.
 - **A path that differs only by `./` or a doubled slash.** AC-11 — otherwise a correct citation is
   dropped as ungrounded and the reviewer silently loses a true risk.
@@ -335,16 +387,19 @@ to answer them sit unused.
   and arrives only afterwards. A failing run is a unit test, on a fixture whose facts exceed the
   budget, reading a count `> 8000`.
 - **Truncation priority.** Facts are dropped whole-block, lowest first:
-  `specs` → `smart-diff groups` → `blast caller list` (the blast `summary` string is never dropped)
-  → `issue` → `PR body` → `diff statistics`. `intent` and the PR title are never dropped. Each drop
-  appends a `missing_inputs[]` entry (AC-5).
+  `specs` (the path list) → `smart-diff groups` → `blast caller list` (the blast `summary` string is
+  never dropped) → `issue` (the `#123` reference) → `PR body` → `diff statistics`. `intent` and the
+  PR title are never dropped. Each drop appends a `missing_inputs[]` entry (AC-5). The two cheapest
+  blocks sit at the top of the list on purpose: a spec path list and an issue reference cost almost
+  nothing, so under budget pressure the first thing lost is also the least informative.
 - **Timeout.** `completeStructured` is called with `timeoutMs: BRIEF_TIMEOUT_MS` = 60 000 ms, and a
   breach surfaces as `AppError` / 502 (AC-14). Nothing else bounds a synchronous `POST`.
 - **a11y.** Severity is spelled in text (AC-37); colour is decoration only. Review-focus rows are
   keyboard-activatable controls, and the risk disclosure carries `aria-expanded` (AC-38).
-- **Security.** Four untrusted strings reach the prompt and all four are wrapped (AC-6). The
-  grounding filter (AC-8, AC-9, AC-10) is the only thing standing between a model-written path and
-  what the reviewer is told is in their PR.
+- **Security.** Four untrusted inputs reach the prompt — PR title, PR body, spec **paths**, issue
+  **reference** — and all four are wrapped (AC-6). Two documents a reader might assume are in the
+  prompt are not: spec contents and the issue body. The grounding filter (AC-8, AC-9, AC-10) is the
+  only thing standing between a model-written path and what the reviewer is told is in their PR.
 - **What this spec's controls cannot do.** The grounding filter checks the `file` and `file_refs`
   *fields*; it does not scan `summary`, `title`, `explanation` or `reason` prose, so a model may
   still name a non-existent path inside a sentence and nothing will catch it. The budget is checked
@@ -352,7 +407,7 @@ to answer them sit unused.
   is a delimiting convention, not a parser: it reduces instruction-following on untrusted text, it
   does not prevent it. And nothing in this feature verifies that a `reason` is *true* of the file it
   names; grounding proves the path exists in this PR, nothing more.
-- **Enforcement honesty.** Of the 55 criteria, 52 are mechanically checkable by a test or a build
+- **Enforcement honesty.** Of the 60 criteria, 57 are mechanically checkable by a test or a build
   (unit, component, integration or e2e). Three are not fully checkable by a running test and are
   checked by reading the diff as well: AC-3's "no patch substring" is asserted against a fixture, so it proves the
   fixture's patch is absent, not that no patch can ever reach the prompt; AC-11's normalisation is
@@ -367,10 +422,10 @@ to answer them sit unused.
 | Blast radius `summary` string | `server/src/modules/blast/helpers.ts:31-38` | `[reused: spec 0012]` `[deterministic: built from counts, no model call]` | Sent verbatim; never dropped by the budget. |
 | Blast caller file list | `BlastRadius.downstream[].callers[].file` | `[reused: spec 0012]` `[deterministic: ast-grep index]` | Half of the grounding path set (AC-8, AC-9). Consumed as a **set of file paths only**: blast data is keyed on `(file, symbol)` and never on a bare symbol name — `renderWithIntl` is declared in 8 files in this repo (`server/INSIGHTS.md:392-399`), so no criterion here groups or keys by symbol. |
 | Diff statistics `files[]{path, additions, deletions}` | `GET /pulls/:id`, `contracts/platform.ts:224-254` | `[deterministic: GitHub API]` | The other half of the grounding path set. Paths and counts only — never `patch` (AC-3). |
-| Smart Diff role groups | `SmartDiffService.forPull(workspaceId: string, prId: string): Promise<SmartDiff>` — `server/src/modules/smart-diff/service.ts:17-20` | `[reused: spec 0010]` `[deterministic: path patterns]` | Lets the model rank reading order by role. A service call, not an HTTP hop. |
+| Smart Diff role groups | `buildSmartDiff(…)` — `server/src/modules/smart-diff/helpers.ts:39`, over data read from container ports | `[reused: spec 0010]` `[deterministic: path patterns]` | Lets the model rank reading order by role. **Not** `SmartDiffService.forPull`: importing a sibling's `service.ts` is a `no-cross-module-internals` error (AC-56). Same for blast — `buildBlastRadius`, `blast/helpers.ts:68`. |
 | PR title and description | `pull_requests` row, written by the GitHub adapter | `[reused: L01]` **untrusted** | Wrapped (AC-6). |
-| Linked issue text | gathered in `server/src/modules/reviews/intent.ts:120` | `[reused: spec 0008]` **untrusted** | Absent → AC-18. |
-| Spec file contents | `pr_intent.sources` rows, `kind: 'spec'`, status `used` — `intent.ts:141-156` | `[reused: spec 0008]` **untrusted** | Lowest truncation priority. No Project Context Folder is involved. |
+| Linked issue **reference** (`#123`) | a regex match on the PR body — `server/src/modules/reviews/intent.ts:115-120` | `[reused: spec 0008]` `[deterministic: regex]` **untrusted** | The identifier only, never the issue body: spec 0008's decision D4 forbids a second GitHub call, and this feature does not add one. Absent → AC-18. |
+| Spec file **paths** | `pr_intent.sources` rows, `kind: 'spec'`, status `used` — `intent.ts:141-156` | `[reused: spec 0008]` **untrusted** | Paths, never contents: `IntentSourceRow` is `{kind, ref, chars, truncated, status}` with no text field (`server/src/db/schema/reviews.ts:88-94`). Lowest truncation priority. No Project Context Folder is involved. |
 | Model id and provider | `resolveFeatureModel(container, workspaceId, 'risk_brief')`, `settings/feature-models.ts:51-57` | `[reused: FEATURE_MODELS registry, contracts/platform.ts:14-20,62-67]` | AC-2. |
 | Token counter | `container.tokenizer.count()`, `adapters/tokenizer/index.ts:32` | `[reused: platform adapter]` `[deterministic: js-tiktoken cl100k_base]` | AC-4. |
 | `pr_brief` table | `server/src/db/schema/reviews.ts:145-150`, migration `0000_init.sql:211` | `[reused: existing schema]` | No migration (Non-goal). |
@@ -383,9 +438,12 @@ to answer them sit unused.
 Four strings a stranger wrote reach the prompt, and one more reaches the grounding sets:
 
 - **PR title** and **PR body** — written by the PR author.
-- **Linked issue title and body** — written by whoever opened the issue.
-- **Spec file contents** — read from the clone or from the diff's post-image
-  (`intent.ts:141-156`), so a PR can add a spec file whose contents it controls entirely.
+- **Spec file paths** — written into the PR body by the author and extracted at
+  `intent.ts:141-156`. A path, not a document: `pr_intent.sources` has no text column
+  (`reviews.ts:88-94`). A filename is short, but it is still attacker-chosen prose that the model
+  reads.
+- **Linked issue reference** — a `#123` substring the author put in the body
+  (`intent.ts:115-120`). The issue's own title and body never reach this prompt.
 - **File paths** (`files[].path`, blast caller files) — attacker-chosen names, which this feature
   both sends and compares against.
 
@@ -399,10 +457,11 @@ AC-8, AC-9 and AC-10 — every model-named path checked against `files[].path` �
 persistence, with no "best effort" branch. A brief is allowed to be empty; it is not allowed to be
 ungrounded.
 
-Two residual exposures are stated rather than closed: model prose (`summary`, `reason`,
-`explanation`) is not path-scanned (`## Non-functional`), and the clone read that produced the spec
-contents happened in the Intent Layer, under its own caps (`INTENT_MAX_SPEC_CHARS`), not under this
-feature's.
+Two residual exposures are stated rather than closed. Model prose (`summary`, `reason`,
+`explanation`) is not path-scanned (`## Non-functional`). And the prompt names documents it does not
+show — a spec path and an issue number — so the model can describe a spec it never read, and a
+filename chosen to read like an instruction gets the wrapping of an untrusted string but the
+attention of a fact.
 
 ## Test plan
 
@@ -413,7 +472,7 @@ feature's.
 | AC-3 | Same file — fixture `files[]` carrying a distinctive patch line; asserts the line is absent from every captured message, and a positive control asserts the fixture's *path* is present. |
 | AC-4 | Same file — oversized fixture; asserts `tokenizer.count()` over the captured messages is `≤ 8000`, and a small fixture asserts the budget does not truncate when it need not. |
 | AC-5 | Same file — oversized fixture asserts the specs block is absent and `missing_inputs` contains `specs`; the small fixture asserts `missing_inputs` is empty. |
-| AC-6 | `server/test/brief.prompt.test.ts` — asserts each of the four untrusted strings appears only inside `wrapUntrusted()` delimiters; a control asserts a trusted string (the blast summary) is not wrapped. |
+| AC-6 | `server/test/brief.prompt.test.ts` — asserts the PR title, PR body, each spec path and the `#123` reference appear only inside `wrapUntrusted()` delimiters; a control asserts a trusted string (the blast summary) is not wrapped; a second control asserts no spec *content* and no issue *body* is in the prompt at all, since neither is available to this feature. |
 | AC-7 | Same file — asserts the schema passed to `completeStructured` rejects a response missing `summary` and one missing `review_focus`, and accepts a complete one. |
 | AC-50 | Same file — asserts the captured system message states both limits; a control asserts a response of 7 risks is still accepted by the schema, because the cap is an instruction and not a validation rule. |
 | AC-8 | `server/test/brief.grounding.test.ts` — model response with one in-PR focus file and one invented one; asserts only the invented one is removed. |
@@ -421,13 +480,16 @@ feature's.
 | AC-10 | `server/test/brief.repo.it.test.ts` — asserts the persisted `json` contains no path outside `files[].path` ∪ blast paths; a control asserts the grounded paths survived. |
 | AC-11 | `server/test/brief.grounding.test.ts` — `./src/a.ts`, `src//a.ts` accepted against `src/a.ts`; `SRC/a.ts` rejected. |
 | AC-52 | Same file — review-focus items with `line` of `0` and `-3` are removed; a control asserts `line: 1` survives. |
-| AC-12 | `server/test/brief.repo.it.test.ts` — asserts one row, all seven envelope fields present, `head_sha` equal to the pull's head. |
+| AC-12 | `server/test/brief.repo.it.test.ts` — asserts one row, all ten envelope fields present (including `risks` as a `{risks: [...]}` wrapper, not a bare array), `head_sha` equal to the pull's head. |
+| AC-57 | Same file — `PrBrief.parse(row.json)` succeeds; a negative control asserts an envelope missing `intent` fails, so the test proves the schema is still doing work. |
+| AC-58 | Same file — asserts `json.history` deep-equals `{ history: [] }` on a PR that has merged predecessors touching the same files, so an "it was empty anyway" pass is impossible. |
 | AC-13 | Same file — generate twice; asserts a single row and the second envelope's `generated_at`. |
 | AC-14 | `server/test/brief.routes.it.test.ts` — LLM adapter throws, and a second case times out; both assert `statusCode === 502` (not merely `>= 500`, so a bare `Error` falling through to 500 fails the test) and a byte-identical stored `json`. A control asserts the success path does write. |
 | AC-15 | `server/test/brief.service.test.ts` — logger spy; asserts one record with `model`, input tokens, `dropped_risks`, `dropped_focus`. |
 | AC-16 | Same file — no `pr_intent` row; asserts generation succeeds and `missing_inputs` contains `intent`; a control with an intent row asserts it does not. |
-| AC-17 | Same file — blast stub returns `degraded: true, reason: 'no_data'`; asserts the blast `summary` still reached the prompt and `missing_inputs` carries `blast` with that reason. |
-| AC-18 | Same file — no issue and no `spec` source rows; asserts both entries; a control with both present asserts neither. |
+| AC-17 | Same file — blast stub returns `degraded: true, reason: 'no_data'`; asserts the blast `summary` still reached the prompt and `missing_inputs` carries `{input:'blast', reason:'no_data'}`. |
+| AC-18 | Same file — no issue and no `spec` source rows; asserts entries with `input: 'issue'` and `input: 'specs'`; a control with both present asserts neither. |
+| AC-56 | `cd server && pnpm arch` (folded into `pnpm lint`, run in CI) — a clean run over the new `src/modules/brief/**`. The negative is the rule's own fixture behaviour: the rule is `severity: 'error'`, so a deliberate local import of `../smart-diff/service.js` must fail the run before the criterion is trusted. |
 | AC-19 | Same file — empty `files[]` and empty blast map; asserts a non-empty `summary` with `risks: []` and `review_focus: []`. |
 | AC-20 | `server/test/brief.routes.it.test.ts` — fake LLM counter asserted at 0 after `GET` in the cached, empty and stale states. |
 | AC-21 | Same file — `GET` with no row asserts 200 and `brief: null`. |
@@ -446,8 +508,10 @@ feature's.
 | AC-53 | Same file — asserts the refresh control is inside the block's `SectionLabel` right slot in the no-review state, where no banner exists; a control asserts it is still there in the reviewed state and not duplicated inside the banner. |
 | AC-54 | Same file — with a pending `POST`, asserts the busy label, the disabled control and the `Skeleton`; after it resolves, asserts the lists replaced the skeleton. |
 | AC-55 | Same file — `review_focus: []` asserts no `REVIEW FOCUS` heading, badge or list; a control with one item asserts all three. |
-| AC-32 | Same file — `missing_inputs: ['intent','blast']` renders the `unavailable` message naming both; empty `missing_inputs` renders none. |
+| AC-32 | Same file — `missing_inputs: [{input:'intent'}, {input:'blast', reason:'no_data'}]` renders the `unavailable` message naming both inputs and the `no_data` reason beside the second; empty `missing_inputs` renders none. |
+| AC-59 | Same file — the envelope's `intent.intent` and `blast.summary` are set to sentinel strings absent from the stubbed live endpoints; asserts neither sentinel appears anywhere in the block's output. |
 | AC-33 | `client/…/OverviewTab/OverviewTab.test.tsx` — asserts `PrIntentCard` and `BlastRadiusCard` still render with a brief present. |
+| AC-60 | Same file — with a brief present but `GET /pulls/:id/intent` and `GET /pulls/:id/blast` stubbed to fail, asserts both cards render their own error/empty state rather than the envelope's snapshot; the control is the normal case, where each card shows its endpoint's value. |
 | AC-34 | `client/…/PrBriefBlock/PrBriefBlock.test.tsx` — on mount, asserts a `GET` and zero `POST`s. |
 | AC-35 | Same file — refresh click asserts one `POST` and the re-rendered new summary. |
 | AC-36 | Same file — `stale: true` renders the hint beside refresh; `stale: false` renders no hint. |
@@ -471,7 +535,8 @@ AC-41 hold only over the cases their tests enumerate (`## Non-functional`, Enfor
 | Phase | Date | Note |
 |---|---|---|
 | Initiation | 2026-10-02 | Assignment and five mockups read; mockups copied into `design/pr-brief/` so a subagent can read them (root `INSIGHTS.md` 2026-10-02 records why a path outside the repo fails silently). Three parallel repo surveys established that `pr_brief`, the `PrBrief` contract and the `risk_brief` model slot already exist and are entirely unused, that no Project Context Folder exists, and that no deep-link into Files changed exists. `scripts/insights-for.sh` routed 75 of 192 entries. |
-| Planning | 2026-10-02 | `spec-creator` drafted 48 criteria, then amended to 55 after the user settled four clarifications and four facts were resolved from the code (byte-identical contract copies, `SmartDiffService.forPull`, `AppError`/502 mapping, and the finding that no e2e flow ever calls a model). `check-specs.sh` green. Approved by the user. |
+| Planning | 2026-10-02 | `spec-creator` drafted 48 criteria, then amended to 55 after the user settled four clarifications and four facts were resolved from the code (byte-identical contract copies, `AppError`/502 mapping, and the finding that no e2e flow ever calls a model). `check-specs.sh` green. Approved by the user. |
+| Planning — amendment 2 | 2026-10-02 | `implementation-planner` found four spec↔code contradictions; the user ruled on all four and the spec went to 60 criteria. **The cached-envelope decision was reversed**: the envelope is the full `PrBrief` shape plus six transport fields, because all four of `PrBrief`'s fields are required and the user chose to keep the contract rather than relax it (AC-12, AC-57, AC-58). AC-6 was corrected — `pr_intent.sources` stores spec *paths* and the issue is a bare `#123` reference, so two of its four "untrusted strings" never existed. `missing_inputs[]` became `{input, reason?}`. `SmartDiffService.forPull` was replaced by `buildSmartDiff`/`buildBlastRadius`, which `no-cross-module-internals` permits (AC-56). |
 | Implementation | | |
 | Validation | | typecheck · lint · tests · e2e · manual |
 | Completion | | status done, docs, insights wrap-up |
