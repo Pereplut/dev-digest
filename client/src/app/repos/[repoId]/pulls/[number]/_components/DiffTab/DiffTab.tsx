@@ -40,6 +40,13 @@ interface DiffTabProps {
    */
   order?: DiffOrder;
   onSetOrder?: (order: DiffOrder) => void;
+  /**
+   * The Review focus deep link (spec 0018, `?file=`): when it matches a path
+   * in `files[]`, that file's card opens and scrolls into view on mount, and
+   * the role group holding it is expanded first if that group starts
+   * collapsed. A non-matching value renders the diff unchanged (AC-44).
+   */
+  focusPath?: string | null;
 }
 
 /** Stable identity, so an omitted `findings` prop does not defeat the memos below. */
@@ -55,6 +62,7 @@ export function DiffTab({
   headSha,
   order = "smart",
   onSetOrder,
+  focusPath = null,
 }: DiffTabProps) {
   const t = useTranslations("prReview");
   const { data: comments } = usePrComments(prId);
@@ -199,14 +207,20 @@ export function DiffTab({
               findings={findings}
               commenting={commenting}
               findingApi={findingApi}
+              focusPath={focusPath}
             />
           ))}
           {leftovers.length > 0 && (
-            <DiffViewer files={leftovers} commenting={commenting} findings={findingApi} />
+            <DiffViewer
+              files={leftovers}
+              commenting={commenting}
+              findings={findingApi}
+              focusPath={focusPath}
+            />
           )}
         </>
       ) : (
-        <DiffViewer files={files} commenting={commenting} findings={findingApi} />
+        <DiffViewer files={files} commenting={commenting} findings={findingApi} focusPath={focusPath} />
       )}
     </section>
   );
@@ -219,15 +233,22 @@ function DiffGroup({
   findings,
   commenting,
   findingApi,
+  focusPath,
 }: {
   role: SmartDiffRole;
   files: PrFile[];
   findings: FindingRecord[];
   commenting: DiffCommentApi;
   findingApi: DiffFindingApi;
+  focusPath?: string | null;
 }) {
   const collapsed = COLLAPSED_ROLES.includes(role);
-  const [open, setOpen] = React.useState(!collapsed);
+  // A role group that starts collapsed still opens when the deep link's file
+  // lives inside it (AC-45) — otherwise the file would expand invisibly
+  // behind a closed group.
+  const [open, setOpen] = React.useState(
+    !collapsed || files.some((f) => f.path === focusPath),
+  );
   return (
     <div>
       <DiffGroupHeader
@@ -242,6 +263,7 @@ function DiffGroup({
           files={files}
           commenting={commenting}
           findings={findingApi}
+          focusPath={focusPath}
           {...(collapsed ? { defaultOpen: false } : {})}
         />
       )}

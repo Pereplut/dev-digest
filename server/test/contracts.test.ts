@@ -9,6 +9,8 @@ import {
   Risks,
   PrHistory,
   SmartDiff,
+  PrBrief,
+  PrBriefEnvelope,
   Conformance,
   Onboarding,
   OnboardingSectionKind,
@@ -419,5 +421,80 @@ describe('Onboarding contract (spec 0017)', () => {
     );
 
     expect(extractOnboardingBlock(serverSource)).toBe(extractOnboardingBlock(clientSource));
+  });
+});
+
+/** Spec 0018. `PrBrief` gains `summary` + `review_focus`; the envelope wraps it with transport fields. */
+describe('PrBrief / PrBriefEnvelope (spec 0018)', () => {
+  const validBrief = {
+    intent: { intent: 'x', in_scope: ['a'], out_of_scope: [] },
+    blast: {
+      changed_symbols: [],
+      downstream: [],
+      summary: 's',
+    },
+    risks: { risks: [] },
+    history: { history: [] },
+    summary: 'Adds a readiness probe.',
+    review_focus: [{ file: 'a.ts', line: 12, reason: 'core change' }],
+  };
+
+  it('PrBrief parses a valid object carrying summary + review_focus', () => {
+    expect(() => PrBrief.parse(validBrief)).not.toThrow();
+  });
+
+  it('PrBrief rejects an object missing `summary`', () => {
+    const { summary: _summary, ...rest } = validBrief;
+    expect(() => PrBrief.parse(rest)).toThrow();
+  });
+
+  it('PrBrief rejects an object missing `review_focus`', () => {
+    const { review_focus: _reviewFocus, ...rest } = validBrief;
+    expect(() => PrBrief.parse(rest)).toThrow();
+  });
+
+  it('PrBrief.parse() strips unknown keys rather than rejecting them (C3)', () => {
+    const withExtras = {
+      ...validBrief,
+      head_sha: 'abc123',
+      generated_at: '2026-10-02T00:00:00.000Z',
+      model: 'gpt-4.1-mini',
+      missing_inputs: [{ input: 'issue' }],
+    };
+    const parsed = PrBrief.parse(withExtras);
+    expect(parsed).not.toHaveProperty('head_sha');
+    expect(parsed).not.toHaveProperty('generated_at');
+    expect(parsed).not.toHaveProperty('model');
+    expect(parsed).not.toHaveProperty('missing_inputs');
+  });
+
+  it('PrBriefEnvelope.parse() succeeds on the ten-field fixture', () => {
+    const envelope = {
+      ...validBrief,
+      head_sha: 'abc123',
+      generated_at: '2026-10-02T00:00:00.000Z',
+      model: 'gpt-4.1-mini',
+      missing_inputs: [{ input: 'issue', reason: 'no linked issue' }],
+    };
+    const parsed = PrBriefEnvelope.parse(envelope);
+    expect(parsed.head_sha).toBe('abc123');
+    expect(parsed.missing_inputs[0]?.input).toBe('issue');
+  });
+
+  /**
+   * `server/src/vendor/shared/contracts/brief.ts` is canonical and
+   * `client/src/vendor/shared/contracts/brief.ts` must stay byte-identical to it (AC-25) —
+   * unlike `knowledge.ts`, where only the Onboarding block is compared.
+   */
+  it('brief.ts is byte-identical in both vendored contract copies', () => {
+    const serverSource = readFileSync(
+      join(import.meta.dirname, '../src/vendor/shared/contracts/brief.ts'),
+      'utf8',
+    );
+    const clientSource = readFileSync(
+      join(import.meta.dirname, '../../client/src/vendor/shared/contracts/brief.ts'),
+      'utf8',
+    );
+    expect(clientSource).toBe(serverSource);
   });
 });

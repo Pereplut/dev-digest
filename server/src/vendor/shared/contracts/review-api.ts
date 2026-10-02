@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { Finding, Verdict } from './findings.js';
-import { Intent, SmartDiff } from './brief.js';
+import { Intent, PrBrief, SmartDiff } from './brief.js';
 
 /**
  * A2 — Review-Core API surface contracts. These extend the core
@@ -151,3 +151,28 @@ export type PrIntentResponse = z.infer<typeof PrIntentResponse>;
 /** Smart-diff response for a PR (the SmartDiff). */
 export const SmartDiffResponse = SmartDiff;
 export type SmartDiffResponse = z.infer<typeof SmartDiffResponse>;
+
+// ---- PR Brief (spec 0018) ----
+
+/** One input the brief generator did without, and why (when known). */
+export const MissingInput = z.object({
+  input: z.string(),
+  reason: z.string().optional(),
+});
+export type MissingInput = z.infer<typeof MissingInput>;
+
+/** `PrBrief` persisted for a PR (the PrBrief plus transport/provenance fields). */
+export const PrBriefEnvelope = PrBrief.extend({
+  head_sha: z.string(),
+  generated_at: z.string(),
+  model: z.string(),
+  missing_inputs: z.array(MissingInput),
+});
+export type PrBriefEnvelope = z.infer<typeof PrBriefEnvelope>;
+
+/** `GET /pulls/:id/brief`. `brief` is null when nothing has been generated for this PR yet. */
+export const PrBriefResponse = z.object({
+  brief: PrBriefEnvelope.nullable(),
+  stale: z.boolean(),
+});
+export type PrBriefResponse = z.infer<typeof PrBriefResponse>;
