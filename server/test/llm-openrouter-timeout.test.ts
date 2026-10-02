@@ -119,21 +119,39 @@ describe('TimeBoundedOpenRouterProvider', () => {
 
   it("chains the caller's own signal, so an external cancel still aborts the SDK", async () => {
     // The run-level AbortController must keep working through the decorator.
+    //
+    // Two details are load-bearing, both found by mutating the chain away and
+    // watching this test pass anyway:
+    //   - a DISTINCT abort reason, asserted. This is what separates the cancel
+    //     path from the timeout path. With the chain dropped the call still
+    //     rejects — eventually, via TimeoutError — so `rejects.toBeDefined()`
+    //     passed, and `seen.aborted` went true as well, because `seen` was then
+    //     the adapter's OWN controller, which the catch aborts. Both assertions
+    //     were satisfied by the bug.
+    //   - REAL timers with a short bound. Fake timers also kill that mutant,
+    //     but by hanging: vitest's own 5s test timeout does not fire while they
+    //     are installed, so the suite stalls instead of going red. Here a
+    //     broken chain fails in ~1s on the reason.
+    // The stub honours the signal rather than hanging, so the promise settles
+    // and withTimeout's `finally` clears its timer.
     let seen: AbortSignal | undefined;
     const provider = new TimeBoundedOpenRouterProvider(
       inner({
         completeStructured: vi.fn((req: StructuredRequest<unknown>) => {
           seen = req.signal;
-          return new Promise<StructuredResult<never>>(() => {});
+          return new Promise<StructuredResult<never>>((_, reject) => {
+            req.signal?.addEventListener('abort', () => reject(req.signal!.reason), { once: true });
+          });
         }),
       }),
     );
     const outer = new AbortController();
 
-    void provider.completeStructured({ ...structuredRequest(60_000), signal: outer.signal });
-    expect(seen!.aborted).toBe(false);
-    outer.abort();
-    expect(seen!.aborted).toBe(true);
+    const p = provider.completeStructured({ ...structuredRequest(1_000), signal: outer.signal });
+    expect(seen?.aborted).toBe(false);
+    outer.abort(new Error('cancelled by the run'));
+    await expect(p).rejects.toThrow('cancelled by the run');
+    expect(seen?.aborted).toBe(true);
   });
 
   it('does NOT bound a call that settles in time — a slow review still completes', async () => {
