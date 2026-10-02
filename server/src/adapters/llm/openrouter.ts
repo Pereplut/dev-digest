@@ -6,7 +6,7 @@ import type {
   StructuredRequest,
   StructuredResult,
 } from '@devdigest/shared';
-import { withTimeout } from '../../platform/resilience.js';
+import { withTimeout, TimeoutError } from '../../platform/resilience.js';
 
 /**
  * OpenRouter adapter — a time bound around the provider that lives in
@@ -23,6 +23,16 @@ import { withTimeout } from '../../platform/resilience.js';
  * agent uses `provider: 'openrouter'`, so this is the DEFAULT review path, not
  * an edge case — the entry's closing line was that this provider needs the same
  * `withTimeout` treatment the other two get. This is that.
+ *
+ * A TIME BOUND ALONE IS HALF THE FIX. `withTimeout` is a `Promise.race`: it
+ * frees the caller, but the HTTP request keeps running and keeps being billed —
+ * the same gap `server/INSIGHTS.md` (2026-09-27) records for cancel, "it does
+ * not stop the spend". OpenRouter is the ONE provider that honours
+ * `StructuredRequest.signal` (`vendor/shared/adapters.ts`), so this is the only
+ * place both halves can be combined, and `completeStructured` does: it passes a
+ * signal down and aborts it when the bound fires. The race stays as the outer
+ * guarantee, because an SDK that ignores its own 90s timeout cannot be trusted
+ * to honour an abort either.
  *
  * NO `withRetry` HERE, deliberately. `openai.ts` composes
  * `withRetry(() => withTimeout(...))`, but the OpenRouter provider's own
@@ -54,12 +64,17 @@ const DEFAULT_TIMEOUT = 900_000;
 
 export class TimeBoundedOpenRouterProvider implements LLMProvider {
   /**
-   * Mirrors the inner provider: callers key behaviour off this (`buildLlm`'s
+   * Delegated, not asserted. Callers key behaviour off this (`buildLlm`'s
    * cache, cost attribution, the per-provider `signal` support recorded in
-   * `vendor/shared/adapters.ts`), and a decorator that changed it would make
-   * the wrapper observable as a different provider.
+   * `vendor/shared/adapters.ts`), and the inner provider's id is configurable —
+   * `reviewer-core/src/llm/openrouter.ts:47` sets it from `opts.id ?? 'openrouter'`,
+   * so the OpenAI-compatible-base-URL variant reports `'openai'`. Hardcoding
+   * `'openrouter'` here would make the decorator observable as a provider it is
+   * not the moment that variant is wired through it.
    */
-  readonly id = 'openrouter' as const;
+  get id(): LLMProvider['id'] {
+    return this.inner.id;
+  }
 
   constructor(private readonly inner: LLMProvider) {}
 
@@ -72,12 +87,33 @@ export class TimeBoundedOpenRouterProvider implements LLMProvider {
     return this.inner.listModels();
   }
 
+  /**
+   * Bounded but NOT abortable: `CompletionRequest` has no `signal`, so there is
+   * nothing to cancel with. In practice this path is unreachable — the inner
+   * provider throws `NOT_SUPPORTED` for `complete()` and `embed()`
+   * (`reviewer-core/src/llm/openrouter.ts:166,169`), review goes through
+   * `completeStructured` — so the bound here is symmetry, not a fix.
+   */
   async complete(req: CompletionRequest): Promise<CompletionResult> {
     return withTimeout(this.inner.complete(req), req.timeoutMs ?? DEFAULT_TIMEOUT);
   }
 
+  /** The live review path: bounded AND aborted, so a timeout stops the spend. */
   async completeStructured<T>(req: StructuredRequest<T>): Promise<StructuredResult<T>> {
-    return withTimeout(this.inner.completeStructured(req), req.timeoutMs ?? DEFAULT_TIMEOUT);
+    const ms = req.timeoutMs ?? DEFAULT_TIMEOUT;
+    const onTimeout = new AbortController();
+    // Chained, so an external cancel (the run's own AbortController, spec
+    // 0029-30) still reaches the SDK; ours only adds the timeout reason.
+    const signal = req.signal
+      ? AbortSignal.any([req.signal, onTimeout.signal])
+      : onTimeout.signal;
+
+    try {
+      return await withTimeout(this.inner.completeStructured({ ...req, signal }), ms);
+    } catch (err) {
+      if (err instanceof TimeoutError) onTimeout.abort(err);
+      throw err;
+    }
   }
 
   async embed(texts: string[]): Promise<number[][]> {
