@@ -1,0 +1,15 @@
+{
+  "name": "PR detail's Overview tab shows the degraded Blast radius marker",
+  "description": "From PR #482 (the seeded acme/payments-api, whose clone_path is null and which has no repo_index_state row), the Overview tab shows the Blast radius card in its degraded state: a role=status marker naming why the map is partial ('This repository has not been indexed yet, so there is nothing to read.'), and readable empty-state copy rather than a blank box. The hermetic stack (./scripts/e2e.sh) seeds only this repo, which has no clone, so the populated-tree state (real callers/endpoints) is covered by client unit tests and the manual demo against Pereplut/dev-digest, not here. Read-only, no model call. Assumes a freshly-seeded DB where acme/payments-api (PR #482) is the first repo — guaranteed by e2e-web.yml; run locally via the hermetic stack (see e2e/README.md).",
+  "steps": [
+    { "cmd": ["open", "{BASE}/"], "label": "load the app root" },
+    { "cmd": ["wait", "--url", "/pulls"], "label": "land on the PR list" },
+    { "cmd": ["find", "text", "Add rate limiting to public API endpoints", "click"], "label": "open the PR row" },
+    { "cmd": ["wait", "--url", "/pulls/482"], "label": "navigate to the PR detail route" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "PR detail data settles" },
+    { "cmd": ["wait", "--text", "BLAST RADIUS"], "label": "Overview tab (the default) shows the Blast radius card (SectionLabel is CSS-uppercased, so the rendered text is upper case)" },
+    { "cmd": ["wait", "--text", "Partial map"], "label": "the degraded marker's label is visible" },
+    { "cmd": ["wait", "--text", "This repository has not been indexed yet, so there is nothing to read."], "label": "the degraded marker names its reason (no_data — this repo has no clone_path)" },
+    { "cmd": ["wait", "--text", "Nothing downstream"], "label": "the empty-state title renders beneath the marker (no callers, not a blank box)" }
+  ]
+}

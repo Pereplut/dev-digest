@@ -26,6 +26,11 @@ export class RunBus {
   private completed = new Set<string>();
   private cancelled = new Set<string>();
   private evictions = new Map<string, NodeJS.Timeout>();
+  // The AbortController backing a run's CURRENT in-flight LLM call. Separate
+  // from `cancelled`, which only makes the loop stop BETWEEN chunks and does
+  // nothing for a call already in flight — a single-pass review, or a
+  // map-reduce chunk mid-request, never reaches that checkpoint at all.
+  private aborts = new Map<string, AbortController>();
 
   /**
    * @param bufferTtlMs how long after `complete()` a run's buffered log stays
@@ -33,10 +38,32 @@ export class RunBus {
    */
   constructor(private readonly bufferTtlMs: number = DEFAULT_BUFFER_TTL_MS) {}
 
-  /** Request cancellation of an in-flight run. The runner checks `isCancelled`
-   *  at its next checkpoint (between map-reduce files) and stops. */
+  /**
+   * Register the AbortController for a run's current LLM call so `cancel()`
+   * can abort the in-flight HTTP request immediately, not just flag the run
+   * for the next between-chunk checkpoint. Returns an unregister function —
+   * call it once the call this controller guarded has settled (success,
+   * failure, or abort), so a stale controller from a finished chunk can't be
+   * aborted by a later cancel() meant for nothing in particular.
+   *
+   * If cancellation was already requested before this call registers (a race
+   * between the cancel request and the next chunk starting), the controller
+   * is aborted immediately rather than left to run to completion.
+   */
+  registerAbort(runId: string, controller: AbortController): () => void {
+    this.aborts.set(runId, controller);
+    if (this.cancelled.has(runId)) controller.abort();
+    return () => {
+      if (this.aborts.get(runId) === controller) this.aborts.delete(runId);
+    };
+  }
+
+  /** Request cancellation of an in-flight run: flags it for the next
+   *  between-chunk checkpoint AND aborts the current LLM call's HTTP request
+   *  immediately, if one is registered. */
   cancel(runId: string): void {
     this.cancelled.add(runId);
+    this.aborts.get(runId)?.abort();
   }
 
   /** Whether cancellation has been requested for a run. */

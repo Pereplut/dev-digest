@@ -107,9 +107,9 @@ export class ReviewService {
     this.container.runBus.complete(runId);
   }
 
-  /** Reap runs left 'running' by a previous (now-dead) process. Called on boot. */
-  async reapStaleRuns(): Promise<number> {
-    return this.repo.reapStaleRunningRuns();
+  /** Reap ALL runs left 'running' by a previous (now-dead) process. Called on boot. */
+  async reapOrphanedRuns(): Promise<number> {
+    return this.repo.reapOrphanedRunningRuns();
   }
 
   /**

@@ -137,10 +137,10 @@ export class ReviewRepository {
     return runRepo.cancelRunIfRunning(this.db, runId);
   }
 
-  /** On boot: any run still 'running' is orphaned (its process died / restarted),
-   *  so mark it failed. Prevents permanently stuck "running" runs in the UI. */
-  reapStaleRunningRuns(): Promise<number> {
-    return runRepo.reapStaleRunningRuns(this.db);
+  /** On boot: EVERY run still 'running' is orphaned (its process died /
+   *  restarted) — mark it failed, with an error explaining why. */
+  reapOrphanedRunningRuns(): Promise<number> {
+    return runRepo.reapOrphanedRunningRuns(this.db);
   }
 
   /** Delete a whole review (one agent's run) + its findings (cascade), scoped

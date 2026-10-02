@@ -30,8 +30,21 @@ const handle = serveStdio(() => createDevDigestServer(api), {
 // killed mid-write.
 async function shutdown(): Promise<void> {
   await handle.close();
-  process.exit(0);
 }
 
-process.on('SIGINT', () => void shutdown());
-process.on('SIGTERM', () => void shutdown());
+// The exit lives in the handler, not in `shutdown`, so a rejecting `close()`
+// cannot skip it. `() => void shutdown()` discarded the promise: a rejection
+// there never reached `process.exit(0)` and surfaced as an unhandled rejection,
+// which Node 22 turns into a crash — the opposite of the clean stop intended.
+function onSignal(): void {
+  shutdown().then(
+    () => process.exit(0),
+    (err: unknown) => {
+      logStderr(`devdigest-mcp: shutdown failed: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    },
+  );
+}
+
+process.on('SIGINT', onSignal);
+process.on('SIGTERM', onSignal);

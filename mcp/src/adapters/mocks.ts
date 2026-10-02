@@ -6,6 +6,7 @@
  */
 import type {
   AgentSummary,
+  BlastRadiusResult,
   ConventionQuery,
   ConventionsPage,
   DevDigestApi,
@@ -78,7 +79,10 @@ export class MockDevDigestApi implements DevDigestApi {
     },
   ];
 
-  pulls: PullDetail[] = [{ id: 'pull-1', repoId: 'repo-1', number: 42, title: 'Add smart diff grouping' }];
+  pulls: PullDetail[] = [
+    { id: 'pull-1', repoId: 'repo-1', number: 42, title: 'Add smart diff grouping' },
+    { id: 'pull-2', repoId: 'repo-1', number: 99, title: 'Rename a helper with no downstream index' },
+  ];
 
   runs = new Map<string, MockRun>([
     [
@@ -115,6 +119,41 @@ export class MockDevDigestApi implements DevDigestApi {
             suggestion: null,
           },
         ],
+      },
+    ],
+  ]);
+
+  /** Keyed by pull id. `pull-1` is the populated map, `pull-2` the degraded
+   *  one — the two shapes `get_blast_radius` must handle identically to the
+   *  page it backs. */
+  blastRadii = new Map<string, BlastRadiusResult>([
+    [
+      'pull-1',
+      {
+        changedSymbols: [{ name: 'getContext', file: 'src/modules/_shared/context.ts', kind: 'function' }],
+        downstream: [
+          {
+            symbol: 'getContext',
+            file: 'src/modules/_shared/context.ts',
+            callers: [
+              { name: 'listPulls', file: 'src/modules/pulls/routes.ts', line: 12 },
+              { name: 'getFindings', file: 'src/modules/findings/routes.ts', line: 30 },
+            ],
+            endpointsAffected: ['GET /pulls', 'GET /runs/:id/findings'],
+            cronsAffected: [],
+          },
+        ],
+        summary: '1 changed symbol · 2 callers · 2 endpoints · 0 cron jobs',
+      },
+    ],
+    [
+      'pull-2',
+      {
+        changedSymbols: [{ name: 'renameHelper', file: 'src/lib/helper.ts', kind: 'function' }],
+        downstream: [],
+        summary: '1 changed symbol · 0 callers · 0 endpoints · 0 cron jobs',
+        degraded: true,
+        reason: 'no_data',
       },
     ],
   ]);
@@ -214,6 +253,12 @@ export class MockDevDigestApi implements DevDigestApi {
       .filter((r) => r.pullId === pullId)
       .reverse()
       .map((r) => ({ runId: r.runId, agentId: r.agentId, status: r.status, ranAt: r.ranAt }));
+  }
+
+  async getBlastRadius(prId: string): Promise<BlastRadiusResult> {
+    const result = this.blastRadii.get(prId);
+    if (!result) throw new Error(`mock: no blast radius for pull ${prId}`);
+    return result;
   }
 
   async getConventions(_repoId: string, query: ConventionQuery): Promise<ConventionsPage> {

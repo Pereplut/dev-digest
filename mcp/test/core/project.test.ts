@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MAX_BLAST_DOWNSTREAM_GROUPS,
   MAX_FINDING_TEXT_CHARS,
   closestSlug,
   currentWave,
@@ -9,12 +10,20 @@ import {
   filterFindings,
   paginate,
   projectAgent,
+  projectBlast,
   projectConvention,
   projectFinding,
   resolveRepoSlug,
   truncateText,
 } from '../../src/core/project.js';
-import type { AgentSummary, ConventionItem, FindingItem, RepoSummary, RunListItem } from '../../src/ports.js';
+import type {
+  AgentSummary,
+  BlastRadiusResult,
+  ConventionItem,
+  FindingItem,
+  RepoSummary,
+  RunListItem,
+} from '../../src/ports.js';
 
 const agent: AgentSummary = {
   id: 'a1',
@@ -91,6 +100,113 @@ describe('core/project — ring 1 (no network, no SDK)', () => {
   it('detailed convention projection adds the evidence snippet', () => {
     const projected = projectConvention(convention, 'detailed');
     expect(projected).toMatchObject({ evidence_snippet: convention.evidenceSnippet });
+  });
+
+  it('projects a blast radius map to snake_case keys, no degraded fields on the happy path', () => {
+    const result: BlastRadiusResult = {
+      changedSymbols: [{ name: 'getContext', file: 'src/context.ts', kind: 'function' }],
+      downstream: [
+        {
+          symbol: 'getContext',
+          callers: [{ name: 'listPulls', file: 'src/routes.ts', line: 12 }],
+          endpointsAffected: ['GET /pulls'],
+          cronsAffected: [],
+        },
+      ],
+      summary: '1 changed symbol · 1 caller · 1 endpoint · 0 cron jobs',
+    };
+    expect(projectBlast(result)).toEqual({
+      changed_symbols: [{ name: 'getContext', file: 'src/context.ts', kind: 'function' }],
+      downstream: [
+        {
+          symbol: 'getContext',
+          callers: [{ name: 'listPulls', file: 'src/routes.ts', line: 12 }],
+          endpoints_affected: ['GET /pulls'],
+          crons_affected: [],
+        },
+      ],
+      summary: '1 changed symbol · 1 caller · 1 endpoint · 0 cron jobs',
+    });
+  });
+
+  it('keeps every group and reports no omission when at or under the cap', () => {
+    const result: BlastRadiusResult = {
+      changedSymbols: [],
+      downstream: Array.from({ length: MAX_BLAST_DOWNSTREAM_GROUPS }, (_, i) => ({
+        symbol: `sym${i}`,
+        callers: [{ name: 'caller', file: 'f.ts', line: 1 }],
+        endpointsAffected: [],
+        cronsAffected: [],
+      })),
+      summary: 'x',
+    };
+    const projected = projectBlast(result);
+    expect(projected.downstream).toHaveLength(MAX_BLAST_DOWNSTREAM_GROUPS);
+    expect(projected).not.toHaveProperty('omitted_downstream_groups');
+    expect(projected).not.toHaveProperty('omitted_downstream_callers');
+  });
+
+  it('trims downstream to the top N groups by caller count, and reports what it left out', () => {
+    // 12 groups, caller counts 12..1 descending, so the trim keeps the top 10
+    // (12 callers down to 3) and drops the bottom two (2 and 1 callers).
+    const result: BlastRadiusResult = {
+      changedSymbols: [],
+      downstream: Array.from({ length: 12 }, (_, i) => {
+        const callerCount = 12 - i;
+        return {
+          symbol: `sym${i}`,
+          callers: Array.from({ length: callerCount }, (_, j) => ({
+            name: `caller${j}`,
+            file: `f${i}.ts`,
+            line: j + 1,
+          })),
+          endpointsAffected: [],
+          cronsAffected: [],
+        };
+      }),
+      summary: '12 changed symbols · 78 callers · 0 endpoints · 0 cron jobs',
+    };
+
+    const projected = projectBlast(result);
+
+    expect(projected.downstream).toHaveLength(MAX_BLAST_DOWNSTREAM_GROUPS);
+    expect(projected.downstream.map((d) => d.symbol)).toEqual([
+      'sym0', 'sym1', 'sym2', 'sym3', 'sym4', 'sym5', 'sym6', 'sym7', 'sym8', 'sym9',
+    ]);
+    // Omitted: sym10 (2 callers) and sym11 (1 caller).
+    expect(projected.omitted_downstream_groups).toBe(2);
+    expect(projected.omitted_downstream_callers).toBe(3);
+  });
+
+  it('ranks groups by caller count before trimming, not by input order', () => {
+    const result: BlastRadiusResult = {
+      changedSymbols: [],
+      downstream: [
+        { symbol: 'small', callers: [{ name: 'c', file: 'f.ts', line: 1 }], endpointsAffected: [], cronsAffected: [] },
+        {
+          symbol: 'big',
+          callers: Array.from({ length: 5 }, (_, i) => ({ name: `c${i}`, file: 'g.ts', line: i + 1 })),
+          endpointsAffected: [],
+          cronsAffected: [],
+        },
+      ],
+      summary: 'x',
+    };
+    const projected = projectBlast(result);
+    expect(projected.downstream.map((d) => d.symbol)).toEqual(['big', 'small']);
+  });
+
+  it('carries degraded and reason through unchanged when the server reports them', () => {
+    const result: BlastRadiusResult = {
+      changedSymbols: [],
+      downstream: [],
+      summary: '0 changed symbols · 0 callers · 0 endpoints · 0 cron jobs',
+      degraded: true,
+      reason: 'no_data',
+    };
+    const projected = projectBlast(result);
+    expect(projected.degraded).toBe(true);
+    expect(projected.reason).toBe('no_data');
   });
 
   it('truncates text over the cap and says so', () => {

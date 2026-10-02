@@ -19,6 +19,7 @@ import type {
   SpecFile,
   IndexStatus,
   SmartDiff,
+  BlastRadius,
 } from "../types";
 
 // ---- Settings (F1: GET/PUT /settings, POST /settings/test-connection) ----
@@ -184,6 +185,22 @@ export function useSmartDiff(prId: string | null | undefined) {
   return useQuery({
     queryKey: ["smart-diff", prId],
     queryFn: () => api.get<SmartDiff>(`/pulls/${prId}/smart-diff`),
+    enabled: !!prId,
+  });
+}
+
+/**
+ * Blast radius: which callers and HTTP endpoints/cron jobs a PR's changed
+ * symbols reach, read from the finished repo-intel index (spec 0012).
+ *
+ * `enabled: !!prId` is load-bearing for the same reason as `useSmartDiff`
+ * above — `prId` only exists once the PR-detail query resolves, and dropping
+ * the gate would race an empty `pr_files` table.
+ */
+export function usePrBlast(prId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["pr-blast", prId],
+    queryFn: () => api.get<BlastRadius>(`/pulls/${prId}/blast`),
     enabled: !!prId,
   });
 }

@@ -125,6 +125,50 @@ export interface RunListItem {
   ranAt: string | null;
 }
 
+// ---- Blast radius -------------------------------------------------------------
+
+export interface BlastChangedSymbol {
+  name: string;
+  file: string;
+  kind: string;
+}
+
+export interface BlastCaller {
+  name: string;
+  file: string;
+  line: number;
+}
+
+export interface BlastDownstreamImpact {
+  symbol: string;
+  /**
+   * The file that declares `symbol` (spec 0012 fix). A bare name is not
+   * unique — this codebase alone declares `renderWithIntl` in 8 files — so
+   * an agent reading two same-named entries needs this to tell them apart.
+   * Optional: absent on an older server response recorded before this field
+   * existed.
+   */
+  file?: string;
+  callers: BlastCaller[];
+  endpointsAffected: string[];
+  cronsAffected: string[];
+}
+
+/**
+ * `GET /pulls/:id/blast` — a finished code-index read, no LLM call and no
+ * clone parsing at request time. `degraded`/`reason` are present only when
+ * the server reports the index behind this map is missing or partial, so the
+ * happy path stays lean (mirrors `BlastRadius` in
+ * `server/src/vendor/shared/contracts/brief.ts`).
+ */
+export interface BlastRadiusResult {
+  changedSymbols: BlastChangedSymbol[];
+  downstream: BlastDownstreamImpact[];
+  summary: string;
+  degraded?: boolean;
+  reason?: string;
+}
+
 // ---- Conventions --------------------------------------------------------------
 
 export type ConventionStatusValue = 'pending' | 'accepted' | 'rejected';
@@ -177,4 +221,8 @@ export interface DevDigestApi {
 
   /** GET /repos/:id/conventions */
   getConventions(repoId: string, query: ConventionQuery): Promise<ConventionsPage>;
+
+  /** GET /pulls/:id/blast — which symbols a pull request changes, which
+   * callers reach them, and which endpoints/crons sit behind those callers. */
+  getBlastRadius(prId: string): Promise<BlastRadiusResult>;
 }

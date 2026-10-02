@@ -191,4 +191,64 @@ describe('RunBus — cancellation', () => {
 
     expect(bus.isCancelled('r')).toBe(false);
   });
+
+  it('aborts a registered controller immediately on cancel — not just at the next checkpoint', () => {
+    const bus = new RunBus();
+    const controller = new AbortController();
+    bus.registerAbort('r', controller);
+    expect(controller.signal.aborted).toBe(false);
+
+    bus.cancel('r');
+
+    expect(controller.signal.aborted).toBe(true);
+  });
+
+  it('scopes the abort to the registered run only', () => {
+    const bus = new RunBus();
+    const controller = new AbortController();
+    bus.registerAbort('r', controller);
+
+    bus.cancel('other');
+
+    expect(controller.signal.aborted).toBe(false);
+  });
+
+  it('aborts a controller registered AFTER cancel() already fired (the queued-agent race)', () => {
+    const bus = new RunBus();
+    bus.cancel('r');
+
+    const controller = new AbortController();
+    bus.registerAbort('r', controller);
+
+    expect(controller.signal.aborted).toBe(true);
+  });
+
+  it('unregister stops a later cancel() from reaching a controller whose call already settled', () => {
+    const bus = new RunBus();
+    const controller = new AbortController();
+    const unregister = bus.registerAbort('r', controller);
+
+    unregister();
+    bus.cancel('r');
+
+    expect(controller.signal.aborted).toBe(false);
+  });
+
+  it('does not let an unregistered stale controller override a NEW controller for the same run', () => {
+    // Two sequential registrations for the same runId (e.g. the executor's
+    // finally unregistering call N right as call N+1 registers) — the stale
+    // unregister must not evict the new controller's entry.
+    const bus = new RunBus();
+    const first = new AbortController();
+    const unregisterFirst = bus.registerAbort('r', first);
+    unregisterFirst();
+
+    const second = new AbortController();
+    bus.registerAbort('r', second);
+    unregisterFirst(); // stale call — must be a no-op
+
+    bus.cancel('r');
+
+    expect(second.signal.aborted).toBe(true);
+  });
 });

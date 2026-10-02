@@ -9,18 +9,21 @@ import { createDevDigestServer } from '../src/registry.js';
  * The acceptance criterion ("stay under a recorded token ceiling, asserted by a
  * test") needs a number tight enough to fail on a real regression.
  *
- * Measured: the five tools serialise to **1446** cl100k tokens. Spec 0011's
- * original 2.5-3.5k was an estimate made before the schemas existed and was
- * ~2.4x too high; a 4000 ceiling derived from it would have let the definitions
- * nearly triple without firing, which is the failure mode of a ruleset that
- * never fails.
+ * Measured: the five tools serialise to **1446** cl100k tokens on spec 0011.
+ * Spec 0011's original 2.5-3.5k was an estimate made before the schemas
+ * existed and was ~2.4x too high; a 4000 ceiling derived from it would have
+ * let the definitions nearly triple without firing, which is the failure mode
+ * of a ruleset that never fails.
  *
- * 2000 is ~38% headroom over the measured figure: enough to reword a
- * description or add a parameter, not enough to absorb a sixth tool or a
- * re-introduced `outputSchema`. Move it deliberately, with a new measurement.
+ * Re-measured for spec 0012, which replaced the `get_blast_radius` stub
+ * (`isError: true`, one short line) with its real description and body:
+ * **1668** cl100k tokens. `TOKEN_CEILING` is held at 2000 per spec 0012 §5
+ * ("never nudge the ceiling to fit") — still ~20% headroom over the new
+ * figure, enough to reword a description, not enough to absorb a sixth tool
+ * or a re-introduced `outputSchema`.
  */
 const TOKEN_CEILING = 2000;
-const MEASURED_AT_WRITING = 1446;
+const MEASURED_AT_WRITING = 1668;
 
 describe('token budget — serialised tool definitions', () => {
   it('tools/list output stays under the recorded ceiling', async () => {

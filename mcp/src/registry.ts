@@ -19,6 +19,7 @@ import { z } from 'zod';
 import type { DevDigestApi } from './ports.js';
 import {
   projectAgents,
+  projectBlast,
   projectConventions,
   projectFindings,
   resolveRepoSlug,
@@ -26,10 +27,10 @@ import {
 import {
   apiErrorText,
   apiUnreachableText,
+  blastPullRequestUnknownText,
   bothRunIdAndRepoText,
   repositoryUnknownText,
   runStillExecutingText,
-  blastRadiusStubText,
 } from './core/errors.js';
 import { runReview } from './tools/run-review.js';
 import { getFindings } from './tools/findings.js';
@@ -45,9 +46,7 @@ Identity: every tool takes a repository slug (\`owner/name\`) and a GitHub pull 
 
 Cost: \`review_pull_request\` spends money on LLM calls and is limited to 10 calls per minute. Every other tool is read-only and cheap.
 
-Severities are \`CRITICAL\`, \`WARNING\`, \`SUGGESTION\`. A \`CRITICAL\` finding is what blocks a pull request.
-
-\`get_blast_radius\` is registered but not implemented.`;
+Severities are \`CRITICAL\`, \`WARNING\`, \`SUGGESTION\`. A \`CRITICAL\` finding is what blocks a pull request.`;
 
 // ---- Shared enums (plain literal lists — never import the server's Zod-3
 // contracts; this package is Zod 4) --------------------------------------
@@ -327,15 +326,20 @@ export function createDevDigestServer(api: DevDigestApi): McpServer {
     'get_blast_radius',
     {
       description:
-        'Not implemented yet: every call returns an error, so do not call it. Planned — which symbols a change touches, which callers reach them, and which endpoints are impacted. Until then use `get_findings` and `get_repo_conventions` for the same pull request.',
+        'Get the blast radius of a pull request — which symbols it changes, which callers reach them, and which HTTP endpoints and cron jobs sit behind those callers. Identify the pull request by repository slug and PR number as shown on GitHub, not by an internal id. This reads a code index DevDigest built when it cloned the repository: it is read-only, cheap, and calls no model, so prefer it over reading the diff yourself to guess what a change affects. An empty `downstream` means no caller outside the changed files resolved — not that the change is safe; a `degraded` flag with its `reason` means the index is missing or partial, so the map under-reports rather than being complete.',
       inputSchema: GetBlastRadiusInput,
       annotations: READ_ONLY_ANNOTATIONS,
     },
-    // Stub: registered so the surface is stable and documented, but every
-    // call returns isError — the backend (`repoIntel.getBlastRadius`) exists
-    // and is unwired; only the route, module and this tool's body are
-    // missing (spec 0011 "get_blast_radius (stub)"). No port call, on purpose.
-    async () => errorText(blastRadiusStubText()),
+    async (input) =>
+      withApiErrors(async () => {
+        const repos = await api.listRepos();
+        const resolution = resolveRepoSlug(repos, input.repo);
+        if (!resolution.ok) return errorText(repositoryUnknownText(input.repo, resolution.closest));
+        const pull = await api.getPullByNumber(resolution.repo.id, input.pull_number);
+        if (!pull) return errorText(blastPullRequestUnknownText(input.pull_number, resolution.repo.fullName));
+        const result = await api.getBlastRadius(pull.id);
+        return okJson(projectBlast(result));
+      }),
   );
 
   return server;
