@@ -28,9 +28,18 @@ export default async function briefRoutes(appBase: FastifyInstance) {
     },
   );
 
+  // Tight per-route limit: each call spends one model generation inline, and
+  // this is the only LLM-backed POST that runs synchronously rather than
+  // enqueueing a job. Matches `reviews/routes.ts`. The global bucket is 120/min
+  // (`app.ts`), which would let one client drive 120 paid generations a minute.
+  // Inert under test: `app.ts` skips registering the limiter when
+  // `nodeEnv === 'test'`, so `inject()` is unaffected.
   app.post(
     '/pulls/:id/brief',
-    { schema: { params: IdParams } },
+    {
+      schema: { params: IdParams },
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    },
     async (req): Promise<PrBriefEnvelope> => {
       const { workspaceId } = await getContext(app.container, req);
       return service.generate(workspaceId, req.params.id, req.log);

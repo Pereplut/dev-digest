@@ -22,19 +22,21 @@ import prReviewMessages from "../../../../../../../../messages/en/prReview.json"
 import { PrBriefBlock, type FinishedReviewSummary } from "./PrBriefBlock";
 
 const briefState = vi.hoisted(() => ({
-  current: { brief: null, stale: false } as PrBriefResponse,
+  current: { brief: null, stale: false } as PrBriefResponse | undefined,
+  isLoading: false,
 }));
 const generateState = vi.hoisted(() => ({ isPending: false }));
 const generateMutate = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/hooks/brief", () => ({
-  usePrBrief: () => ({ data: briefState.current }),
+  usePrBrief: () => ({ data: briefState.current, isLoading: briefState.isLoading }),
   useGenerateBrief: () => ({ mutate: generateMutate, isPending: generateState.isPending }),
 }));
 
 afterEach(cleanup);
 beforeEach(() => {
   briefState.current = { brief: null, stale: false };
+  briefState.isLoading = false;
   generateState.isPending = false;
   generateMutate.mockClear();
 });
@@ -128,6 +130,25 @@ describe("PrBriefBlock — no brief yet", () => {
 
   it("mounts without ever calling generate on its own (AC-34)", () => {
     renderBlock();
+    expect(generateMutate).not.toHaveBeenCalled();
+  });
+
+  it("never offers Generate while the cached brief is still loading (AC-34)", async () => {
+    // The regression this pins: reading only `data` left `brief` null during
+    // the in-flight GET, so the control rendered "Generate brief" ENABLED on a
+    // PR that already had one — and a click there spends a model call, which
+    // is exactly what AC-34 forbids. Found by review, not by a test, because
+    // every other case here stubs the hook to resolve synchronously.
+    briefState.current = undefined;
+    briefState.isLoading = true;
+    const user = userEvent.setup();
+    renderBlock();
+
+    expect(screen.queryByRole("button", { name: "Generate brief" })).not.toBeInTheDocument();
+    const control = screen.getByRole("button", { name: /Loading/ });
+    expect(control).toBeDisabled();
+
+    await user.click(control);
     expect(generateMutate).not.toHaveBeenCalled();
   });
 });

@@ -135,10 +135,20 @@ to answer them sit unused.
 - **AC-5** — IF the assembled facts exceed 8 000 tokens, THEN the service shall drop whole fact
   blocks in the fixed priority order given in `## Non-functional` and shall append one
   `missing_inputs[]` entry whose `input` names each dropped block.
-- **AC-6** — The brief service shall wrap the PR title, the PR body, each spec file **path** and the
-  linked issue **reference** with `wrapUntrusted()` (`server/src/platform/prompt.ts`) before they
-  enter the prompt. A failing run is any of those four strings present in `messages` outside a
-  wrapper delimiter. Paths and references, not documents: `IntentSourceRow` is
+- **AC-6** — The brief service shall wrap every author-influenced string with `wrapUntrusted()`
+  (`server/src/platform/prompt.ts`) before it enters the prompt: the PR title, the PR body, each
+  spec file **path**, the linked issue **reference**, the **derived intent**, and the three blocks
+  rendered from author-chosen file paths — blast caller lines, Smart Diff lines and diff statistics.
+  The blast `summary` is the sole exception and the test's control: it is counts rendered by
+  `blast/helpers.ts:31-38` with no author-supplied substring. A failing run is any of those strings
+  present in `messages` outside a wrapper delimiter.
+  *(Amended 2026-10-02 after `/pr-self-review`. This criterion originally named only the first four,
+  while `## Untrusted inputs` below already listed file paths as "attacker-chosen names" and claimed
+  all of them were wrapped — so the spec contradicted itself and the code implemented the narrower
+  half. `reviewer-core/src/prompt.ts:288,306` wraps the derived intent and the callers block for the
+  same reason: a model's summary of attacker-controlled input is still attacker-influenced, and
+  grounding checks the model's path **fields**, never its prose.)*
+  Paths and references, not documents: `IntentSourceRow` is
   `{kind, ref, chars, truncated, status}` with **no text field**
   (`server/src/db/schema/reviews.ts:88-94`), so `pr_intent.sources` persists spec paths and never
   spec contents; and the linked issue is a bare `#123` match on the PR body, by spec 0008's decision
@@ -481,7 +491,7 @@ attention of a fact.
 | AC-3 | Same file — fixture `files[]` carrying a distinctive patch line; asserts the line is absent from every captured message, and a positive control asserts the fixture's *path* is present. |
 | AC-4 | Same file — oversized fixture; asserts `tokenizer.count()` over the captured messages is `≤ 8000`, and a small fixture asserts the budget does not truncate when it need not. |
 | AC-5 | Same file — oversized fixture asserts the specs block is absent and `missing_inputs` contains `specs`; the small fixture asserts `missing_inputs` is empty. |
-| AC-6 | `server/test/brief.prompt.test.ts` — asserts the PR title, PR body, each spec path and the `#123` reference appear only inside `wrapUntrusted()` delimiters; a control asserts a trusted string (the blast summary) is not wrapped; a second control asserts no spec *content* and no issue *body* is in the prompt at all, since neither is available to this feature. |
+| AC-6 | `server/test/brief.prompt.test.ts` — asserts the PR title, PR body, each spec path, the `#123` reference, the derived intent and the three path-built blocks (blast callers, Smart Diff lines, diff statistics) appear only inside `wrapUntrusted()` delimiters, each under its own `source` name; a control asserts the blast summary is **not** wrapped, so the test proves the wrapping is selective rather than blanket; a second control asserts no spec *content* and no issue *body* is in the prompt at all, since neither is available to this feature. |
 | AC-7 | Same file — asserts the schema passed to `completeStructured` rejects a response missing `summary` and one missing `review_focus`, and accepts a complete one. |
 | AC-50 | Same file — asserts the captured system message states both limits; a control asserts a response of 7 risks is still accepted by the schema, because the cap is an instruction and not a validation rule. |
 | AC-8 | `server/test/brief.grounding.test.ts` — model response with one in-PR focus file and one invented one; asserts only the invented one is removed. |

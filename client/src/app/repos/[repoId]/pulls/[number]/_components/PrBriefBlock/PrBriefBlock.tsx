@@ -41,12 +41,22 @@ interface PrBriefBlockProps {
 
 export function PrBriefBlock({ prId, finishedReview, onFocusFile }: PrBriefBlockProps) {
   const t = useTranslations("brief");
-  const { data } = usePrBrief(prId);
+  const { data, isLoading } = usePrBrief(prId);
   const generate = useGenerateBrief(prId);
 
   const brief = data?.brief ?? null;
   const stale = data?.stale ?? false;
-  const busy = generate.isPending;
+  // `isLoading` is load-bearing, not cosmetic. While the cached GET is in
+  // flight `brief` is null, so without it the control reads "Generate brief"
+  // and is enabled on a PR that already HAS one — and a click in that window
+  // spends a model call, which AC-19/AC-34 exist to prevent. No component test
+  // can catch this: they all stub the hook to resolve synchronously, so the
+  // in-flight state never exists in the suite.
+  //
+  // `isLoading`, not `isFetching`: a background refetch of an already-cached
+  // brief must not blank the block.
+  const generating = generate.isPending;
+  const busy = generating || isLoading;
 
   const [expanded, setExpanded] = React.useState<ReadonlySet<number>>(new Set());
   const toggleRisk = (i: number) => {
@@ -73,7 +83,13 @@ export function PrBriefBlock({ prId, finishedReview, onFocusFile }: PrBriefBlock
               disabled={busy}
               onClick={() => generate.mutate()}
             >
-              {busy ? t("busy") : brief ? t("refresh") : t("generate")}
+              {generating
+                ? t("busy")
+                : isLoading
+                  ? t("loading")
+                  : brief
+                    ? t("refresh")
+                    : t("generate")}
             </Button>
           </div>
         }

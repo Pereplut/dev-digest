@@ -1,25 +1,36 @@
 /* helpers.ts — pure mapping helpers for the PR Brief block (spec 0018).
    No I/O, no hooks: kept separate so PrBriefBlock.tsx stays render logic. */
 
+import type { MissingInputName } from "@devdigest/shared";
+
 /**
- * The `missing_inputs[].input` values this feature's server ever emits
- * (`server/src/modules/brief/service.ts`): absent intent, degraded blast, no
- * linked issue, no used spec source.
+ * Every `missing_inputs[].input` the server can emit, mapped to its message key.
+ *
+ * `Record<MissingInputName, string>` is the point: the contract's union is
+ * closed, so adding a value there without a label here fails `pnpm typecheck`.
+ * It used to be `Record<string, string>` covering only the four *absent-input*
+ * names, which silently missed the four fact blocks the token budget can drop —
+ * so any PR large enough to trip the 8k budget rendered the raw identifier
+ * ("Generated without smart_diff") on screen.
  */
-const INPUT_LABEL_KEY: Record<string, string> = {
+const INPUT_LABEL_KEY: Record<MissingInputName, string> = {
   intent: "block.intent",
   blast: "block.blast",
   specs: "block.specs",
   issue: "block.issue",
+  smart_diff: "block.smartDiff",
+  blast_callers: "block.blastCallers",
+  pr_body: "block.prBody",
+  diff_stats: "block.diffStats",
 };
 
 /**
- * Maps a `missing_inputs[].input` value to its translated label. Falls back
- * to the raw value for an input this client does not recognise, rather than
- * throwing or looking up a message key that may not exist — the server, not
- * this map, is the source of truth for which inputs exist.
+ * Maps a `missing_inputs[].input` value to its translated label. The fallback
+ * to the raw value survives a server that is ahead of this client (a value the
+ * contract gained but this bundle predates); within one build the `Record`
+ * above makes it unreachable.
  */
 export function missingInputLabel(t: (key: string) => string, input: string): string {
-  const key = INPUT_LABEL_KEY[input];
+  const key = INPUT_LABEL_KEY[input as MissingInputName] as string | undefined;
   return key ? t(key) : input;
 }

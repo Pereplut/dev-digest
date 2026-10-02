@@ -1,13 +1,21 @@
 /**
  * The one model call the brief generator makes (spec 0018).
  *
- * AC-6 wraps exactly four untrusted strings with `wrapUntrusted()`: the PR
- * title, the PR body, each spec file PATH and the linked issue REFERENCE.
- * Nothing else is wrapped — the blast `summary`, the blast caller lines, the
- * Smart Diff lines and the diff statistics are server-derived facts, not
- * attacker prose, and `brief.prompt.test.ts` asserts the blast summary is
- * NOT wrapped as a control. File paths are still checked at grounding time
- * (`helpers.ts`), never trusted just because they are unwrapped here.
+ * AC-6 wraps every untrusted string with `wrapUntrusted()`: the PR title, the
+ * PR body, each spec file PATH, the linked issue REFERENCE, the derived intent,
+ * and the three blocks built from author-chosen file paths (blast callers,
+ * Smart Diff lines, diff statistics).
+ *
+ * The blast `summary` is the ONLY unwrapped block: it is counts rendered by
+ * `blast/helpers.ts:31-38` ("2 symbols · 14 callers"), with no author-supplied
+ * substring in it. `brief.prompt.test.ts` asserts that as a control, so the
+ * test proves wrapping is selective rather than blanket.
+ *
+ * The earlier four-string version came from AC-6 as first written, which
+ * enumerated fewer inputs than the spec's own `## Untrusted inputs` section
+ * listed — paths were described there as "attacker-chosen names" and were not
+ * wrapped. Grounding checks the model's path *fields*, never its prose, so it
+ * was never the backstop that gap assumed.
  *
  * Pure: builds data, calls nothing.
  */
@@ -75,7 +83,11 @@ export function buildBriefMessages(facts: BriefPromptFacts): ChatMessage[] {
   sections.push(`## PR title\n${wrapUntrusted('pr-title', facts.title)}`);
 
   if (facts.intentText) {
-    sections.push(`## Stated intent\n${facts.intentText}`);
+    // Untrusted despite being server-derived: it is a model's summary of the
+    // author's own title, body and specs, and a summary of attacker-controlled
+    // input is still attacker-influenced. `reviewer-core/src/prompt.ts:288`
+    // wraps the same value under the same name.
+    sections.push(`## Stated intent\n${wrapUntrusted('derived-intent', facts.intentText)}`);
   }
 
   if (facts.body) {
@@ -93,17 +105,25 @@ export function buildBriefMessages(facts: BriefPromptFacts): ChatMessage[] {
 
   sections.push(`## Blast radius summary\n${facts.blastSummary}`);
 
+  // The next three blocks are built from file paths, which the PR author chose:
+  // git permits instruction-like and multi-line names. Grounding checks the
+  // model's path *fields* against this PR, never its prose, so a hijacked
+  // `summary` or `explanation` would not be caught downstream.
   if (facts.blastCallerLines.length > 0) {
-    sections.push(`## Blast radius callers\n${facts.blastCallerLines.join('\n')}`);
+    sections.push(
+      `## Blast radius callers\n${wrapUntrusted('blast-callers', facts.blastCallerLines.join('\n'))}`,
+    );
   }
 
   if (facts.smartDiffLines.length > 0) {
-    sections.push(`## Changed files by role\n${facts.smartDiffLines.join('\n')}`);
+    sections.push(
+      `## Changed files by role\n${wrapUntrusted('smart-diff', facts.smartDiffLines.join('\n'))}`,
+    );
   }
 
   if (facts.fileStats.length > 0) {
     const stats = facts.fileStats.map((f) => `${f.path} +${f.additions}/-${f.deletions}`).join('\n');
-    sections.push(`## Diff statistics\n${stats}`);
+    sections.push(`## Diff statistics\n${wrapUntrusted('diff-stats', stats)}`);
   }
 
   return [

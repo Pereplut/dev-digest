@@ -54,6 +54,39 @@ describe('buildBriefMessages — AC-6 wrapping', () => {
     expect(content).toMatch(/<untrusted source="spec-1">\nspecs\/0002-b\.md\n<\/untrusted>/);
   });
 
+  it('wraps the derived intent', () => {
+    // Server-derived but not server-authored: it is a model's summary of the
+    // author's title, body and specs. `reviewer-core/src/prompt.ts` wraps the
+    // same value under the same source name.
+    const messages = buildBriefMessages({ ...BASE, intentText: 'DISTINCTIVE_INTENT_1' });
+    const content = allContent(messages);
+    expect(content).toMatch(
+      /<untrusted source="derived-intent">\n[\s\S]*DISTINCTIVE_INTENT_1[\s\S]*<\/untrusted>/,
+    );
+  });
+
+  it('wraps the three blocks built from author-chosen file paths', () => {
+    // git permits instruction-like file names, and grounding only checks the
+    // model's path FIELDS against this PR — never its prose — so a hijacked
+    // summary or explanation would not be caught downstream.
+    const messages = buildBriefMessages({
+      ...BASE,
+      blastCallerLines: ['src/DISTINCTIVE_CALLER.ts:12 handler'],
+      smartDiffLines: ['core: src/DISTINCTIVE_ROLE.ts (+3/-1)'],
+      fileStats: [{ path: 'src/DISTINCTIVE_STAT.ts', additions: 3, deletions: 1 }],
+    });
+    const content = allContent(messages);
+    expect(content).toMatch(
+      /<untrusted source="blast-callers">\n[\s\S]*DISTINCTIVE_CALLER[\s\S]*<\/untrusted>/,
+    );
+    expect(content).toMatch(
+      /<untrusted source="smart-diff">\n[\s\S]*DISTINCTIVE_ROLE[\s\S]*<\/untrusted>/,
+    );
+    expect(content).toMatch(
+      /<untrusted source="diff-stats">\n[\s\S]*DISTINCTIVE_STAT[\s\S]*<\/untrusted>/,
+    );
+  });
+
   it('control: the blast summary is NOT wrapped', () => {
     const messages = buildBriefMessages({ ...BASE, blastSummary: 'DISTINCTIVE_BLAST_SUMMARY' });
     const content = allContent(messages);
