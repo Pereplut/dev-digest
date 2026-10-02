@@ -194,7 +194,12 @@ to answer them sit unused.
 ### Missing inputs
 
 - **AC-16** — IF no `pr_intent` row exists for the pull request, THEN the brief service shall still
-  generate and shall include a `missing_inputs[]` entry with `input: 'intent'`.
+  generate, shall store `intent` as the placeholder `{ intent: '', in_scope: [], out_of_scope: [] }`
+  so the envelope still satisfies `PrBrief.parse()` (AC-57, and `Intent` requires all three fields —
+  `contracts/brief.ts:9-13`), and shall include a `missing_inputs[]` entry with `input: 'intent'`.
+  That entry is the only signal that the stored intent is a placeholder and not a classification; a
+  non-empty sentinel such as `'unknown'` is forbidden, because AC-59 means nobody would ever see it
+  and a later reader replaying the envelope could mistake it for something the model produced.
 - **AC-17** — IF the blast facts report `degraded: true`, THEN the brief service shall still
   generate, shall send the blast `summary` string it did receive, and shall include a
   `missing_inputs[]` entry with `input: 'blast'` whose `reason` is the degraded reason it received.
@@ -230,7 +235,11 @@ to answer them sit unused.
 - **AC-27** — WHEN the Generate brief control is activated, the Overview tab shall issue exactly one
   `POST /pulls/:id/brief` and shall disable the control until that request settles. A failing run is
   a second `POST` after a second click while the first is in flight.
-- **AC-28** — WHEN a brief is present, the PR Brief block shall render `summary` as visible text.
+- **AC-28** — WHEN a brief is present, the Overview tab shall render `summary` as visible text
+  **exactly once**: inside `VerdictBanner` where one is rendered (AC-39), and as a paragraph inside
+  the PR Brief block otherwise (AC-49). A failing run is the same summary text present twice in the
+  tree — the state the seeded pull request produces, since it has a finished review with its own
+  `summary` and `score` (`server/src/db/seed.ts:142-154`) — or absent from both hosts.
 - **AC-29** — WHEN a brief is present, the PR Brief block shall render one row per risk, each
   carrying `title` and at least one entry of `file_refs`.
 - **AC-30** — WHEN a brief is present, the PR Brief block shall render one row per review-focus
@@ -486,7 +495,7 @@ attention of a fact.
 | AC-13 | Same file — generate twice; asserts a single row and the second envelope's `generated_at`. |
 | AC-14 | `server/test/brief.routes.it.test.ts` — LLM adapter throws, and a second case times out; both assert `statusCode === 502` (not merely `>= 500`, so a bare `Error` falling through to 500 fails the test) and a byte-identical stored `json`. A control asserts the success path does write. |
 | AC-15 | `server/test/brief.service.test.ts` — logger spy; asserts one record with `model`, input tokens, `dropped_risks`, `dropped_focus`. |
-| AC-16 | Same file — no `pr_intent` row; asserts generation succeeds and `missing_inputs` contains `intent`; a control with an intent row asserts it does not. |
+| AC-16 | Same file — no `pr_intent` row; asserts generation succeeds, `missing_inputs` contains `{input: 'intent'}`, and the stored `intent` is exactly `{intent: '', in_scope: [], out_of_scope: []}` so `PrBrief.parse()` still accepts it; a control with an intent row asserts neither the entry nor the placeholder appears. |
 | AC-17 | Same file — blast stub returns `degraded: true, reason: 'no_data'`; asserts the blast `summary` still reached the prompt and `missing_inputs` carries `{input:'blast', reason:'no_data'}`. |
 | AC-18 | Same file — no issue and no `spec` source rows; asserts entries with `input: 'issue'` and `input: 'specs'`; a control with both present asserts neither. |
 | AC-56 | `cd server && pnpm arch` (folded into `pnpm lint`, run in CI) — a clean run over the new `src/modules/brief/**`. The negative is the rule's own fixture behaviour: the rule is `severity: 'error'`, so a deliberate local import of `../smart-diff/service.js` must fail the run before the criterion is trusted. |
@@ -499,7 +508,7 @@ attention of a fact.
 | AC-25 | `server/test/contracts.test.ts` — byte comparison of the two `brief.ts` files (the check `scripts/` already applies to vendored copies, or a new `readFileSync` equality assertion). |
 | AC-26 | `client/…/_components/PrBriefBlock/PrBriefBlock.test.tsx` — `brief: null` renders the Generate control and no lists. |
 | AC-27 | Same file — two clicks while the first `POST` is pending; asserts one `fetch` to the brief route and a disabled control. |
-| AC-28 | Same file — asserts the `summary` text is in the document. |
+| AC-28 | Same file — asserts the `summary` text appears **exactly once** in the document, in both fixtures: a reviewed pull request (text inside `VerdictBanner`, no block paragraph) and an unreviewed one (text in the block paragraph, no banner). A single `getAllByText(summary)` of length 1 is the assertion; `getByText` alone would throw on the duplicate rather than name it. |
 | AC-29 | Same file — two risks; asserts each title and at least one file ref is rendered. |
 | AC-30 | Same file — asserts `file`, `line` and `reason` per row and the rendered order equals the envelope order. |
 | AC-31 | Same file — `risks: []` renders the `noRisks` message; a control with one risk asserts the message is absent. |
@@ -511,7 +520,7 @@ attention of a fact.
 | AC-32 | Same file — `missing_inputs: [{input:'intent'}, {input:'blast', reason:'no_data'}]` renders the `unavailable` message naming both inputs and the `no_data` reason beside the second; empty `missing_inputs` renders none. |
 | AC-59 | Same file — the envelope's `intent.intent` and `blast.summary` are set to sentinel strings absent from the stubbed live endpoints; asserts neither sentinel appears anywhere in the block's output. |
 | AC-33 | `client/…/OverviewTab/OverviewTab.test.tsx` — asserts `PrIntentCard` and `BlastRadiusCard` still render with a brief present. |
-| AC-60 | Same file — with a brief present but `GET /pulls/:id/intent` and `GET /pulls/:id/blast` stubbed to fail, asserts both cards render their own error/empty state rather than the envelope's snapshot; the control is the normal case, where each card shows its endpoint's value. |
+| AC-60 | Same file — with a brief present but `GET /pulls/:id/intent` and `GET /pulls/:id/blast` stubbed to fail, asserts **neither card is in the tree** and no snapshot-only sentinel string renders anywhere. Both cards return `null` on absent data by design (`PrIntentCard.tsx:28`, `BlastRadiusCard.tsx:71`) — they have no error state, and this feature does not add one. The control is the normal case, where each card shows its endpoint's value. |
 | AC-34 | `client/…/PrBriefBlock/PrBriefBlock.test.tsx` — on mount, asserts a `GET` and zero `POST`s. |
 | AC-35 | Same file — refresh click asserts one `POST` and the re-rendered new summary. |
 | AC-36 | Same file — `stale: true` renders the hint beside refresh; `stale: false` renders no hint. |
@@ -537,6 +546,7 @@ AC-41 hold only over the cases their tests enumerate (`## Non-functional`, Enfor
 | Initiation | 2026-10-02 | Assignment and five mockups read; mockups copied into `design/pr-brief/` so a subagent can read them (root `INSIGHTS.md` 2026-10-02 records why a path outside the repo fails silently). Three parallel repo surveys established that `pr_brief`, the `PrBrief` contract and the `risk_brief` model slot already exist and are entirely unused, that no Project Context Folder exists, and that no deep-link into Files changed exists. `scripts/insights-for.sh` routed 75 of 192 entries. |
 | Planning | 2026-10-02 | `spec-creator` drafted 48 criteria, then amended to 55 after the user settled four clarifications and four facts were resolved from the code (byte-identical contract copies, `AppError`/502 mapping, and the finding that no e2e flow ever calls a model). `check-specs.sh` green. Approved by the user. |
 | Planning — amendment 2 | 2026-10-02 | `implementation-planner` found four spec↔code contradictions; the user ruled on all four and the spec went to 60 criteria. **The cached-envelope decision was reversed**: the envelope is the full `PrBrief` shape plus six transport fields, because all four of `PrBrief`'s fields are required and the user chose to keep the contract rather than relax it (AC-12, AC-57, AC-58). AC-6 was corrected — `pr_intent.sources` stores spec *paths* and the issue is a bare `#123` reference, so two of its four "untrusted strings" never existed. `missing_inputs[]` became `{input, reason?}`. `SmartDiffService.forPull` was replaced by `buildSmartDiff`/`buildBlastRadius`, which `no-cross-module-internals` permits (AC-56). |
+| Planning — amendment 3 | 2026-10-02 | The reissued plan found three more gaps, all confirmed against the code and fixed here without renumbering. **AC-28 now renders `summary` exactly once** — it was unconditional while AC-39 also put the summary in `VerdictBanner`, so on the seeded pull request, which has a finished review (`server/src/db/seed.ts:142-154`), the same text rendered twice; the mockups draw it once, inside the banner. AC-16 now fixes the placeholder `intent` an envelope carries when no `pr_intent` row exists, since `Intent` requires all three fields and AC-57 requires the envelope to parse. AC-60's test row asked two cards to show an error state neither has — both `return null` on absent data (`PrIntentCard.tsx:28`, `BlastRadiusCard.tsx:71`) — so it now asserts their absence instead, and this feature still adds no error UI. |
 | Implementation | | |
 | Validation | | typecheck · lint · tests · e2e · manual |
 | Completion | | status done, docs, insights wrap-up |
