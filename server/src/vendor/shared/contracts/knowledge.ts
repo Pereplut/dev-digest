@@ -25,19 +25,63 @@ export const Conformance = z.object({
 });
 export type Conformance = z.infer<typeof Conformance>;
 
-// ---- Onboarding ----
+// ---- Onboarding (spec 0017) ----
 export const OnboardingLink = z.object({
   label: z.string(),
   path: z.string(),
 });
 export type OnboardingLink = z.infer<typeof OnboardingLink>;
 
+/** The five fixed section kinds, in fixed display order (AC-1, AC-3). */
+export const OnboardingSectionKind = z.enum([
+  'architecture',
+  'critical_paths',
+  'run_locally',
+  'reading_path',
+  'first_tasks',
+]);
+export type OnboardingSectionKind = z.infer<typeof OnboardingSectionKind>;
+
+/**
+ * Why a section (or the whole tour) could not be generated or regenerated.
+ * `index_incomplete` is the behavioural rung of AC-86: zero ranked paths back
+ * from repo-intel, regardless of what the index row's own status says (AC-2).
+ */
+export const OnboardingReason = z.enum([
+  'flag_off',
+  'no_clone',
+  'not_indexed',
+  'no_source_files',
+  'index_incomplete',
+  'generation_failed',
+]);
+export type OnboardingReason = z.infer<typeof OnboardingReason>;
+
+export const OnboardingStatus = z.enum(['not_generated', 'running', 'partial', 'done', 'failed']);
+export type OnboardingStatus = z.infer<typeof OnboardingStatus>;
+
+export const OnboardingItem = z.object({
+  text: z.string(),
+  anchor: z.string().nullable(),
+});
+export type OnboardingItem = z.infer<typeof OnboardingItem>;
+
 export const OnboardingSection = z.object({
-  kind: z.string(),
+  kind: OnboardingSectionKind,
   title: z.string(),
   body: z.string(), // markdown
   diagram: z.string().nullish(), // mermaid
   links: z.array(OnboardingLink),
+  /** False when this section fell back to its deterministic body (AC-30). */
+  generated: z.boolean(),
+  /** Set only when this section was pre-degraded ahead of generation (AC-11). */
+  degraded_reason: OnboardingReason.nullish(),
+  dropped_refs: z.number().int(),
+  truncated: z.boolean(),
+  /** Required on all five kinds; empty on the three that don't use it (decision 10). */
+  items: z.array(OnboardingItem),
+  /** Required on all five kinds; empty outside `run_locally` (decision 10). */
+  commands: z.array(z.string()),
 });
 export type OnboardingSection = z.infer<typeof OnboardingSection>;
 
@@ -45,6 +89,21 @@ export const Onboarding = z.object({
   sections: z.array(OnboardingSection),
 });
 export type Onboarding = z.infer<typeof Onboarding>;
+
+/** GET /repos/:id/onboarding — the tour envelope, always exactly five sections (AC-3). */
+export const OnboardingTour = Onboarding.extend({
+  status: OnboardingStatus,
+  reason: OnboardingReason.nullable(),
+  generated_at: z.string().datetime().nullable(),
+  files_indexed: z.number().int().nullable(),
+});
+export type OnboardingTour = z.infer<typeof OnboardingTour>;
+
+/** 202 response of POST /repos/:id/onboarding — null only for a concurrent loser (decision 2). */
+export const OnboardingStart = z.object({
+  job_id: z.string().uuid().nullable(),
+});
+export type OnboardingStart = z.infer<typeof OnboardingStart>;
 
 // ---- Eval ----
 export const EvalPerTrace = z.object({

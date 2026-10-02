@@ -1,0 +1,17 @@
+{
+  "name": "Open the onboarding tour for the seeded repo and see its five sections",
+  "description": "From the seeded repo's PR list, navigate via the sidebar to the onboarding tour route (/repos/:repoId/tour) and confirm all five section headings render, plus the no_clone status sentence — the seeded repo acme/payments-api has clonePath: null (server/src/db/seed.ts), so AC-5 degrades the tour to that reason. Read-only: clicks only the sidebar nav link, never Regenerate or Re-index. Sorts before 10-pr-finding-actions (now 11-), the one mutating flow, which must run last.",
+  "steps": [
+    { "cmd": ["open", "{BASE}/"], "label": "load the app root" },
+    { "cmd": ["wait", "--url", "/pulls"], "label": "land on the seeded repo's PR list" },
+    { "cmd": ["find", "text", "Onboarding Tour", "click"], "label": "open the tour via the sidebar nav item" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "tour data settles" },
+    { "cmd": ["wait", "--url", "/tour"], "label": "navigated to the tour route" },
+    { "cmd": ["wait", "--text", "Architecture"], "label": "architecture section heading renders" },
+    { "cmd": ["wait", "--text", "Critical Paths"], "label": "critical_paths section heading renders" },
+    { "cmd": ["wait", "--text", "Run Locally"], "label": "run_locally section heading renders" },
+    { "cmd": ["wait", "--text", "Reading Path"], "label": "reading_path section heading renders" },
+    { "cmd": ["wait", "--text", "First Tasks"], "label": "first_tasks section heading renders" },
+    { "cmd": ["wait", "--text", "This repository has not been cloned yet."], "label": "the no_clone status sentence renders (seeded repo has no clone_path)" }
+  ]
+}
