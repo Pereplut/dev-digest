@@ -22,7 +22,7 @@ import { usePrReviews, useCancelRun, usePrActiveRuns, usePrRuns, useDeleteRun } 
 import { useActiveRepo, useRepoNotFound } from "../../../../../lib/repo-context";
 import { ApiError } from "../../../../../lib/api";
 import { githubPrUrl } from "../../../../../lib/github-urls";
-import type { FindingRecord } from "@devdigest/shared";
+import type { FindingRecord, Verdict } from "@devdigest/shared";
 
 export default function PRDetailPage() {
   const t = useTranslations("prReview");
@@ -61,13 +61,27 @@ export default function PRDetailPage() {
   const traceRunId = search.get("trace");
   // Smart Diff is the default, so only the opt-out is written to the URL.
   const diffOrder = search.get("order") === "original" ? "original" : "smart";
+  // The PR Brief's Review focus deep link (spec 0018): the file to expand on
+  // the Files changed tab, alongside `?tab` and `?order`.
+  const focusFile = search.get("file");
   const setParam = (key: string, val: string | null) => {
     const sp = new URLSearchParams(search.toString());
     if (val == null) sp.delete(key);
     else sp.set(key, val);
     router.replace(`/repos/${repoId}/pulls/${number}${sp.toString() ? `?${sp.toString()}` : ""}`);
   };
+  /** Sets several query keys in one navigation — a single-key `setParam` call
+   *  per key would overwrite itself before the second `router.replace` lands. */
+  const setParams = (updates: Record<string, string | null>) => {
+    const sp = new URLSearchParams(search.toString());
+    for (const [key, val] of Object.entries(updates)) {
+      if (val == null) sp.delete(key);
+      else sp.set(key, val);
+    }
+    router.replace(`/repos/${repoId}/pulls/${number}${sp.toString() ? `?${sp.toString()}` : ""}`);
+  };
   const setTab = (tb: string) => setParam("tab", tb);
+  const handleFocusFile = (file: string) => setParams({ tab: "diff", file });
 
   // Reviews come newest-first; each is its own run (grouped into accordions).
   const runs = reviews ?? [];
@@ -77,6 +91,22 @@ export default function PRDetailPage() {
   );
   const lethalTrifecta = allFindings.filter((f) => f.kind === "lethal_trifecta");
   const findingsCount = allFindings.length;
+
+  // The latest finished review (reviews arrive newest-first) — feeds the PR
+  // Brief block's VerdictBanner (spec 0018, AC-39/AC-49). `null` means no
+  // review has a verdict yet, which is the normal pre-review state.
+  const latestFinishedReview = runs.find((r) => r.verdict != null) ?? null;
+  const finishedReview = latestFinishedReview
+    ? {
+        verdict: latestFinishedReview.verdict as Verdict,
+        score: latestFinishedReview.score,
+        findingsCount: latestFinishedReview.findings.length,
+        blockers: latestFinishedReview.findings.filter(
+          (f) => f.severity === "CRITICAL" && !f.dismissed_at,
+        ).length,
+        agentName: latestFinishedReview.agent_name,
+      }
+    : null;
 
   const repoName = activeRepo?.full_name ?? repoId;
   // The real "owner/repo" (null until the repo is loaded) — used to build
@@ -142,6 +172,8 @@ export default function PRDetailPage() {
             prId={prId}
             repoFullName={repoFullName}
             headSha={pr.head_sha}
+            finishedReview={finishedReview}
+            onFocusFile={handleFocusFile}
           />
         )}
 
@@ -180,6 +212,7 @@ export default function PRDetailPage() {
             headSha={pr.head_sha}
             order={diffOrder}
             onSetOrder={(o) => setParam("order", o === "smart" ? null : o)}
+            focusPath={focusFile}
           />
         )}
       </div>

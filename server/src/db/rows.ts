@@ -23,3 +23,6 @@ export type AgentSkillRow = typeof t.agentSkills.$inferSelect;
 export type ConventionRow = typeof t.conventions.$inferSelect;
 export type ConventionScanRow = typeof t.conventionScans.$inferSelect;
 export type OnboardingRow = typeof t.onboarding.$inferSelect;
+export type EvalCaseRow = typeof t.evalCases.$inferSelect;
+export type EvalRunBatchRow = typeof t.evalRunBatches.$inferSelect;
+export type EvalRunRow = typeof t.evalRuns.$inferSelect;

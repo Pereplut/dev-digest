@@ -1,5 +1,5 @@
-/* AgentEditor — the agent editor shell: tab bar + the active tab (Config or
-   Skills). Tab state lives in ?tab= (owned by the page). Evals/Stats/CI are
+/* AgentEditor — the agent editor shell: tab bar + the active tab (Config,
+   Skills or Evals). Tab state lives in ?tab= (owned by the page). Stats/CI are
    not built yet and stay out of TABS. */
 "use client";
 
@@ -8,6 +8,7 @@ import { useTranslations } from "next-intl";
 import { Tabs } from "@/components/ui-client";
 import type { Agent } from "@devdigest/shared";
 import { ConfigTab } from "./_components/ConfigTab";
+import { EvalsTab } from "./_components/EvalsTab";
 import { SkillsTab } from "./_components/SkillsTab";
 import { TABS } from "./constants";
 import { s } from "./styles";
@@ -27,6 +28,8 @@ export function AgentEditor({ agent, tab, onTab }: { agent: Agent; tab: string; 
             agent's values for one frame on every switch. */}
         {tab === "skills" ? (
           <SkillsTab key={agent.id} agentId={agent.id} />
+        ) : tab === "evals" ? (
+          <EvalsTab key={agent.id} agentId={agent.id} />
         ) : (
           <ConfigTab key={agent.id} agent={agent} />
         )}

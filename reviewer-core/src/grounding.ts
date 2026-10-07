@@ -38,15 +38,33 @@ export function buildLineIndex(diff: UnifiedDiff): Map<string, Set<number>> {
   return idx;
 }
 
+/**
+ * O(1) range-vs-range intersection, inclusive on both ends, normalising a
+ * reversed `start`/`end` pair via `min`/`max`. Shared by the grounding gate
+ * (set-vs-range, below) and `scoreEvalCase` (range-vs-range, `eval/score.ts`)
+ * so there is exactly one definition of "intersects" in this package.
+ *
+ * Deliberately a pure comparison, not a loop: an eval expectation's or a
+ * finding's `end_line` is model-controlled and unbounded (see the historical
+ * note below), so this must stay O(1) regardless of magnitude —
+ * `end_line: 2_000_000_000` costs the same as `end_line: 2`.
+ */
+export function rangesIntersect(aStart: number, aEnd: number, bStart: number, bEnd: number): boolean {
+  const aLo = Math.min(aStart, aEnd);
+  const aHi = Math.max(aStart, aEnd);
+  const bLo = Math.min(bStart, bEnd);
+  const bHi = Math.max(bStart, bEnd);
+  return aLo <= bHi && bLo <= aHi;
+}
+
 function rangeIntersects(lines: Set<number>, start: number, end: number): boolean {
-  const lo = Math.min(start, end);
-  const hi = Math.max(start, end);
   // Iterate the hunk lines (small, bounded by the diff) rather than the range
   // (unbounded, and model-controlled). `start_line`/`end_line` come straight
   // from LLM output, so walking lo..hi lets a single finding claiming
   // `end_line: 2_000_000_000` spin ~2e9 times inside the request path.
-  // Same result, bounded work.
-  for (const n of lines) if (n >= lo && n <= hi) return true;
+  // Each line is a degenerate [n, n] range, so this delegates to the shared
+  // O(1) comparison rather than re-deriving lo/hi itself.
+  for (const n of lines) if (rangesIntersect(n, n, start, end)) return true;
   return false;
 }
 

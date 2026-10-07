@@ -2,7 +2,10 @@
    Severity icon+label, category, file:line, confidence, markdown rationale +
    suggestion. Accept / Reject sit in the header so every card shows them, even
    collapsed; they reflect the persisted accepted_at / dismissed_at timestamps
-   (Reject = the "dismiss" action). */
+   (Reject = the "dismiss" action). A third header control (spec 0019) turns an
+   already-decided finding into an eval case; it is local state only — it does
+   not go through `onAction`/`FindingActionKind`, which stays accept/dismiss/
+   learn/reply. */
 "use client";
 
 import React from "react";
@@ -20,6 +23,7 @@ import {
 } from "@/components/ui-client";
 import type { FindingRecord, FindingActionKind } from "@devdigest/shared";
 import { SEV_COLOR, SEV_COLOR_FALLBACK } from "@/components/findings-summary";
+import { useCreateEvalCase } from "@/lib/hooks/evals";
 import { lineLabel } from "./helpers";
 import { githubBlobUrl } from "../../../../../../../lib/github-urls";
 import { s } from "./styles";
@@ -42,7 +46,11 @@ export function FindingCard({
   headSha?: string | null;
 }) {
   const t = useTranslations("prReview");
+  const te = useTranslations("evals");
   const [expanded, setExpanded] = React.useState(defaultExpanded ?? false);
+  const [evalCreated, setEvalCreated] = React.useState(false);
+  const [evalError, setEvalError] = React.useState<string | null>(null);
+  const createEvalCase = useCreateEvalCase();
   const sevColor = SEV_COLOR[f.severity] ?? SEV_COLOR_FALLBACK;
   const fileHref =
     repoFullName && headSha
@@ -51,6 +59,18 @@ export function FindingCard({
   const accepted = !!f.accepted_at;
   const dismissed = !!f.dismissed_at;
   const muted = accepted || dismissed;
+  const evalDisabled = (!accepted && !dismissed) || evalCreated || createEvalCase.isPending;
+
+  const turnIntoEvalCase = () => {
+    setEvalError(null);
+    createEvalCase.mutate(
+      { finding_id: f.id },
+      {
+        onSuccess: () => setEvalCreated(true),
+        onError: (err) => setEvalError(err instanceof Error ? err.message : String(err)),
+      },
+    );
+  };
 
   return (
     <div data-finding-id={f.id} style={s.card(!!focused, sevColor, muted)}>
@@ -113,6 +133,16 @@ export function FindingCard({
           >
             {t("finding.reject")}
           </Button>
+          <Button
+            kind="ghost"
+            size="sm"
+            icon="FlaskConical"
+            disabled={evalDisabled}
+            onClick={turnIntoEvalCase}
+          >
+            {evalCreated ? te("findingCard.confirmation") : te("findingCard.control")}
+          </Button>
+          {evalError && <span style={s.evalError}>{te("findingCard.error", { message: evalError })}</span>}
         </div>
         <Icon.ChevronDown size={16} style={s.chevron(expanded)} />
       </div>

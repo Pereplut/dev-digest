@@ -121,6 +121,25 @@ export function skillsLogLine(skills: Pick<LoadedSkill, 'name' | 'version'>[]): 
   return `Skills: ${skills.length} loaded (${skills.map((s) => `${s.name} v${s.version}`).join(', ')})`;
 }
 
+/**
+ * Resolve the skill rows a run loaded into the `LoadedSkill[]` every executor
+ * sends to the engine — the ONE pure half of `loadSkills` (spec 0019). The
+ * impure half (`container.skillsRepo.enabledForAgent`) stays at each call
+ * site: putting I/O here would make this file's name a lie, and `pnpm arch`'s
+ * `no-cross-module-internals` rule only matches `(service|repository)`, so it
+ * would not catch an impure `helpers.ts` being imported across a module
+ * boundary by a caller trusting the convention (server/INSIGHTS.md:472-478).
+ */
+export function toLoadedSkills(
+  rows: { id: string; name: string; version: number; body: string }[],
+  countTokens: (text: string) => number,
+): LoadedSkill[] {
+  return rows.map((r) => {
+    const block = renderSkillBlock(r.name, r.body);
+    return { id: r.id, name: r.name, version: r.version, block, tokens: countTokens(block) };
+  });
+}
+
 // ---- import-draft derivation ----------------------------------------------
 
 /** `Flaky Test_Patterns.md` → `flaky-test-patterns`. */
