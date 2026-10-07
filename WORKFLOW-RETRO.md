@@ -276,3 +276,325 @@ Recorded with the measurement in root `INSIGHTS.md`, 2026-10-01.
       successfully-loading skill that *does* declare them has still not been observed.
 - [x] **`.claude/agents/spec-creator.md:26-27`** — the third copy of the tool-pin claim now points
       at the test and its admission rule instead of restating denylist semantics.
+
+### 2026-10-06 — spec 0018 PR Brief · 43 agents · 5,678,817 tokens · stopped: success
+
+Run spanned 2026-10-02 to 2026-10-06: Explore fan-out → spec (3 passes) → plan (2 passes) →
+implementation (4 implementers) → plan-verifier → architecture-reviewer + test-writer → doc-writer →
+`/pr-self-review` (11 shards × 3 rounds) → push → PR #22.
+
+**Shape and cost (measured, from `<usage>` blocks and `/context`).**
+
+| Phase | Agents | Tokens | Summed duration |
+|---|---|---|---|
+| Explore fan-out | 3 | 332,180 | 730s |
+| Spec + plan | 5 | 756,733 | 1,916s |
+| Implementation | 4 | 850,369 | 3,643s |
+| Gate + reviewers + docs | 4 | 661,331 | 1,692s |
+| `/pr-self-review` ×3 rounds | 27 | 3,078,204 | 3,732s |
+| **Total** | **43** | **5,678,817** | **195.2 min** |
+
+**Subagent vs. main thread: 5,678,817 against 627.6k of messages — 9.0×.** None of it visible in
+`/context`, which reported 67% of a 1M window while the run had actually spent nearly six times that
+window's worth outside it. The previous entry measured 2.9×; this run is three times worse, and the
+cause is the review phase, which alone is **54% of all subagent spend**.
+
+**Parallelism.** Wall clock was not measured (see Not measured). Longest-agent duration is a lower
+bound on wall time, so `longest / summed` upper-bounds the speedup: Explore 269s/730s, implementers
+1,726s/3,008s, review round 1 324s/2,257s (11 agents, the widest fan-out). No fan-out looks
+serialized.
+
+**The delta-re-review discipline saved tool calls, not tokens — measured.**
+
+| Round | Agents | Files under review | Tool uses | Tokens/agent |
+|---|---|---|---|---|
+| 1 | 11 | 56 | 222 | 101,395 |
+| 2 | 9 | 5 | 57 | 117,530 |
+| 3 | 7 | 5 | 22 | 129,298 |
+
+Tool uses fell **10×** as the diff shrank from 56 files to 5, exactly as `--since` intends. Per-agent
+token cost **rose 28%** across the same span, because a continued agent re-pays its accumulated
+context on every message. `pr-self-review/SKILL.md` step 2b justifies continuing agents with a
+measured fresh-agent figure (~706k for six re-reviews ≈ 118k each); this run's continued agents cost
+117,530 and 129,298 each. The two numbers are not strictly comparable — that figure was one shard six
+times, this is different shards — but the saving the step claims is in reads, and it should say so.
+
+**Termination:** success. No cap, no dead agent, no user stop. Three review rounds by choice; see
+the correction chain for why stopping at three was the call.
+
+#### Correction chain
+
+**Five agent-corrects-coordinator instances, all on text I authored.** This is the section that
+matters, and this run produced more of it than any previous.
+
+1. **The cached-envelope contradiction.** I proposed, in the brief, that the envelope "does not
+   snapshot intent/blast" — without checking that `PrBrief`'s four fields are all required
+   (`contracts/brief.ts:140-146`). `spec-creator` wrote it into the spec; it survived **two
+   spec-creator passes and `check-specs.sh` green at each**, and was caught only by
+   `implementation-planner`, which reported that `PrBrief.parse()` would reject the feature's own
+   payload. Entered through the brief; cost a third spec round and reversed a user decision.
+2. **My enum docblock was wrong in exactly the way it existed to prevent.** I wrote "the first four
+   are absent inputs, the rest are budget drops"; `specs` and `issue` are in both groups and
+   `TRUNCATION_ORDER` has six members. Caught independently by **`zod` and `typescript-expert`** in
+   the same round — corroboration, not duplication.
+3. **My comment claimed "no component test can catch this"** in the same commit that added a test
+   which does. `react-best-practices` flagged it explicitly **out of its own lens**, noting it
+   "invites a future reader to delete the test as impossible".
+4. **My comment cited the wrong TypeScript diagnostic code.** Under `satisfies` a missing key is
+   TS1360, not TS2741 (TS2741 is the annotation form I replaced). `typescript-expert` **compiled two
+   mutations of the shipped file** to establish it.
+5. **My own fix created a prompt contradiction.** Wrapping the path blocks moved the authoritative
+   file list inside delimiters the system message told the model to "ignore all of". `security`
+   caught it one round later.
+
+**Four of the eight defects fixed during `/pr-self-review` were introduced by the fixes themselves**
+(items 2–5 above plus the lookup double-assertion). That ratio is the argument for delta re-review
+and also the argument for stopping: round 3 still found two more, both in comments, both mine.
+
+**One coordinator-corrects-agent instance worth recording, because the agent's explanation was
+plausible and wrong.** The server implementer reported a sibling's `git reset --hard` had wiped the
+tree, and wrote an `INSIGHTS.md` entry concluding sibling `Write`/`Edit` calls had coincidentally
+restored it byte-for-byte. The real cause was `git stash` — which performs a hard reset internally
+and logs `reset: moving to HEAD` — run by the client implementer for a lint baseline. The forensic
+tell (`git stash list` empty **and** `git reflog show stash` erroring) is in the corrected entry. An
+agent diagnosing an incident it was a victim of will reach for the cause it can see.
+
+#### The question asked vs. the question that mattered
+
+The server `Explore` agent read `contracts/brief.ts` in full and **correctly quoted `PrBrief`'s four
+required fields**. It was asked "what exists"; it was not asked "what would reject a payload that
+omits them". The contradiction then travelled through two spec passes. Same shape as the previous
+entry's header-collision instance, and the same fix: the brief template must ask what would
+**collide with or reject** the proposed design, not only what is present.
+
+Second instance: the loading-state race (`usePrBrief` destructuring only `data`) was found by a
+review shard reading the destructure. No earlier agent — implementer, `plan-verifier`, `test-writer`
+— was asked "which states of this hook does the component ignore", and no test could reach it,
+because every component test stubs the hook to resolve synchronously.
+
+#### Duplicate coverage
+
+Overlap across shards is by design — `skill-map.json` assigns one file to several lenses — so most of
+it is corroboration and should be read as such:
+
+- The orphaned JSDoc: `zod` and `typescript-expert`, independently, same round.
+- The missing rate limit: `security` (SUGGESTION) and `fastify` (WARNING), round 1.
+- `RISK_SEVERITIES` mirror and the dead `focusRow` style: `react-code-organization` and
+  `typescript-expert`.
+- Logic inline in `page.tsx`: `react-best-practices` and `react-code-organization`.
+
+No instance of two agents reading the same file because no brief said who owned it.
+
+#### Capability denials
+
+**The `git` brace-expansion guard fired three times, all from the same mistake: a Python brace in the
+same command as a `git` invocation.** The guard is correct — `git diff {a,b}` is one token to the
+checker and two paths to git — and the defect is mine for co-locating them. It is not free, though:
+the second denial **silently cost a ledger row**. The `doc-writer` append and a Python totals
+computation were in one command; the denial killed both, and order 16 was missing from the ledger
+until this retrospective recovered it from a notification still in context.
+
+#### Unused output
+
+The verdict carries **31 SUGGESTIONs and 3 WARNINGs that were not acted on**. These were spent well
+rather than wasted: they are recorded in `.claude/.pr-self-review/report.md` with file, line and fix,
+and two of the WARNINGs (index-keyed expansion state, missing `aria-live`) are the specific things
+the still-undone manual dev-app walk would surface.
+
+**One phase-4 reviewer never ran.** Root `AGENTS.md` names three parallel reviewers after the gate —
+`architecture-reviewer`, `/code-review`, `test-writer` — and lists only `.it.test`, `./scripts/e2e.sh`
+and `/pr-self-review` as the user's. `/code-review` is therefore the session's to invoke, and this
+session did not invoke it. `architecture-reviewer` stated plainly that a clean layering report "says
+nothing about bugs — that is `/code-review`'s question", and three `pr-self-review` shards deferred
+findings to it by name. **No correctness-focused review of this diff has happened.**
+
+#### Not measured
+
+- **Wall-clock time for every fan-out.** Only per-agent durations were captured; the ledger has no
+  launch/return timestamps, so the parallelism figures above are bounds, not measurements.
+- **Main-thread tokens per phase.** The 627.6k is a single `/context` reading at the end.
+- **7 of 43 rows were captured retroactively** (`capture` field set) from notifications still in
+  context — `doc-writer` and all six round-3 reviewers. They are measured, but they survived by luck:
+  one compaction and they were gone.
+- **Dollar cost** — no pricing table in this repo.
+- **Whether the three review rounds converged.** Rounds 2 and 3 each found new defects; nothing
+  establishes that a fourth would not.
+
+## Proposed changes
+
+```
+[ ] .claude/skills/pr-self-review/SKILL.md step 2b — state that --since saves READS, not
+    tokens. Measured this run: tool uses fell 10x (222 -> 22) as the diff shrank 56 files
+    -> 5, while tokens/agent ROSE 101,395 -> 129,298, because a continued agent re-pays its
+    accumulated context each message. The step currently cites ~706k/6 fresh re-reviews
+    (~118k each) as the thing to avoid; continued agents here cost 117,530 and 129,298 each.
+[ ] .claude/agents/researcher.md + the Explore brief template — ask "what would reject or
+    collide with the proposed design", not only "does X exist". Evidence: the server Explore
+    agent quoted PrBrief's four required fields correctly and was never asked whether an
+    envelope omitting them would parse; the contradiction survived two spec passes and
+    check-specs green before implementation-planner caught it.
+[ ] AGENTS.md phase 4 — add /code-review to the session's own checklist, or state who runs
+    it. It is named as one of three parallel reviewers and is not in the user-only list, and
+    this run skipped it: no correctness review of a 4,697-line diff has happened.
+[ ] AGENTS.md "Whenever a subagent's <task-notification> arrives" — note that the append must
+    be its own Bash call. A ledger append co-located with a command the brace guard denies
+    takes the row with it; that is how order 16 was lost this run.
+[ ] No change proposed to the git brace guard. I checked why it exists before writing this:
+    the denial text states the mechanism (git diff {a,b} is one token to the checker, two
+    paths to git) and root INSIGHTS.md:172-176 records a probe where an allowed Bash(find:*)
+    let find -exec run with no prompt — the same class of guard, added on evidence. The
+    defect here is mine for putting a Python brace in a git command; the fix is the line
+    above, not a weaker guard.
+```
+
+### 2026-10-07 — spec 0019 Evals · 41 agents · 6,206,542 tokens · stopped: success
+
+**Shape:** spec in 4 `spec-creator` rounds → `implementation-planner` → 4 implementer waves (2a‖2b)
+→ `plan-verifier` gate → `architecture-reviewer` ‖ `test-writer` ‖ `/code-review` → 2 fix agents in
+parallel → `/pr-self-review` 14 reviewers, then 8 resumed for a delta round.
+**Subagent vs. main thread:** 6,206,542 subagent tokens against **699.2k** of messages — **8.9×**,
+none of it visible in `/context`'s own breakdown. The previous entry measured 2.9× on a 5-agent run;
+this is triple that on 41 agents, and the orchestrator saw none of it while spending it. (`/context`
+was run at 740.8k/1m total, 74%: messages 699.2k, system+tools 24.8k, skills 6.5k, memory 6.4k.
+Measured after the run, so it includes this retro's own composition.)
+**Termination:** success. One user interruption at the start ("stop. proceed with plan mode instead
+of auto") before any agent launched. One external block: `git push` rejected 5× with GitHub HTTP 500
+across both HTTPS and SSH while githubstatus.com read all-operational; it cleared ~20 min later with
+no change from us. `git push --dry-run` succeeding throughout was what localised it to the
+pack-upload path rather than to the commit.
+
+**Parallelism** (summed agent duration ÷ longest in the group, from the `ms` column):
+
+| Group | n | summed | longest | ratio |
+|---|---|---|---|---|
+| phase-1 researchers | 2 | 805s | 597s | 1.3× |
+| waves 2a ‖ 2b | 2 | 2300s | 1506s | 1.5× |
+| arch-reviewer ‖ test-writer | 2 | 321s | 199s | 1.6× |
+| `/pr-self-review` round 1 | 14 | 4123s | 599s | **6.9×** |
+| `/pr-self-review` round 2 | 8 | 1249s | 283s | 4.4× |
+
+The 14-way fan-out is the only group where parallelism paid properly. The 1.3× and 1.5× pairs are
+two-agent groups with one long pole each — fine, but not worth calling parallel.
+
+**The delta re-review rule, measured on the same 8 shards.** Round 1: 226 tool uses. Round 2 after
+resuming the same agents with an explicit delta: **63**. Same shards, same skills, 3.6× fewer calls
+(23.6 → 7.9 per agent). Six of the 14 shards were never woken at all.
+
+**`--since` was unusable and the skill does not cover why.** Round 1 reviewed *uncommitted* work on
+top of `15db3cc`; by round 2 it was committed as `a65850a`, so `--since 15db3cc` hands a reviewer the
+entire feature, not the delta — confirmed by running it against `postgresql-table-design#1`, whose
+two files the fixes never touched and which came back with the whole schema diff. No sha represents
+what round 1 saw. The delta was computed by intersecting the changed paths against each shard's
+`files` in `plan.json` instead.
+
+**Corrections — four trace to the coordinator's brief.**
+
+1. **`rangesIntersect` / AC-11.** The coordinator accepted `implementation-planner`'s O(1) default
+   without amending the spec, leaving AC-11 requiring "the bounded iteration of `rangeIntersects`".
+   `spec-creator` round 4 flagged it unprompted: under the accepted default AC-11 is literally false
+   and `plan-verifier` would have read it as `Contradicted`. Entered via the brief, survived 1 pass.
+2. **`loadSkills`.** The coordinator's plan §4 recommended lifting it whole into
+   `modules/skills/helpers.ts`; the spec carried that forward. `implementation-planner` overruled it,
+   citing `server/INSIGHTS.md:472-478` — that would put I/O into the one file class `pnpm arch`
+   cannot police, the exact trap already recorded. Entered via the brief, survived 1 pass.
+3. **The bare-hunk diff fixture.** Wave 3 flagged `evals-executor.it.test.ts`'s `DIFF` as a headerless
+   hunk that parses to `files: []`, and said it had not fixed it. The coordinator fixed **that one
+   file**, recorded an INSIGHTS entry saying so, and did not grep for the pattern. Two more files held
+   the identical constant. The integration lane found them on its first run (`waitFor timed out` in
+   `evals-cancel.it.test.ts`, LLM never called). One `grep -rn "const DIFF" server/test` would have
+   caught all three.
+4. **The terminal-write guard test.** The coordinator commissioned the guard but not how to prove it.
+   `typescript-expert#3` compiled four predicate variants through `PgDialect` and found the test
+   passes when `or` replaces `and` — params are byte-identical, so the one substitution that would
+   overwrite every live batch is the one the test cannot see. A test written for a
+   coordinator-commissioned fix, passing in the catastrophic case.
+
+Reverse direction, recorded for balance: `spec-creator` round 2 wrote an AC-72 boot test that could
+never pass (the reap is inside `if (config.nodeEnv !== 'test')`), and the coordinator caught it by
+reading `app.ts`. Agent-to-agent: `implementation-planner` miscounted `EvalBatchRecord` at 16 fields;
+wave 1 caught it against AC-7's own list of 15 and followed the criterion over the plan.
+
+**The question asked vs. the question that mattered.** `architecture-reviewer` (order 14) returned
+zero violations and was right: no changed file imports anything forbidden. `onion-architecture#1`
+(order 23) found that `eval-run-executor.ts` matched **neither** gate —
+`.dependency-cruiser.cjs:29`'s `(service|run-executor)\.ts$` nor `eslint.config.mjs:64`'s glob — so
+the one file driving real model calls could import `drizzle-orm` with both checks green. The brief
+asked "does this violate the rules"; nobody asked "do the rules cover this file". Verified by the
+coordinator afterwards: forbidden import → `pnpm arch` 1 error, reverted → clean.
+
+Second instance, same shape: `plan-verifier` enumerates `AC-N` and passed 77/77. The requirement
+*"the tab refetches `GET /eval-runs/:batchId` on stream completion"* was written as prose in
+`## Edge cases`, so the completeness gate could not see it, and `/code-review` found the UI never
+refetched — a finished sweep never reaching the screen.
+
+**Duplicate coverage — mostly corroboration, one paid-for.** Four reviewers independently reached the
+same `PATCH /eval-cases/:id` 500 from four different links in the chain (`fastify#1` the body schema,
+`drizzle#1` the `.set({})` throw site in `mapUpdateSet`, `zod#1` the missing refine, `typescript-expert#2`
+the `return row!`). Two independently reached the void-return finding in round 2. That is corroboration
+and it is why the defect was believed without further checking. The paid-for duplication is structural:
+`/pr-self-review` plans against `origin/main`, and this branch carries 14 committed commits of **spec
+0018 that had already passed `/pr-self-review` in a prior session** — so 114 files were reviewed where
+the 0019 change set is smaller. The 0018 share of the 1,741,815 round-1 tokens is **not measured**.
+
+**Capability denials.** The git/shell brace guard fired **3×** this run — on a `wc` call carrying a
+Python brace, on a `git diff` with a Python brace, and on a heredoc containing JSON. Cost: 3 retries,
+and the third nearly lost the retro ledger append a second time (worked around with `Write` + `cat`).
+The previous entry already proposed the fix for exactly this and it has not been applied. `find` was
+denied once (used `ls`), and one compound `cd && head && find` was denied and split.
+
+**Unused output.** Order 3, the course-`evals/` package survey: 98,813 tokens, 597s, returned *after*
+the plan's §4 had already been drafted from direct reads of `package.json`, the file tree and one case
+file. Spent well rather than wasted — it contributed two things that reached the plan (the
+`permissionMode: "bypassPermissions"` safety note, and that the README's "ships with no example cases"
+claim is false) — but the plan did not wait for it and would have shipped unchanged without it.
+
+**Capture drift, again.** The ledger stopped at order 18 of 41. The 23 rows for `/pr-self-review` were
+back-filled at the end from notifications still in context, which worked only because the context had
+not compacted — precisely the failure the previous entry proposed a `SubagentStop` hook for. One row
+(order 15, `test-writer`) had been recorded `0/0/0` when its notification did carry usage; corrected to
+92,358 / 17 / 198,731 and marked as back-filled.
+
+**Not measured:** session wall-clock; the spec-0018 share of round-1 review cost; a systematic
+`file:line` overlap diff across the 14 reports — the convergences named above were read from the
+reports, not computed. The main-thread ratio was `not measured` when this entry was written and was
+filled in afterwards, once the user ran `/context`; the figure is post-run, so it includes composing
+this entry. **The capture rule should extend to it:** `/context` costs nothing and is unavailable
+retroactively once a session compacts, so the orchestrator should run it at the point the last agent
+returns, not hope to be asked.
+
+## Proposed changes
+[ ] `.claude/agents/spec-creator.md` brief template — require the coordinator to paste the routed
+    `insights-for.sh` output into the brief. Evidence: order 4 wrote 62 criteria having read no
+    INSIGHTS at all (it has no `Bash`, so the router is unavailable to it, and it said so); round 2
+    then folded in 6 routed entries, two of which changed criteria (Drizzle `numeric` is always a
+    string; one unpriced call nulls a whole run's cost). **No proposal to grant it `Bash`** — I
+    checked why it lacks it: `.claude/hooks/spec-scope-gate.py` confines it to `specs/`, and a spec
+    writer that can run commands is a different threat model. The agent is not wrong here; the brief is.
+[ ] `.claude/agents/architecture-reviewer.md` brief template — ask "is each changed file actually
+    matched by the gates that should govern it?", not only "does it violate them". Evidence: order 14
+    clean, order 23 found `eval-run-executor.ts` outside both the dependency-cruiser regex and the
+    ESLint zone; coordinator confirmed by adding a forbidden import and watching `pnpm arch` fail.
+[ ] `.claude/skills/spec-authoring/SKILL.md` — a requirement a tester could fail must be an `AC-N`,
+    never prose. Evidence: the stream-completion refetch lived in `## Edge cases`; `plan-verifier`
+    enumerates `AC-N`, passed 77/77, and the UI shipped never refetching until `/code-review` found it.
+[ ] `AGENTS.md` phase 3 (fix commissioning) — when a fix is delegated, require the implementer to
+    state how its new test fails, and to show it. Evidence: order 18 mutation-checked both fixes and
+    reported the failure messages; order 33's guard test was not mutation-checked, and order 41 showed
+    it passes under the `or`-for-`and` substitution that would overwrite every live batch.
+[ ] `AGENTS.md` phase 3 — before recording a fix as done, grep the repo for the pattern. Evidence: the
+    headerless-diff fixture was fixed in 1 of 3 files and written up as fixed; the Docker lane failed
+    on the other two, costing a full ~193s lane run plus diagnosis.
+[ ] `.claude/skills/pr-self-review/SKILL.md` §2b — record whether `--since` is usable when the prior
+    round reviewed *uncommitted* work, and whether `--base` narrowing still yields a verdict the gate
+    accepts. Evidence: `--since 15db3cc` returned the whole feature for a shard the fixes never
+    touched; and the coordinator kept the default base — re-reviewing 14 already-reviewed commits of
+    spec 0018 — because it believed narrowing would break the fingerprint and **did not verify that
+    belief**.
+[ ] `AGENTS.md` phase 5, beside the `.runs.jsonl` rule — the orchestrator should run `/context` when
+    the last agent returns, and record `messages` next to the subagent total. Evidence: this entry
+    shipped with the ratio as `not measured` and was corrected only because the user happened to run
+    `/context` afterwards; the figure is now post-run and therefore slightly inflated. It is the one
+    number in §1 the orchestrator cannot reconstruct later, for the same reason the usage rows cannot
+    — the session compacts and it is gone.
+[ ] No new proposal on the brace guard. The previous entry's line still stands unapplied and this run
+    hit it 3 more times; the recurrence is the evidence, not a reason to weaken the guard.
