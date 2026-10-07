@@ -13,16 +13,17 @@
  * re-exports them so every consumer keeps importing from `db/schema` unchanged.
  *
  * ---------------------------------------------------------------------------
- * ROADMAP SCAFFOLDING — 15 of these 41 tables have no read or write anywhere in
- * `src/` outside this schema and `db/seed.ts` (measured 2026-09-18). They are
+ * ROADMAP SCAFFOLDING — 13 of these 42 tables have no read or write anywhere in
+ * `src/` outside this schema and `db/seed.ts` (measured 2026-09-18, re-checked
+ * 2026-10-07 after spec 0019 wired up eval.ts's other two tables). They are
  * kept DELIBERATELY: they cost nothing at runtime and are expensive to re-add,
  * but nothing is wired to them yet, so do not assume a feature exists because
  * its table does — and do not spend effort indexing or constraining them until
  * something reads them.
  *
  *   ci.ts        ciInstallations, ciRuns          (entire file unused)
- *   eval.ts      evalCases, evalRuns,
- *                conformanceChecks, composedReviews (entire file unused)
+ *   eval.ts      conformanceChecks, composedReviews
+ *                (evalCases, evalRuns, evalRunBatches are LIVE — spec 0019)
  *   knowledge.ts memory                           ← a pgvector table
  *                (conventions + conventionScans are LIVE as of spec 0007)
  *   context.ts   codeChunks, onboarding           ← `codeChunks` is pgvector
@@ -62,7 +63,7 @@ import { skills, skillVersions } from './schema/skills';
 import { agents, agentVersions, agentSkills } from './schema/agents';
 import { memory, conventions, conventionScans } from './schema/knowledge';
 import { codeChunks, symbols, references, onboarding } from './schema/context';
-import { evalCases, evalRuns, conformanceChecks, composedReviews } from './schema/eval';
+import { evalCases, evalRuns, evalRunBatches, conformanceChecks, composedReviews } from './schema/eval';
 import { ciInstallations, ciRuns } from './schema/ci';
 import { agentRuns, runTraces, runSkills, multiAgentRuns } from './schema/runs';
 import { jobs, installedPlugins, digests } from './schema/ops';
@@ -102,6 +103,7 @@ export const schema = {
   onboarding,
   evalCases,
   evalRuns,
+  evalRunBatches,
   conformanceChecks,
   composedReviews,
   ciInstallations,

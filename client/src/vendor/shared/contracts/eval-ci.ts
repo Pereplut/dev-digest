@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { Verdict, Finding } from './findings.js';
-import { EvalRun, EvalOwnerKind, Conformance } from './knowledge.js';
+import { EvalRun, EvalOwnerKind, EvalExpectationKind, Conformance } from './knowledge.js';
 
 /**
  * A4 — Eval / CI / Compose / Conformance API contracts (L06).
@@ -87,6 +87,78 @@ export const EvalDashboard = z.object({
   alert: z.string().nullable(),
 });
 export type EvalDashboard = z.infer<typeof EvalDashboard>;
+
+// ===========================================================================
+// Eval — batch run (spec 0019)
+// ===========================================================================
+
+/**
+ * What a case's produced findings are checked against.
+ *
+ * Defined in `knowledge.ts` beside `EvalOwnerKind` and re-exported here, because
+ * this file already imports from that one — defining it here and importing it
+ * back would be a cycle. AC-6 is satisfied either way: the name is exported from
+ * `contracts/eval-ci.ts` through the barrel.
+ */
+export { EvalExpectationKind };
+
+/** A persisted `eval_run_batches` row — one sweep of an owner's cases by one agent version. */
+export const EvalBatchRecord = z.object({
+  id: z.string(),
+  owner_kind: EvalOwnerKind,
+  owner_id: z.string(),
+  agent_id: z.string(),
+  agent_version: z.number().int(),
+  ran_at: z.string(),
+  status: z.enum(['queued', 'running', 'done', 'failed', 'cancelled']),
+  error: z.string().nullable(),
+  recall: z.number().nullable(),
+  precision: z.number().nullable(),
+  citation_accuracy: z.number().nullable(),
+  cases_total: z.number().int(),
+  cases_passed: z.number().int(),
+  duration_ms: z.number().int().nullable(),
+  cost_usd: z.number().nullable(),
+});
+export type EvalBatchRecord = z.infer<typeof EvalBatchRecord>;
+
+/** Body of `POST /eval-cases` — turn one finding into an eval case. */
+export const EvalCaseFromFindingInput = z.object({
+  finding_id: z.string().uuid(),
+  name: z.string().min(1).nullish(),
+  notes: z.string().nullish(),
+});
+export type EvalCaseFromFindingInput = z.infer<typeof EvalCaseFromFindingInput>;
+
+/** Body of `PATCH /eval-cases/:id` — every field optional, only the supplied ones persist. */
+export const EvalCasePatch = z
+  .object({
+    name: z.string().min(1).optional(),
+    notes: z.string().nullish(),
+    expectation_kind: EvalExpectationKind.optional(),
+    expected_file: z.string().min(1).optional(),
+    expected_start_line: z.number().int().optional(),
+    expected_end_line: z.number().int().optional(),
+  })
+  .strict()
+  .refine(
+    (v) =>
+      v.name !== undefined ||
+      v.notes !== undefined ||
+      v.expectation_kind !== undefined ||
+      v.expected_file !== undefined ||
+      v.expected_start_line !== undefined ||
+      v.expected_end_line !== undefined,
+    { message: 'patch must change at least one field' },
+  );
+export type EvalCasePatch = z.infer<typeof EvalCasePatch>;
+
+/** Response of `GET /eval-runs/:batchId` — the batch plus one entry per case run. */
+export const EvalBatchDetail = z.object({
+  batch: EvalBatchRecord,
+  runs: z.array(EvalRunRecord),
+});
+export type EvalBatchDetail = z.infer<typeof EvalBatchDetail>;
 
 // ===========================================================================
 // Compose Review

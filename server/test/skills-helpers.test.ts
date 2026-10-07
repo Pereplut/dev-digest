@@ -5,6 +5,7 @@ import {
   renderSkillBlock,
   skillsLogLine,
   toCardStats,
+  toLoadedSkills,
 } from '../src/modules/skills/helpers.js';
 import { countPromptTokens } from '../src/platform/trace-builder.js';
 
@@ -63,6 +64,32 @@ describe('skills helpers', () => {
    * invisible in the trace while still being paid for in the request — the
    * failure mode is silent, so it gets its own test.
    */
+  it('toLoadedSkills renders the block, counts tokens, and preserves order', () => {
+    const rows = [
+      { id: 's1', name: 'no-then-chains', version: 2, body: 'Use await.' },
+      { id: 's2', name: 'secret-leakage-gate', version: 1, body: 'Never log secrets.' },
+    ];
+    const loaded = toLoadedSkills(rows, (t) => t.length);
+    expect(loaded).toEqual([
+      {
+        id: 's1',
+        name: 'no-then-chains',
+        version: 2,
+        block: renderSkillBlock('no-then-chains', 'Use await.'),
+        tokens: renderSkillBlock('no-then-chains', 'Use await.').length,
+      },
+      {
+        id: 's2',
+        name: 'secret-leakage-gate',
+        version: 1,
+        block: renderSkillBlock('secret-leakage-gate', 'Never log secrets.'),
+        tokens: renderSkillBlock('secret-leakage-gate', 'Never log secrets.').length,
+      },
+    ]);
+    // the helper's import list stays free of container/repository modules —
+    // the point of lifting only the pure half (AC-43's test).
+  });
+
   it('countPromptTokens counts the intent slot, and skips it when absent', () => {
     const withIntent = countPromptTokens(
       { system: 'abcd', pr_description: 'body', intent: 'Category: feature', user: 'u' },

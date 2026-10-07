@@ -129,6 +129,13 @@ export type EvalRun = z.infer<typeof EvalRun>;
 export const EvalOwnerKind = z.enum(['skill', 'agent']);
 export type EvalOwnerKind = z.infer<typeof EvalOwnerKind>;
 
+// spec 0019. Defined HERE, beside its sibling `EvalOwnerKind`, and re-exported
+// from `eval-ci.ts` — not the other way round. `eval-ci.ts` already imports from
+// this file, so defining it there and importing it back would be a module cycle.
+// One definition, no hand-sync.
+export const EvalExpectationKind = z.enum(['must_find', 'must_not_flag']);
+export type EvalExpectationKind = z.infer<typeof EvalExpectationKind>;
+
 export const EvalCase = z.object({
   id: z.string(),
   owner_kind: EvalOwnerKind,
@@ -139,6 +146,13 @@ export const EvalCase = z.object({
   input_meta: z.unknown(),
   expected_output: z.unknown(),
   notes: z.string().nullish(),
+  // spec 0019 — additive.
+  expectation_kind: EvalExpectationKind,
+  expected_file: z.string(),
+  expected_start_line: z.number().int(),
+  expected_end_line: z.number().int(),
+  source_finding_id: z.string().nullable(),
+  created_at: z.string(),
 });
 export type EvalCase = z.infer<typeof EvalCase>;
 

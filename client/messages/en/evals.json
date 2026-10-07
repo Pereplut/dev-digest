@@ -1,0 +1,34 @@
+{
+  "findingCard": {
+    "control": "Turn into eval case",
+    "confirmation": "Added as an eval case",
+    "error": "Couldn't create eval case: {message}"
+  },
+  "tiles": {
+    "recall": "Recall",
+    "precision": "Precision",
+    "citationAccuracy": "Citation accuracy",
+    "passed": "Passed",
+    "cost": "Cost"
+  },
+  "placeholder": "—",
+  "empty": "No eval cases yet. Accept or dismiss a finding on a pull request, then turn it into a case.",
+  "loadError": "Could not load evals.",
+  "runAll": "Run all evals",
+  "runConfirm": {
+    "title": "Run {count} eval case(s)?",
+    "body": "Each case makes one real model call and will be charged.",
+    "cancel": "Cancel",
+    "confirm": "Run evals"
+  },
+  "progress": "{done}/{total} cases",
+  "expectationKind": {
+    "mustFind": "Must find",
+    "mustNotFlag": "Must not flag"
+  },
+  "caseList": {
+    "pass": "Pass",
+    "fail": "Fail",
+    "notRun": "Not run"
+  }
+}

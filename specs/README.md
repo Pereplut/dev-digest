@@ -90,3 +90,4 @@ exempt by construction. What it deliberately does not check is in its own docstr
 | [0016-project-context](0016-project-context.md) | draft | server, client, reviewer-core |
 | [0017-onboarding-generator](0017-onboarding-generator.md) | approved | server, client, e2e |
 | [0018-pr-brief](0018-pr-brief.md) | in-progress | server, client, e2e |
+| [0019-evals](0019-evals.md) | approved | server, client, reviewer-core |

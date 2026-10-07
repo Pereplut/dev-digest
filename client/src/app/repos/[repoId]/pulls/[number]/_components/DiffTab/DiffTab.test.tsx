@@ -6,6 +6,7 @@ import type { FindingRecord } from "@devdigest/shared";
 import type { PrFile, PrReviewComment, SmartDiff } from "@/lib/types";
 import messages from "../../../../../../../../messages/en/prReview.json";
 import shellMessages from "../../../../../../../../messages/en/shell.json";
+import evalsMessages from "../../../../../../../../messages/en/evals.json";
 import { DiffTab } from "./DiffTab";
 
 /**
@@ -33,6 +34,12 @@ vi.mock("@/lib/hooks/reviews", () => ({
   usePrComments: () => ({ data: commentsData.current }),
   useCreatePrComment: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useFindingAction: () => findingAction,
+}));
+
+// FindingCard's "Turn into eval case" control (spec 0019) needs this mocked —
+// the real hook calls useQueryClient(), and this file renders no provider.
+vi.mock("@/lib/hooks/evals", () => ({
+  useCreateEvalCase: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 afterEach(cleanup);
@@ -129,7 +136,7 @@ const roleLabelOf = (h: HTMLElement) => GROUP_HEADER.exec(h.textContent ?? "")?.
 
 function renderTab(props: Partial<React.ComponentProps<typeof DiffTab>> = {}) {
   return render(
-    <NextIntlClientProvider locale="en" messages={{ prReview: messages, shell: shellMessages }}>
+    <NextIntlClientProvider locale="en" messages={{ prReview: messages, shell: shellMessages, evals: evalsMessages }}>
       <DiffTab prId="p1" filesCount={FILES.length} files={FILES} {...props} />
     </NextIntlClientProvider>,
   );

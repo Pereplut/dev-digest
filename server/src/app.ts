@@ -18,6 +18,7 @@ import { AppError } from './platform/errors.js';
 import { modules } from './modules/index.js';
 import { ReviewService } from './modules/reviews/service.js';
 import { OnboardingRepository } from './modules/onboarding/repository/onboarding.repo.js';
+import { EvalService } from './modules/evals/service.js';
 
 // Attach the DI container to every request/instance.
 declare module 'fastify' {
@@ -112,6 +113,13 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
       const reapedOnboarding = await new OnboardingRepository(container.db).reapRunning();
       if (reapedOnboarding > 0) {
         app.log.info({ reapedOnboarding }, 'reaped stale running onboarding generations on boot');
+      }
+      // Same single-instance assumption (spec 0019 AC-75): a 'queued'/'running'
+      // eval batch from a dead process has no executor left to finish it, and
+      // AC-34's live-batch guard would otherwise block that agent forever.
+      const reapedBatches = await new EvalService(container).reapOrphanedBatches();
+      if (reapedBatches > 0) {
+        app.log.info({ reapedBatches }, 'reaped orphaned eval run batches on boot');
       }
     } catch (err) {
       app.log.warn({ err: (err as Error).message }, 'stale-run reaping failed (non-fatal)');

@@ -25,7 +25,10 @@ export {
 } from './prompt.js';
 
 // Citation grounding — the mandatory mechanical gate for diff findings.
-export { groundFindings, groundingSummary, type GroundingResult } from './grounding.js';
+export { groundFindings, groundingSummary, rangesIntersect, type GroundingResult } from './grounding.js';
+
+// Eval scoring — pure recall/precision/citation-accuracy/pass for one eval case (spec 0019).
+export { scoreEvalCase, type EvalExpectation, type ScoreEvalCaseInput, type ScoreEvalCaseResult } from './eval/score.js';
 
 // Structured-output helpers (Zod → JSON Schema + parse-with-repair).
 export {

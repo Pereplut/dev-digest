@@ -155,6 +155,13 @@
       "when": 1790883871998,
       "tag": "0021_jazzy_skullbuster",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1791361296028,
+      "tag": "0022_chemical_harrier",
+      "breakpoints": true
     }
   ]
 }

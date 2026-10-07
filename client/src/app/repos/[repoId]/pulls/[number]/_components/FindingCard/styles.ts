@@ -73,13 +73,22 @@ export const s = {
     marginBottom: 8,
     textTransform: "uppercase",
   } satisfies CSSProperties,
-  // Accept / Reject in the header — visible on every card, collapsed or not.
+  // Accept / Reject / Turn into eval case in the header — visible on every
+  // card, collapsed or not.
   headerActions: {
     display: "flex",
     alignItems: "center",
     gap: 8,
     flexShrink: 0,
+    flexWrap: "wrap",
     cursor: "default",
+  } satisfies CSSProperties,
+  // The "Turn into eval case" error (AC-51) — inline, not a toast, so it
+  // survives even when the card is collapsed.
+  evalError: {
+    fontSize: 12,
+    color: "var(--crit)",
+    maxWidth: 220,
   } satisfies CSSProperties,
   composer: {
     marginTop: 12,

@@ -12,8 +12,9 @@ import { loadDiff } from './diff-loader.js';
 // malformed trace fails at write-time instead of being tolerated on every read.
 import { buildRunTrace, countPromptTokens } from '../../platform/trace-builder.js';
 import { deriveIntent, type DerivedIntent } from './intent.js';
-// Pure skill helpers (ring 1): the ONE `### Skill:` formatter and the log line.
-import { renderSkillBlock, skillsLogLine, type LoadedSkill } from '../skills/helpers.js';
+// Pure skill helpers (ring 1): the ONE `### Skill:` formatter, the log line,
+// and the rows→LoadedSkill[] mapper shared with the eval run executor.
+import { skillsLogLine, toLoadedSkills, type LoadedSkill } from '../skills/helpers.js';
 // Prompt-composition records (spec 0008): stdout only, metadata only.
 import { logPromptAssembled, digestText, memoizeCount } from '../../platform/prompt-log.js';
 
@@ -475,10 +476,7 @@ export class ReviewRunExecutor {
    */
   private async loadSkills(workspaceId: string, agentId: string): Promise<LoadedSkill[]> {
     const rows = await this.container.skillsRepo.enabledForAgent(workspaceId, agentId);
-    return rows.map((r) => {
-      const block = renderSkillBlock(r.name, r.body);
-      return { id: r.id, name: r.name, version: r.version, block, tokens: this.container.tokenizer.count(block) };
-    });
+    return toLoadedSkills(rows, (t) => this.container.tokenizer.count(t));
   }
 
   /**
