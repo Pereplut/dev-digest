@@ -1,5 +1,14 @@
-import type { EvalBatchRecord, EvalCase, EvalRunRecord } from '@devdigest/shared';
+import type {
+  AgentVersionConfig,
+  EvalBatchRecord,
+  EvalCase,
+  EvalDashboard,
+  EvalRunComparison,
+  EvalRunRecord,
+  EvalTrendPoint,
+} from '@devdigest/shared';
 import type { EvalCaseRow, EvalRunBatchRow, EvalRunRow } from '../../db/rows.js';
+import { EVAL_ALERT_THRESHOLD, EVAL_KNOWN_METRICS_VERSION_FLOOR } from './constants.js';
 
 /**
  * Pure helpers for the evals module (spec 0019): the batch rollup math and row
@@ -229,6 +238,251 @@ export function toEvalBatchRecordDto(row: EvalRunBatchRow): EvalBatchRecord {
     cases_passed: row.casesPassed,
     duration_ms: row.durationMs,
     cost_usd: row.costUsd == null ? null : Number(row.costUsd),
+    metrics_version: row.metricsVersion,
+  };
+}
+
+// ---- Dashboard + compare (spec 0020) ---------------------------------------
+
+type MetricKey = 'recall' | 'precision' | 'citation_accuracy';
+
+/** `metrics_version`-agnostic ratio delta: `null` the instant either operand is. */
+function deltaOf(current: number | null, previous: number | null | undefined): number | null {
+  if (current === null || previous === null || previous === undefined) return null;
+  return current - previous;
+}
+
+function costOf(row: EvalRunBatchRow): number | null {
+  return row.costUsd == null ? null : Number(row.costUsd);
+}
+
+/** Newest `ran_at` first — the ordering every dashboard/compare computation needs. */
+function sortByRanAtDesc(rows: EvalRunBatchRow[]): EvalRunBatchRow[] {
+  return [...rows].sort((a, b) => b.ranAt.getTime() - a.ranAt.getTime());
+}
+
+/** AC-43's predicate, computed server-side too for AC-83's exclusion count. */
+function hasAllMetrics(row: EvalRunBatchRow): boolean {
+  return row.recall !== null && row.precision !== null && row.citationAccuracy !== null;
+}
+
+function toTrendPoint(row: EvalRunBatchRow): EvalTrendPoint {
+  return {
+    ran_at: row.ranAt.toISOString(),
+    recall: row.recall,
+    precision: row.precision,
+    citation_accuracy: row.citationAccuracy,
+    // C22 — `cases_total` is NOT NULL and ≥ 1 for every batch that reached a
+    // sweep (0019 AC-33 refuses an empty one); guarded anyway so this helper
+    // never divides by zero or hands Zod a NaN.
+    pass_rate: row.casesTotal > 0 ? row.casesPassed / row.casesTotal : 0,
+    cost_usd: costOf(row),
+  };
+}
+
+const ALERT_CODE: Record<MetricKey, string> = {
+  recall: 'recall_drop',
+  precision: 'precision_drop',
+  citation_accuracy: 'citation_drop',
+};
+
+/** Tie order recall → precision → citation (R16) — iterate in that order and only replace on a STRICT improvement. */
+const METRIC_ORDER: MetricKey[] = ['recall', 'precision', 'citation_accuracy'];
+
+/**
+ * AC-16/AC-84 — the lowest-delta metric's stable code once any delta reaches
+ * `EVAL_ALERT_THRESHOLD`, tolerant of IEEE 754 error (`0.02 - 0.04 ===
+ * -0.019999999999999997`) by a small epsilon rather than 4-dp rounding —
+ * either satisfies AC-84; epsilon is cheaper here since every delta is
+ * already a plain subtraction.
+ */
+function pickAlert(delta: Record<MetricKey, number | null>): string | null {
+  let worst: { key: MetricKey; value: number } | null = null;
+  for (const key of METRIC_ORDER) {
+    const value = delta[key];
+    if (value === null) continue;
+    if (value > EVAL_ALERT_THRESHOLD + 1e-9) continue;
+    if (worst === null || value < worst.value) worst = { key, value };
+  }
+  return worst ? ALERT_CODE[worst.key] : null;
+}
+
+/**
+ * spec 0020 AC-24/AC-89/AC-90 (and, by the identical predicate, AC-13/AC-14's
+ * dashboard delta/trend) — `metrics_version` is a RECORDED formula identity
+ * only once it's `>= EVAL_KNOWN_METRICS_VERSION_FLOOR`. `1` is the value
+ * AC-2's migration backfills onto every row that predates the
+ * `metrics_version` column EXISTING at all — it means "formula unknown",
+ * not "the old formula" — so it can never denote a known formula, including
+ * against another row that also carries `1`.
+ */
+function isRecordedVersion(version: number): boolean {
+  return version >= EVAL_KNOWN_METRICS_VERSION_FLOOR;
+}
+
+/**
+ * ONE predicate for "these two batches' metrics are safe to put in the same
+ * delta or trend" — shared by `buildDashboard`'s delta/trend computation AND
+ * `buildComparison`, so the per-agent chart and the compare modal can never
+ * disagree about which pairs are comparable. Equal AND both recorded; an
+ * equal pair of UNRECORDED versions (`1 === 1`) is explicitly NOT comparable
+ * — two unknowns are not known-equal.
+ */
+function comparableVersions(a: number, b: number): boolean {
+  return isRecordedVersion(a) && isRecordedVersion(b) && a === b;
+}
+
+/**
+ * Build the per-agent dashboard (AC-11 – AC-18, AC-83 – AC-85) from every
+ * batch row the service has in hand — `trend_excluded` (AC-83) is computed
+ * over ALL of `batches`, not just the slice the response returns in `trend`
+ * or `recent_runs`. `owner_kind`/`owner_id` are left `null` here (this
+ * function has no agent identity to assert) — the service sets them from the
+ * request's own `:id`, never from a row.
+ */
+export function buildDashboard(batches: EvalRunBatchRow[], casesTotal: number): EvalDashboard {
+  const doneDesc = sortByRanAtDesc(batches.filter((b) => b.status === 'done'));
+  const current = doneDesc[0];
+
+  if (!current) {
+    // AC-18/AC-85: nothing measured yet — nulls throughout, traces 0/0, no alert.
+    return {
+      owner_kind: null,
+      owner_id: null,
+      cases_total: casesTotal,
+      current: {
+        recall: null,
+        precision: null,
+        citation_accuracy: null,
+        traces_passed: 0,
+        traces_total: 0,
+        cost_usd: null,
+      },
+      delta: { recall: null, precision: null, citation_accuracy: null },
+      trend: [],
+      recent_runs: sortByRanAtDesc(batches).slice(0, 10).map(toEvalBatchRecordDto),
+      alert: null,
+      trend_excluded: { other_version: 0, incomplete_metrics: 0 },
+    };
+  }
+
+  // AC-13/AC-14 (amended) — everyone who shares `comparableVersions` with
+  // `current` (which excludes `current` itself when `current`'s OWN version
+  // is unrecorded, since an unrecorded version isn't even comparable with
+  // itself — "two unknowns are not known-equal"). This one filtered array
+  // serves both the trend (includes `current`) and the delta's earlier-batch
+  // lookup (excludes it) — the identical predicate AC-24 applies in the
+  // compare route, so the chart and the modal can never disagree.
+  const comparableToCurrentDesc = doneDesc.filter((b) =>
+    comparableVersions(b.metricsVersion, current.metricsVersion),
+  );
+
+  // AC-13: the most recent EARLIER done batch comparable with `current`.
+  const earlier = comparableToCurrentDesc.find((b) => b.id !== current.id);
+  const delta: Record<MetricKey, number | null> = {
+    recall: deltaOf(current.recall, earlier?.recall),
+    precision: deltaOf(current.precision, earlier?.precision),
+    citation_accuracy: deltaOf(current.citationAccuracy, earlier?.citationAccuracy),
+  };
+
+  // AC-14: ascending by ran_at, capped at the 20 most recent comparable with
+  // `current` — includes points with a null metric (AC-43's drop is the
+  // CLIENT's job; AC-5 made the point nullable exactly so this response can
+  // still carry it). `current` stamped `1` (unrecorded) makes this empty —
+  // nothing, not even `current` itself, is comparable with an unrecorded
+  // stamp.
+  const trend = comparableToCurrentDesc.slice(0, 20).map(toTrendPoint).reverse();
+
+  // AC-83 (amended): `other_version` counts every done batch AC-14's
+  // predicate excludes — a differing `metrics_version` OR an unrecorded one,
+  // which for a `current` stamped `1` is every batch the agent has, since
+  // `comparableToCurrentDesc` is then empty. `incomplete_metrics` only ever
+  // counts WITHIN the comparable group, so the two counts never double-count
+  // the same batch.
+  const trendExcluded = {
+    other_version: doneDesc.length - comparableToCurrentDesc.length,
+    incomplete_metrics: comparableToCurrentDesc.filter((b) => !hasAllMetrics(b)).length,
+  };
+
+  return {
+    owner_kind: null,
+    owner_id: null,
+    cases_total: casesTotal,
+    current: {
+      recall: current.recall,
+      precision: current.precision,
+      citation_accuracy: current.citationAccuracy,
+      traces_passed: current.casesPassed,
+      traces_total: current.casesTotal,
+      cost_usd: costOf(current),
+    },
+    delta,
+    trend,
+    recent_runs: sortByRanAtDesc(batches).slice(0, 10).map(toEvalBatchRecordDto),
+    alert: pickAlert(delta),
+    trend_excluded: trendExcluded,
+  };
+}
+
+/**
+ * Build a two-batch comparison (AC-20, AC-24 – AC-26, AC-86). `old`/`new` are
+ * resolved by `ran_at` regardless of which batch/config pair is passed first
+ * (AC-20) — the caller (the service) need not sort before calling this.
+ *
+ * AC-24 (amended) — `comparable` is `comparableVersions(old, new)`: EQUAL
+ * `metrics_version` AND that version naming a KNOWN formula
+ * (`>= EVAL_KNOWN_METRICS_VERSION_FLOOR`). `1` means "formula unknown"
+ * (AC-2's backfill value), not "the old formula" — two batches both stamped
+ * `1` are NOT safely comparable with each other either, because "unknown"
+ * is not a formula identity two rows can share. `incomparable_reason`
+ * (AC-89/AC-90) distinguishes the two ways a pair can fail that test:
+ * EITHER side unrecorded (AC-89 — including both unrecorded, and including
+ * an unrecorded/recorded mismatch) outranks a genuine MISMATCH of two
+ * recorded versions (AC-90) — "we don't know how this was computed" is a
+ * different thing to tell a user than "these two were computed
+ * differently".
+ */
+export function buildComparison(
+  batchA: EvalRunBatchRow,
+  configA: AgentVersionConfig | null,
+  batchB: EvalRunBatchRow,
+  configB: AgentVersionConfig | null,
+): EvalRunComparison {
+  const aIsOlder = batchA.ranAt.getTime() <= batchB.ranAt.getTime();
+  const oldBatch = aIsOlder ? batchA : batchB;
+  const oldConfig = aIsOlder ? configA : configB;
+  const newBatch = aIsOlder ? batchB : batchA;
+  const newConfig = aIsOlder ? configB : configA;
+
+  const comparable = comparableVersions(oldBatch.metricsVersion, newBatch.metricsVersion);
+
+  // AC-89/AC-90: EITHER side unrecorded → 'metrics_version_unrecorded',
+  // INCLUDING when both carry the same unrecorded stamp (two `1`s are not
+  // known-equal) and including an unrecorded/recorded MISMATCH (`1` vs `2`)
+  // — "we don't know how this number was computed" outranks "these two were
+  // computed differently". Only once BOTH sides are recorded (`>= floor`)
+  // and they differ does it become a genuine 'metrics_version_mismatch'.
+  let incomparableReason: string | null = null;
+  if (!comparable) {
+    const eitherUnrecorded =
+      !isRecordedVersion(oldBatch.metricsVersion) || !isRecordedVersion(newBatch.metricsVersion);
+    incomparableReason = eitherUnrecorded ? 'metrics_version_unrecorded' : 'metrics_version_mismatch';
+  }
+
+  return {
+    old: toEvalBatchRecordDto(oldBatch),
+    new: toEvalBatchRecordDto(newBatch),
+    old_config: oldConfig,
+    new_config: newConfig,
+    comparable,
+    incomparable_reason: incomparableReason,
+    delta: {
+      recall: comparable ? deltaOf(newBatch.recall, oldBatch.recall) : null,
+      precision: comparable ? deltaOf(newBatch.precision, oldBatch.precision) : null,
+      citation_accuracy: comparable ? deltaOf(newBatch.citationAccuracy, oldBatch.citationAccuracy) : null,
+      // AC-25: cost never depends on the metrics formula, comparable or not.
+      cost_usd: deltaOf(costOf(newBatch), costOf(oldBatch)),
+    },
   };
 }
 

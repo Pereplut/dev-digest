@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import type { RunEvent } from "@devdigest/shared";
-import { countCompletedCases } from "./helpers";
+import type { EvalTrendPoint, RunEvent } from "@devdigest/shared";
+import { alertDeltaPoints, countCompletedCases, deltaColor, formatDeltaTile, plottable, toTrendSeries } from "./helpers";
 
 function resultEvent(over: Partial<RunEvent> = {}): RunEvent {
   return { runId: "batch-1", seq: 1, kind: "result", msg: "Case 1/3 x: PASS", t: "00:00:01", ...over };
@@ -62,5 +62,107 @@ describe("countCompletedCases", () => {
 
   it("zero events → zero", () => {
     expect(countCompletedCases([])).toBe(0);
+  });
+});
+
+function point(over: Partial<EvalTrendPoint> = {}): EvalTrendPoint {
+  return {
+    ran_at: "2026-10-01T00:00:00.000Z",
+    recall: 0.5,
+    precision: 0.5,
+    citation_accuracy: 0.5,
+    pass_rate: 0.5,
+    cost_usd: 0.01,
+    ...over,
+  };
+}
+
+describe("toTrendSeries (AC-42, AC-43, AC-66)", () => {
+  it("a five-point trend yields three equal-length, index-aligned series", () => {
+    const trend = [0, 1, 2, 3, 4].map((i) =>
+      point({ recall: i / 10, precision: i / 10 + 0.1, citation_accuracy: i / 10 + 0.2 }),
+    );
+    const { series, dropped } = toTrendSeries(trend);
+    expect(dropped).toBe(0);
+    expect(series).toHaveLength(3);
+    for (const s of series) expect(s.data).toHaveLength(5);
+  });
+
+  it("drops a point with ANY null metric from all three series, keeping index alignment", () => {
+    const trend = [
+      point({ recall: 0, precision: 0.1, citation_accuracy: 0.2 }),
+      point({ recall: 0.3, precision: 0.4, citation_accuracy: 0.5 }),
+      point({ citation_accuracy: null }), // dropped — middle point
+      point({ recall: 0.6, precision: 0.7, citation_accuracy: 0.8 }),
+      point({ recall: 0.9, precision: 1.0, citation_accuracy: 0.95 }),
+    ];
+    const { series, dropped } = toTrendSeries(trend);
+    expect(dropped).toBe(1);
+    for (const s of series) expect(s.data).toHaveLength(4);
+    // The surviving 3rd element (index 2) must be the FOURTH original point's
+    // value in every series — not just the recall one — proving the drop
+    // happened on all three series, not only the one that was null.
+    const recall = series.find((s) => s.name === "recall")!;
+    const precision = series.find((s) => s.name === "precision")!;
+    const citation = series.find((s) => s.name === "citationAccuracy")!;
+    expect(recall.data[2]).toBe(0.6);
+    expect(precision.data[2]).toBe(0.7);
+    expect(citation.data[2]).toBe(0.8);
+  });
+
+  it("every element of every series satisfies Number.isFinite — no null/undefined/substituted 0", () => {
+    const trend = [
+      point({ recall: 0, precision: null, citation_accuracy: 0 }),
+      point({ recall: 0.1, precision: 0.1, citation_accuracy: 0.1 }),
+    ];
+    const { series } = toTrendSeries(trend);
+    for (const s of series) {
+      expect(s.data).toHaveLength(1);
+      for (const v of s.data) expect(Number.isFinite(v)).toBe(true);
+    }
+  });
+});
+
+describe("plottable (AC-44)", () => {
+  it("fewer than two points is not plottable", () => {
+    expect(plottable([{ name: "recall", color: "x", data: [] }])).toBe(false);
+    expect(plottable([{ name: "recall", color: "x", data: [0.5] }])).toBe(false);
+  });
+
+  it("two or more points is plottable", () => {
+    expect(plottable([{ name: "recall", color: "x", data: [0.5, 0.6] }])).toBe(true);
+  });
+});
+
+describe("formatDeltaTile (AC-39, AC-40)", () => {
+  it.each([
+    [0.021, "+2.1pt"],
+    [-0.02, "-2.0pt"],
+    [0, "0.0pt"],
+  ])("%s -> %s", (value, expected) => {
+    expect(formatDeltaTile(value, "—")).toBe(expected);
+  });
+
+  it("null renders the placeholder with no sign and no direction word", () => {
+    expect(formatDeltaTile(null, "—")).toBe("—");
+    expect(formatDeltaTile(undefined, "—")).toBe("—");
+  });
+});
+
+describe("deltaColor", () => {
+  it("positive is ok, negative is crit, zero and null are muted", () => {
+    expect(deltaColor(0.02)).toBe("var(--ok)");
+    expect(deltaColor(-0.02)).toBe("var(--crit)");
+    expect(deltaColor(0)).toBe("var(--text-muted)");
+    expect(deltaColor(null)).toBe("var(--text-muted)");
+  });
+});
+
+describe("alertDeltaPoints", () => {
+  it("reads the delta the code names, as unsigned percentage points", () => {
+    const delta = { recall: -0.02, precision: -0.031, citation_accuracy: null };
+    expect(alertDeltaPoints("recall_drop", delta)).toBe("2.0");
+    expect(alertDeltaPoints("precision_drop", delta)).toBe("3.1");
+    expect(alertDeltaPoints("citation_drop", delta)).toBe("0.0");
   });
 });

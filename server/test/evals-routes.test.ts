@@ -47,4 +47,41 @@ describe('evals routes (no DB)', () => {
     expect(res.json().error.code).toBe('validation_error');
     await app.close();
   });
+
+  /**
+   * spec 0020 S10 — the compare route's `?a=&b=` query, validated before any
+   * business logic runs (no DB touched by either case below).
+   */
+  it('422 for GET /agents/:id/eval-runs/compare with a missing query param', async () => {
+    const app = await buildApp({ config });
+    const id = '11111111-1111-1111-1111-111111111111';
+    const missingBoth = await app.inject({ method: 'GET', url: `/agents/${id}/eval-runs/compare` });
+    expect(missingBoth.statusCode).toBe(422);
+    const missingB = await app.inject({
+      method: 'GET',
+      url: `/agents/${id}/eval-runs/compare?a=22222222-2222-2222-2222-222222222222`,
+    });
+    expect(missingB.statusCode).toBe(422);
+    await app.close();
+  });
+
+  it('422 for GET /agents/:id/eval-runs/compare with a repeated query param (Fastify parses it as an array, not a string)', async () => {
+    const app = await buildApp({ config });
+    const id = '11111111-1111-1111-1111-111111111111';
+    const res = await app.inject({
+      method: 'GET',
+      url:
+        `/agents/${id}/eval-runs/compare?a=22222222-2222-2222-2222-222222222222` +
+        `&a=33333333-3333-3333-3333-333333333333&b=44444444-4444-4444-4444-444444444444`,
+    });
+    expect(res.statusCode).toBe(422);
+    await app.close();
+  });
+
+  it('422 for GET /agents/:id/eval-dashboard with a non-uuid :id', async () => {
+    const app = await buildApp({ config });
+    const res = await app.inject({ method: 'GET', url: '/agents/not-a-uuid/eval-dashboard' });
+    expect(res.statusCode).toBe(422);
+    await app.close();
+  });
 });
