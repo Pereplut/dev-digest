@@ -90,6 +90,12 @@ export const s = {
     color: "var(--crit)",
     maxWidth: 220,
   } satisfies CSSProperties,
+  // Wraps the "Turn into eval case" control purely so the hint `title` has
+  // somewhere to live: a disabled <button> takes no pointer events, so a
+  // `title` on the Button itself never surfaces a tooltip.
+  evalHintWrap: {
+    display: "inline-flex",
+  } satisfies CSSProperties,
   composer: {
     marginTop: 12,
     display: "flex",

@@ -59,7 +59,14 @@ export function FindingCard({
   const accepted = !!f.accepted_at;
   const dismissed = !!f.dismissed_at;
   const muted = accepted || dismissed;
-  const evalDisabled = (!accepted && !dismissed) || evalCreated || createEvalCase.isPending;
+  const evalOpen = !accepted && !dismissed;
+  const evalDisabled = evalOpen || evalCreated || createEvalCase.isPending;
+  // Only the open-finding case gets a hint: that is the one a user cannot
+  // explain from the screen (AC-25 derives `expectation_kind` from the accept /
+  // dismiss verdict, so an open finding has no expectation to store). The other
+  // two disabled states already say why — the label flips to the confirmation,
+  // or the mutation is in flight.
+  const evalHint = evalOpen ? te("findingCard.hint") : undefined;
 
   const turnIntoEvalCase = () => {
     setEvalError(null);
@@ -133,15 +140,19 @@ export function FindingCard({
           >
             {t("finding.reject")}
           </Button>
-          <Button
-            kind="ghost"
-            size="sm"
-            icon="FlaskConical"
-            disabled={evalDisabled}
-            onClick={turnIntoEvalCase}
-          >
-            {evalCreated ? te("findingCard.confirmation") : te("findingCard.control")}
-          </Button>
+          {/* The span carries the tooltip, not the Button: a disabled <button>
+              receives no pointer events, so a `title` on it never shows. */}
+          <span title={evalHint} style={s.evalHintWrap}>
+            <Button
+              kind="ghost"
+              size="sm"
+              icon="FlaskConical"
+              disabled={evalDisabled}
+              onClick={turnIntoEvalCase}
+            >
+              {evalCreated ? te("findingCard.confirmation") : te("findingCard.control")}
+            </Button>
+          </span>
           {evalError && <span style={s.evalError}>{te("findingCard.error", { message: evalError })}</span>}
         </div>
         <Icon.ChevronDown size={16} style={s.chevron(expanded)} />

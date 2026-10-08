@@ -1,6 +1,7 @@
 {
   "findingCard": {
     "control": "Turn into eval case",
+    "hint": "Accept or dismiss this finding first — that choice becomes the expectation (accepted → must find, dismissed → must not flag)",
     "confirmation": "Added as an eval case",
     "error": "Couldn't create eval case: {message}"
   },

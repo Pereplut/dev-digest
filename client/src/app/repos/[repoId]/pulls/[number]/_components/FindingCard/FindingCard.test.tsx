@@ -124,6 +124,27 @@ describe("FindingCard — Turn into eval case (AC-48–52)", () => {
     expect(control).toBeDisabled();
   });
 
+  // The disabled control used to give no reason at all, which is how a user
+  // ends up reading the spec to find out that AC-25 derives the expectation
+  // from the accept/dismiss verdict. The tooltip lives on a wrapper span
+  // because a disabled <button> receives no pointer events, so a `title` on
+  // the button itself would render nothing — assert the span, not the button.
+  it("explains WHY the control is disabled on an open finding", () => {
+    renderWithIntl(<FindingCard f={FINDING} onAction={() => {}} />);
+    const control = screen.getByRole("button", { name: "Turn into eval case" });
+    expect(control).toBeDisabled();
+    const hint = control.closest("[title]");
+    expect(hint, "the disabled control carries no explanatory title").not.toBeNull();
+    expect(hint!.getAttribute("title")).toContain("Accept or dismiss this finding first");
+  });
+
+  it("drops the hint once the finding carries a verdict", () => {
+    renderWithIntl(<FindingCard f={ACCEPTED} onAction={() => {}} />);
+    const control = screen.getByRole("button", { name: "Turn into eval case" });
+    expect(control).toBeEnabled();
+    expect(control.closest("[title]")).toBeNull();
+  });
+
   it("activating the control issues one POST via useCreateEvalCase and no finding-action request (AC-49)", async () => {
     const user = userEvent.setup();
     const onAction = vi.fn();
