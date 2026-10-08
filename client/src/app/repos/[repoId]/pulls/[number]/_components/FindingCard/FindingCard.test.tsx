@@ -159,8 +159,13 @@ describe("FindingCard — Turn into eval case (AC-48–52)", () => {
   it("the hint text is not concatenated onto the expand/collapse toggle's accessible name", () => {
     renderWithIntl(<FindingCard f={FINDING} onAction={() => {}} />);
     const toggle = screen.getByRole("button", { expanded: false });
+    // The DOM-level control: the sentence is not among the toggle's descendants.
     expect(within(toggle).queryByText(/Accept or dismiss this finding first/)).not.toBeInTheDocument();
-    expect(toggle.textContent ?? "").not.toContain("Accept or dismiss this finding first");
+    // The assertion that matches this test's name. The accessible name is
+    // COMPUTED, not raw text, so a regression that reintroduced the sentence
+    // via `aria-label` would leave `textContent` clean and still break every
+    // screen reader — `toHaveAccessibleName` is the only matcher that sees it.
+    expect(toggle).not.toHaveAccessibleName(/Accept or dismiss this finding first/);
   });
 
   it("drops the hint once the finding carries a verdict", () => {
