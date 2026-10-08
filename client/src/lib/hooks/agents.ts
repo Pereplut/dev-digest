@@ -3,7 +3,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
-import type { Agent, AgentSkill, ModelInfo, Provider, ReviewStrategy } from "@devdigest/shared";
+import type { Agent, AgentSkill, EvalPromoteResult, ModelInfo, Provider, ReviewStrategy } from "@devdigest/shared";
 
 export function useAgents() {
   return useQuery({
@@ -87,6 +87,26 @@ export function useProviderModels(provider: Provider | null | undefined) {
     queryFn: () => api.get<ModelInfo[]>(`/providers/${provider}/models`),
     enabled: !!provider,
     staleTime: 5 * 60_000,
+  });
+}
+
+/**
+ * Promote a historical version's config onto the agent as a new version
+ * (spec 0020, AC-28 – AC-36). Invalidates everything the restored config can
+ * change: the agent itself, the agents list, its skill links and its
+ * dashboard (a promote can move every metric the dashboard shows).
+ */
+export function usePromoteAgentVersion(agentId: string | null | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (version: number) =>
+      api.post<EvalPromoteResult>(`/agents/${agentId}/versions/${version}/promote`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["agent", agentId] });
+      qc.invalidateQueries({ queryKey: ["agents"] });
+      qc.invalidateQueries({ queryKey: ["agent-skills", agentId] });
+      qc.invalidateQueries({ queryKey: ["agent-eval-dashboard", agentId] });
+    },
   });
 }
 

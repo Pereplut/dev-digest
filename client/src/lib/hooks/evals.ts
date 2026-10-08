@@ -6,7 +6,14 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
-import type { EvalBatchDetail, EvalBatchRecord, EvalCase, EvalCaseFromFindingInput } from "@devdigest/shared";
+import type {
+  EvalBatchDetail,
+  EvalBatchRecord,
+  EvalCase,
+  EvalCaseFromFindingInput,
+  EvalDashboard,
+  EvalRunComparison,
+} from "@devdigest/shared";
 
 /** Every eval case owned by this agent, server-ordered `created_at DESC`. */
 export function useAgentEvalCases(agentId: string | null | undefined) {
@@ -52,6 +59,29 @@ export function useCreateEvalCase() {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["agent-eval-cases", data.owner_id] });
     },
+  });
+}
+
+/** The per-agent eval dashboard — tiles, trend, recent runs (spec 0020, AC-11). */
+export function useAgentEvalDashboard(agentId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["agent-eval-dashboard", agentId],
+    queryFn: () => api.get<EvalDashboard>(`/agents/${agentId}/eval-dashboard`),
+    enabled: !!agentId,
+  });
+}
+
+/**
+ * Compare two batches of the same agent. `enabled: !!pair` so this fires only
+ * when the Compare control is activated (strictly on demand, spec 0020
+ * `## Non-functional`), never on every render of the recent-runs table.
+ */
+export function useEvalCompare(agentId: string | null | undefined, pair: [string, string] | null) {
+  return useQuery({
+    queryKey: ["eval-compare", agentId, pair?.[0], pair?.[1]],
+    queryFn: () =>
+      api.get<EvalRunComparison>(`/agents/${agentId}/eval-runs/compare?a=${pair![0]}&b=${pair![1]}`),
+    enabled: !!agentId && !!pair,
   });
 }
 

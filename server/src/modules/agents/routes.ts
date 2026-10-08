@@ -24,6 +24,7 @@ const VersionParams = z.object({
  *   PUT    /agents/:id              → update / toggle enabled (versions config)
  *   GET    /agents/:id/versions     → config history (newest first)
  *   GET    /agents/:id/versions/:version → one config snapshot
+ *   POST   /agents/:id/versions/:version/promote → restore that version's config as a new version (spec 0020)
  *   GET    /agents/:id/skills       → AgentSkill[] (all links, ordered, with the skill)
  *   PUT    /agents/:id/skills       → full ordered replace of the links (one transaction)
  *   GET    /agents/:id/models       → dynamic model list for the agent's provider
@@ -141,6 +142,15 @@ export default async function agentsRoutes(appBase: FastifyInstance) {
       const version = await service.getVersion(workspaceId, req.params.id, req.params.version);
       if (!version) throw new NotFoundError('Agent version not found');
       return version;
+    },
+  );
+
+  app.post(
+    '/agents/:id/versions/:version/promote',
+    { schema: { params: VersionParams } },
+    async (req) => {
+      const { workspaceId } = await getContext(app.container, req);
+      return service.promote(workspaceId, req.params.id, req.params.version);
     },
   );
 

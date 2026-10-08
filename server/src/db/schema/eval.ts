@@ -113,6 +113,19 @@ export const evalRunBatches = pgTable(
     // Drizzle 0.38 has no `mode: 'number'`, so it round-trips as a STRING;
     // convert at the repository boundary (Number() on read, String() on write).
     costUsd: numeric('cost_usd', { precision: 12, scale: 6 }),
+    // spec 0020 (AC-1 – AC-3) — which rollup formula produced this row's
+    // recall/precision/citation_accuracy, so a cross-formula delta is
+    // refusable rather than silently wrong. `text(..., {enum})` has no DB
+    // CHECK (server/INSIGHTS.md:515-521); this is a plain integer instead,
+    // enforced by EvalBatchRecord.metrics_version (contracts) and the
+    // EVAL_METRICS_VERSION constant (modules/evals/constants.ts) alone.
+    // 0023 added this column with DEFAULT 1, backfilling every pre-existing
+    // row to the pre-2026-10-08 formula (AC-2). 0024 flips the default below
+    // to the current formula's literal for all FUTURE rows, so history is
+    // never silently restamped. See modules/evals/constants.ts and spec
+    // 0020 `## Decisions I settled` #4 for why the default is a literal, not
+    // an import of EVAL_METRICS_VERSION.
+    metricsVersion: integer('metrics_version').notNull().default(2),
   },
   (t) => ({
     // AC-76 — closes the two-concurrent-batches race in the database: a

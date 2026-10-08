@@ -1,0 +1,1 @@
+ALTER TABLE "eval_run_batches" ALTER COLUMN "metrics_version" SET DEFAULT 2;

@@ -59,7 +59,15 @@ export function FindingCard({
   const accepted = !!f.accepted_at;
   const dismissed = !!f.dismissed_at;
   const muted = accepted || dismissed;
-  const evalDisabled = (!accepted && !dismissed) || evalCreated || createEvalCase.isPending;
+  const evalOpen = !accepted && !dismissed;
+  const evalDisabled = evalOpen || evalCreated || createEvalCase.isPending;
+  // Only the open-finding case gets a hint: that is the one a user cannot
+  // explain from the screen (AC-25 derives `expectation_kind` from the accept /
+  // dismiss verdict, so an open finding has no expectation to store). The other
+  // two disabled states already say why — the label flips to the confirmation,
+  // or the mutation is in flight.
+  const evalHint = evalOpen ? te("findingCard.hint") : undefined;
+  const evalHintId = `eval-hint-${f.id}`;
 
   const turnIntoEvalCase = () => {
     setEvalError(null);
@@ -133,19 +141,45 @@ export function FindingCard({
           >
             {t("finding.reject")}
           </Button>
-          <Button
-            kind="ghost"
-            size="sm"
-            icon="FlaskConical"
-            disabled={evalDisabled}
-            onClick={turnIntoEvalCase}
-          >
-            {evalCreated ? te("findingCard.confirmation") : te("findingCard.control")}
-          </Button>
+          {/* `title` on the wrapper span is a redundant MOUSE-only affordance
+              (a disabled <button> receives no pointer events, so a `title`
+              on it never shows). The reason a disabled control is disabled
+              must also reach keyboard/screen-reader users, who cannot hover
+              a tooltip and cannot tab to a disabled button either — so the
+              hint is rendered as real, visible text and wired onto the
+              control via `aria-describedby`, which jsdom/axe compute as the
+              button's accessible DESCRIPTION regardless of focus. */}
+          <span title={evalHint} style={s.evalHintWrap}>
+            <Button
+              kind="ghost"
+              size="sm"
+              icon="FlaskConical"
+              disabled={evalDisabled}
+              aria-describedby={evalHint ? evalHintId : undefined}
+              onClick={turnIntoEvalCase}
+            >
+              {evalCreated ? te("findingCard.confirmation") : te("findingCard.control")}
+            </Button>
+          </span>
           {evalError && <span style={s.evalError}>{te("findingCard.error", { message: evalError })}</span>}
         </div>
         <Icon.ChevronDown size={16} style={s.chevron(expanded)} />
       </div>
+
+      {/* A SIBLING of the `role="button"` header, not a descendant of it —
+          that header's accessible name is computed from its own descendants'
+          text, so the hint lived here (rather than inside the header) would
+          get concatenated onto the expand/collapse toggle's name.
+          `aria-describedby` resolves by id from anywhere in the document, so
+          the control above still points at this text regardless of where it
+          sits in the tree. */}
+      {evalHint && (
+        <div style={s.evalHintRow}>
+          <span id={evalHintId} style={s.evalHintText}>
+            {evalHint}
+          </span>
+        </div>
+      )}
 
       {expanded && (
         <div style={s.body}>

@@ -8,6 +8,7 @@ import * as t from '../src/db/schema.js';
 import { MockGitClient, MockGitHubClient } from '../src/adapters/mocks.js';
 import { AgentsService } from '../src/modules/agents/service.js';
 import { AgentsRepository } from '../src/modules/agents/repository.js';
+import { EvalBatchRepository } from '../src/modules/evals/repository/eval-batch.repo.js';
 import type { Container } from '../src/platform/container.js';
 
 const hasDocker = await dockerAvailable();
@@ -164,7 +165,14 @@ d('GET /agents/:id/versions', () => {
       systemPrompt: 'x',
     });
 
-    const service = new AgentsService({ db } as unknown as Container);
+    // Widened for spec 0020's `evalBatchRepo` getter (C8 — a cast-based
+    // Container stub hides a missing dependency even once an added method is
+    // exercised by `AgentsService.promote`; this file doesn't call `promote`
+    // today, but a cast here is otherwise an unchecked contract).
+    const service = new AgentsService({
+      db,
+      evalBatchRepo: new EvalBatchRepository(db),
+    } as unknown as Container);
     // Destructuring index 0 directly hides that it is `T | undefined` under
     // noUncheckedIndexedAccess — visible now that test/** is type-checked.
     const [defaultWsRow] = await db
