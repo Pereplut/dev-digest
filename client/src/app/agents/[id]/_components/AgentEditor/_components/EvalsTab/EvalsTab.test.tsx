@@ -39,13 +39,16 @@ const runEvalsMutate = vi.fn();
 const casesRefetch = vi.fn();
 const batchesRefetch = vi.fn();
 const dashboardRefetch = vi.fn();
+const compareRefetch = vi.fn();
 const promoteMutate = vi.fn();
 
 vi.mock("@/lib/hooks/evals", () => ({
   useAgentEvalCases: () => ({ ...h.cases, refetch: casesRefetch }),
   useAgentEvalBatches: () => ({ ...h.batches, refetch: batchesRefetch }),
   useAgentEvalDashboard: () => ({ ...h.dashboard, refetch: dashboardRefetch }),
-  useEvalCompare: () => ({ ...h.compare }),
+  // CompareModal (a real, unmocked component EvalsTab renders) now owns this
+  // query itself — `h.compare` still drives its content from here.
+  useEvalCompare: () => ({ ...h.compare, refetch: compareRefetch }),
   useEvalBatch: () => ({ data: h.batchDetail }),
   useRunEvals: () => ({ mutate: runEvalsMutate, isPending: false }),
 }));
@@ -218,6 +221,7 @@ beforeEach(() => {
   casesRefetch.mockReset();
   batchesRefetch.mockReset();
   dashboardRefetch.mockReset();
+  compareRefetch.mockReset();
   promoteMutate.mockReset();
 });
 afterEach(cleanup);

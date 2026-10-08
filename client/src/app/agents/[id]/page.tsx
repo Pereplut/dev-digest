@@ -9,7 +9,8 @@ import { useTranslations } from "next-intl";
 import { Button, Dropdown, ErrorState, Skeleton, Icon, Badge } from "@/components/ui-client";
 import { AppShell } from "../../../components/app-shell";
 import { AgentCard } from "../_components/AgentCard";
-import { AgentEditor, parseTab } from "./_components/AgentEditor";
+import { AgentEditor } from "./_components/AgentEditor";
+import { parseTab } from "./_components/AgentEditor/helpers";
 import { useAgents, useAgent, useUpdateAgent } from "../../../lib/hooks/agents";
 import { ApiError } from "../../../lib/api";
 

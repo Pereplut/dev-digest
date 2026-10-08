@@ -67,6 +67,7 @@ export function FindingCard({
   // two disabled states already say why — the label flips to the confirmation,
   // or the mutation is in flight.
   const evalHint = evalOpen ? te("findingCard.hint") : undefined;
+  const evalHintId = `eval-hint-${f.id}`;
 
   const turnIntoEvalCase = () => {
     setEvalError(null);
@@ -140,14 +141,21 @@ export function FindingCard({
           >
             {t("finding.reject")}
           </Button>
-          {/* The span carries the tooltip, not the Button: a disabled <button>
-              receives no pointer events, so a `title` on it never shows. */}
+          {/* `title` on the wrapper span is a redundant MOUSE-only affordance
+              (a disabled <button> receives no pointer events, so a `title`
+              on it never shows). The reason a disabled control is disabled
+              must also reach keyboard/screen-reader users, who cannot hover
+              a tooltip and cannot tab to a disabled button either — so the
+              hint is rendered as real, visible text and wired onto the
+              control via `aria-describedby`, which jsdom/axe compute as the
+              button's accessible DESCRIPTION regardless of focus. */}
           <span title={evalHint} style={s.evalHintWrap}>
             <Button
               kind="ghost"
               size="sm"
               icon="FlaskConical"
               disabled={evalDisabled}
+              aria-describedby={evalHint ? evalHintId : undefined}
               onClick={turnIntoEvalCase}
             >
               {evalCreated ? te("findingCard.confirmation") : te("findingCard.control")}
@@ -157,6 +165,21 @@ export function FindingCard({
         </div>
         <Icon.ChevronDown size={16} style={s.chevron(expanded)} />
       </div>
+
+      {/* A SIBLING of the `role="button"` header, not a descendant of it —
+          that header's accessible name is computed from its own descendants'
+          text, so the hint lived here (rather than inside the header) would
+          get concatenated onto the expand/collapse toggle's name.
+          `aria-describedby` resolves by id from anywhere in the document, so
+          the control above still points at this text regardless of where it
+          sits in the tree. */}
+      {evalHint && (
+        <div style={s.evalHintRow}>
+          <span id={evalHintId} style={s.evalHintText}>
+            {evalHint}
+          </span>
+        </div>
+      )}
 
       {expanded && (
         <div style={s.body}>

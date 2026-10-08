@@ -177,6 +177,19 @@ export const EvalBatchDetail = z.object({
 export type EvalBatchDetail = z.infer<typeof EvalBatchDetail>;
 
 /**
+ * The closed set of reasons `comparable` can be `false` (AC-89, AC-90).
+ * A contract enum, not a bare string, so a third reason code is a compile
+ * error on BOTH sides of the barrel rather than a silent string that each
+ * side's own private union has to be kept in sync with by hand — which is
+ * exactly how AC-90 shipped broken earlier today (`server/INSIGHTS.md`
+ * 2026-10-08): a second code was added here, the client's hand-rolled copy
+ * of the union didn't know about it, both sides compiled, and the new case
+ * fell into a generic bucket until a reviewer caught it.
+ */
+export const IncomparableReason = z.enum(['metrics_version_mismatch', 'metrics_version_unrecorded']);
+export type IncomparableReason = z.infer<typeof IncomparableReason>;
+
+/**
  * Response of `GET /agents/:id/eval-runs/compare` — two batches ordered old → new
  * by `ran_at`, each side's agent-version config snapshot (`null` when absent or
  * unparseable), and a per-metric delta withheld (`null`) when `comparable` is
@@ -188,7 +201,7 @@ export const EvalRunComparison = z.object({
   old_config: AgentVersionConfig.nullable(),
   new_config: AgentVersionConfig.nullable(),
   comparable: z.boolean(),
-  incomparable_reason: z.string().nullable(),
+  incomparable_reason: IncomparableReason.nullable(),
   delta: z.object({
     recall: z.number().nullable(),
     precision: z.number().nullable(),

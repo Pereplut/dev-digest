@@ -67,6 +67,8 @@
   },
   "compare": {
     "loadingTitle": "Loading comparison…",
+    "loadingStatus": "Loading comparison…",
+    "errorTitle": "Comparison unavailable",
     "loadError": "Could not load this comparison.",
     "title": "Compare v{oldVersion} → v{newVersion}",
     "configMissing": "The system prompt for one of these versions is no longer available, so no diff can be shown.",

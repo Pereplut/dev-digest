@@ -20,7 +20,6 @@ import {
   useAgentEvalCases,
   useAgentEvalDashboard,
   useEvalBatch,
-  useEvalCompare,
   useRunEvals,
 } from "@/lib/hooks/evals";
 import { useRunEvents } from "@/lib/hooks/reviews";
@@ -110,9 +109,6 @@ export function EvalsTab({ agentId, agentVersion }: { agentId: string; agentVers
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [dialog.kind, closeDialog]);
-
-  const comparePair = dialog.kind === "compare" ? dialog.pair : null;
-  const compare = useEvalCompare(agentId, comparePair);
 
   // The stream's own `running` flag — not the cached `latest.status` — is the
   // only signal that a sweep just ended: the batch row the UI is holding is
@@ -327,14 +323,7 @@ export function EvalsTab({ agentId, agentVersion }: { agentId: string; agentVers
       )}
 
       {dialog.kind === "compare" && (
-        <CompareModal
-          comparison={compare.data}
-          isLoading={compare.isLoading}
-          isError={compare.isError}
-          agentId={agentId}
-          agentVersion={agentVersion}
-          onClose={closeDialog}
-        />
+        <CompareModal agentId={agentId} pair={dialog.pair} agentVersion={agentVersion} onClose={closeDialog} />
       )}
 
       {dialog.kind === "caseDetail" && <CaseDetailDialog batchId={dialog.batchId} onClose={closeDialog} />}

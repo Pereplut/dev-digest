@@ -10,11 +10,11 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import type { EvalRunComparison } from "@devdigest/shared";
 import { ApiError } from "@/lib/api";
 import { toDiffRows } from "@/lib/text-diff";
 import { Button, ErrorState, Modal, Skeleton } from "@/components/ui-client";
 import { usePromoteAgentVersion } from "@/lib/hooks/agents";
+import { useEvalCompare } from "@/lib/hooks/evals";
 import {
   deltaColor,
   formatCostDeltaTile,
@@ -84,40 +84,60 @@ function CostTile({
 }
 
 export function CompareModal({
-  comparison,
-  isLoading,
-  isError,
   agentId,
+  pair,
   agentVersion,
   onClose,
 }: {
-  comparison: EvalRunComparison | undefined;
-  isLoading: boolean;
-  isError: boolean;
   agentId: string;
+  /** The two batch ids to compare — always present: `EvalsTab` only ever
+   * mounts this component once both are selected and Compare is activated. */
+  pair: [string, string];
   agentVersion: number;
   onClose: () => void;
 }) {
   const t = useTranslations("evals");
+  // Owning the query here (rather than taking `comparison`/`isLoading`/
+  // `isError` as three separate props from `EvalsTab`) is what makes the
+  // bug this replaces unrepresentable: those three booleans came from one
+  // `useQuery` result and could never actually disagree, but nothing in
+  // their TYPES said so, and the guard below checked them in the wrong
+  // order against exactly that assumption. With one hook call there is one
+  // source of truth and only one place the ordering can be gotten right.
+  const { data: comparison, isLoading, isError, refetch } = useEvalCompare(agentId, pair);
   const promote = usePromoteAgentVersion(agentId);
   const [confirming, setConfirming] = React.useState(false);
   const [promotedVersion, setPromotedVersion] = React.useState<number | null>(null);
   const placeholder = t("placeholder");
 
-  if (isLoading || !comparison) {
+  // Checked BEFORE the loading/no-data branch. On a failed query, TanStack
+  // sets `isLoading` false and leaves `data` undefined — so `isLoading ||
+  // !comparison` alone matches a failure too, and the modal would show the
+  // loading skeleton forever with no way to retry (found independently by
+  // three reviewers). `refetch` gives the error state a real way out. Its
+  // OWN title — "Comparison unavailable" — not `loadingTitle`: that read
+  // "Loading comparison…" above a failure message once this branch became
+  // reachable.
+  if (isError) {
     return (
-      <Modal title={t("compare.loadingTitle")} onClose={onClose}>
-        <div style={s.loadingBody}>
-          <Skeleton height={140} />
-        </div>
+      <Modal title={t("compare.errorTitle")} onClose={onClose}>
+        <ErrorState body={t("compare.loadError")} onRetry={() => void refetch()} />
       </Modal>
     );
   }
 
-  if (isError) {
+  if (isLoading || !comparison) {
     return (
       <Modal title={t("compare.loadingTitle")} onClose={onClose}>
-        <ErrorState body={t("compare.loadError")} />
+        {/* `role="status"` takes its accessible name ONLY from `aria-label`/
+            `aria-labelledby`, never from content (client/INSIGHTS.md:144-151)
+            — an explicit label is required, not optional. Also what the
+            regression test asserts on, rather than the vendored `Skeleton`'s
+            own `.skeleton` class (an internal of code this repo forbids
+            touching, `client/src/vendor/ui/primitives/Skeleton.tsx:13`). */}
+        <div role="status" aria-label={t("compare.loadingStatus")} style={s.loadingBody}>
+          <Skeleton height={140} />
+        </div>
       </Modal>
     );
   }

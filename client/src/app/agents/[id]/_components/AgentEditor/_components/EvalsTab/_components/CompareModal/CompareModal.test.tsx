@@ -8,14 +8,23 @@ import { ApiError } from "@/lib/api";
 import evalsMessages from "../../../../../../../../../../messages/en/evals.json";
 
 const promoteMutate = vi.fn();
+const compareRefetch = vi.fn();
 const h = vi.hoisted(() => ({
   isPending: false,
   isError: false,
   error: null as unknown,
+  // The compare query CompareModal now owns itself (it no longer takes
+  // `comparison`/`isLoading`/`isError` as props) — this is the single
+  // source of truth every test drives.
+  compare: { data: undefined as unknown, isLoading: false, isError: false },
 }));
 
 vi.mock("@/lib/hooks/agents", () => ({
   usePromoteAgentVersion: () => ({ mutate: promoteMutate, isPending: h.isPending, isError: h.isError, error: h.error }),
+}));
+
+vi.mock("@/lib/hooks/evals", () => ({
+  useEvalCompare: () => ({ ...h.compare, refetch: compareRefetch }),
 }));
 
 import { CompareModal } from "./CompareModal";
@@ -78,15 +87,7 @@ function renderModal(props: Partial<React.ComponentProps<typeof CompareModal>> =
   render(
     <QueryClientProvider client={qc}>
       <NextIntlClientProvider locale="en" messages={{ evals: evalsMessages }}>
-        <CompareModal
-          comparison={makeComparison()}
-          isLoading={false}
-          isError={false}
-          agentId="ag1"
-          agentVersion={1}
-          onClose={onClose}
-          {...props}
-        />
+        <CompareModal agentId="ag1" pair={["old-1", "new-1"]} agentVersion={1} onClose={onClose} {...props} />
       </NextIntlClientProvider>
     </QueryClientProvider>,
   );
@@ -97,7 +98,9 @@ beforeEach(() => {
   h.isPending = false;
   h.isError = false;
   h.error = null;
+  h.compare = { data: makeComparison(), isLoading: false, isError: false };
   promoteMutate.mockReset();
+  compareRefetch.mockReset();
 });
 afterEach(cleanup);
 
@@ -119,13 +122,42 @@ describe("CompareModal — title and tiles (AC-51 – AC-53)", () => {
   });
 
   it("a null side renders the placeholder for that side and for the delta", () => {
-    renderModal({
-      comparison: makeComparison({
-        old: makeBatch({ id: "old-1", agent_version: 1, recall: null }),
-        delta: { recall: null, precision: 0.1, citation_accuracy: 0.1, cost_usd: 0.002 },
-      }),
+    h.compare.data = makeComparison({
+      old: makeBatch({ id: "old-1", agent_version: 1, recall: null }),
+      delta: { recall: null, precision: 0.1, citation_accuracy: 0.1, cost_usd: 0.002 },
     });
+    renderModal();
     expect(screen.getAllByText(evalsMessages.placeholder).length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("CompareModal — query failure (the loading-skeleton-forever bug)", () => {
+  // On a failed `useEvalCompare`, TanStack sets `isLoading` false and
+  // `data` undefined — a guard checking `isLoading || !comparison` BEFORE
+  // `isError` matches that shape too, and the modal would show the loading
+  // skeleton forever with no way out. This is the regression test for it:
+  // the error state must render instead, and retry must call the query's
+  // own `refetch`.
+  it("renders compare.loadError, not the loading status, and retry refetches", async () => {
+    const user = userEvent.setup();
+    h.compare = { data: undefined, isLoading: false, isError: true };
+    renderModal();
+
+    expect(screen.getByText(evalsMessages.compare.loadError)).toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getByText(evalsMessages.compare.errorTitle)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /retry/i }));
+    expect(compareRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("while genuinely loading (no error yet), shows a role=status indicator with its own aria-label, and no error text", () => {
+    h.compare = { data: undefined, isLoading: true, isError: false };
+    renderModal();
+    expect(screen.queryByText(evalsMessages.compare.loadError)).not.toBeInTheDocument();
+    expect(screen.getByRole("status", { name: evalsMessages.compare.loadingStatus })).toBeInTheDocument();
   });
 });
 
@@ -141,27 +173,24 @@ describe("CompareModal — incomparable (AC-54, AC-89, AC-90)", () => {
     ["metrics_version_mismatch", evalsMessages.compare.reasons.metricsVersionMismatch],
     ["metrics_version_unrecorded", evalsMessages.compare.reasons.metricsVersionUnrecorded],
   ] as const)("renders the warning for %s, placeholder metric deltas, and a real cost delta", (reason, expectedMessage) => {
-    renderModal({
-      comparison: makeComparison({
-        comparable: false,
-        incomparable_reason: reason,
-        delta: { recall: null, precision: null, citation_accuracy: null, cost_usd: 0.002 },
-      }),
+    h.compare.data = makeComparison({
+      comparable: false,
+      incomparable_reason: reason,
+      delta: { recall: null, precision: null, citation_accuracy: null, cost_usd: 0.002 },
     });
+    renderModal();
     expect(screen.getByText(expectedMessage)).toBeInTheDocument();
     expect(screen.getByText("+$0.002")).toBeInTheDocument();
   });
 
   it("the two reason codes resolve to DIFFERENT messages, neither of them the generic fallback", () => {
-    renderModal({
-      comparison: makeComparison({ comparable: false, incomparable_reason: "metrics_version_mismatch" }),
-    });
+    h.compare.data = makeComparison({ comparable: false, incomparable_reason: "metrics_version_mismatch" });
+    renderModal();
     const mismatchText = screen.getByText(evalsMessages.compare.reasons.metricsVersionMismatch).textContent;
     cleanup();
 
-    renderModal({
-      comparison: makeComparison({ comparable: false, incomparable_reason: "metrics_version_unrecorded" }),
-    });
+    h.compare.data = makeComparison({ comparable: false, incomparable_reason: "metrics_version_unrecorded" });
+    renderModal();
     const unrecordedText = screen.getByText(evalsMessages.compare.reasons.metricsVersionUnrecorded).textContent;
 
     expect(mismatchText).not.toBe(unrecordedText);
@@ -183,12 +212,11 @@ describe("CompareModal — prompt diff (AC-55 – AC-59, AC-68)", () => {
   });
 
   it("renders a script/markdown prompt as literal text, never as markup", () => {
-    renderModal({
-      comparison: makeComparison({
-        old_config: makeConfig({ system_prompt: "safe" }),
-        new_config: makeConfig({ system_prompt: "<script>alert(1)</script>\n**bold**\n`code`" }),
-      }),
+    h.compare.data = makeComparison({
+      old_config: makeConfig({ system_prompt: "safe" }),
+      new_config: makeConfig({ system_prompt: "<script>alert(1)</script>\n**bold**\n`code`" }),
     });
+    renderModal();
     expect(screen.getByText("<script>alert(1)</script>")).toBeInTheDocument();
     expect(screen.getByText("**bold**")).toBeInTheDocument();
     expect(document.querySelector("script")).not.toBeInTheDocument();
@@ -196,17 +224,17 @@ describe("CompareModal — prompt diff (AC-55 – AC-59, AC-68)", () => {
   });
 
   it("identical prompts render the 'no prompt change' message", () => {
-    renderModal({
-      comparison: makeComparison({
-        old_config: makeConfig({ system_prompt: "same" }),
-        new_config: makeConfig({ system_prompt: "same" }),
-      }),
+    h.compare.data = makeComparison({
+      old_config: makeConfig({ system_prompt: "same" }),
+      new_config: makeConfig({ system_prompt: "same" }),
     });
+    renderModal();
     expect(screen.getByText(evalsMessages.compare.noPromptChange)).toBeInTheDocument();
   });
 
   it("a null config renders the notice in place of the diff, with the tiles still rendered", () => {
-    renderModal({ comparison: makeComparison({ old_config: null }) });
+    h.compare.data = makeComparison({ old_config: null });
+    renderModal();
     expect(screen.getByText(evalsMessages.compare.configMissing)).toBeInTheDocument();
     expect(screen.getByText("70%")).toBeInTheDocument();
   });
@@ -236,7 +264,8 @@ describe("CompareModal — promote (AC-60, AC-61, AC-69 – AC-72)", () => {
 
   it("a one-skill fixture renders a singular count (negative control against a hardcoded string)", async () => {
     const user = userEvent.setup();
-    renderModal({ comparison: makeComparison({ new_config: makeConfig({ skills: ["only-one"] }) }) });
+    h.compare.data = makeComparison({ new_config: makeConfig({ skills: ["only-one"] }) });
+    renderModal();
     await user.click(screen.getByRole("button", { name: "Promote v2" }));
     expect(within(screen.getByRole("dialog")).getByText(/1 skill(?!s)/)).toBeInTheDocument();
   });

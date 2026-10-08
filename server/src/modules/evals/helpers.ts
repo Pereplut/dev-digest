@@ -6,6 +6,7 @@ import type {
   EvalRunComparison,
   EvalRunRecord,
   EvalTrendPoint,
+  IncomparableReason,
 } from '@devdigest/shared';
 import type { EvalCaseRow, EvalRunBatchRow, EvalRunRow } from '../../db/rows.js';
 import { EVAL_ALERT_THRESHOLD, EVAL_KNOWN_METRICS_VERSION_FLOOR } from './constants.js';
@@ -462,7 +463,7 @@ export function buildComparison(
   // — "we don't know how this number was computed" outranks "these two were
   // computed differently". Only once BOTH sides are recorded (`>= floor`)
   // and they differ does it become a genuine 'metrics_version_mismatch'.
-  let incomparableReason: string | null = null;
+  let incomparableReason: IncomparableReason | null = null;
   if (!comparable) {
     const eitherUnrecorded =
       !isRecordedVersion(oldBatch.metricsVersion) || !isRecordedVersion(newBatch.metricsVersion);

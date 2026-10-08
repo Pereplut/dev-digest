@@ -96,6 +96,21 @@ export const s = {
   evalHintWrap: {
     display: "inline-flex",
   } satisfies CSSProperties,
+  // The visible, always-rendered half of the hint — reachable without
+  // hover, and wired as the control's `aria-describedby` target so it is
+  // also its accessible description. Lives in its OWN row, a sibling of
+  // the `role="button"` header rather than inside it — that header
+  // computes its accessible name from its descendants' text
+  // (client/INSIGHTS.md:126-132), so text placed inside it would get
+  // concatenated onto the expand/collapse toggle's own name.
+  evalHintRow: {
+    padding: "0 16px 12px",
+  } satisfies CSSProperties,
+  evalHintText: {
+    fontSize: 12,
+    color: "var(--text-muted)",
+    maxWidth: 420,
+  } satisfies CSSProperties,
   composer: {
     marginTop: 12,
     display: "flex",

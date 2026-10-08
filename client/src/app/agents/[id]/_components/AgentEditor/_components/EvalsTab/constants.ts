@@ -1,4 +1,4 @@
-import type { EvalExpectationKind } from "@devdigest/shared";
+import type { EvalExpectationKind, IncomparableReason } from "@devdigest/shared";
 
 /** `evals.json` key for each expectation kind label — exhaustive over the enum. */
 export const EXPECTATION_KIND_LABEL_KEY = {
@@ -31,20 +31,23 @@ const ALERT_MESSAGE_KEY_MAP = {
 export const ALERT_MESSAGE_KEY: Readonly<Record<string, string | undefined>> = ALERT_MESSAGE_KEY_MAP;
 
 /**
- * Known `EvalRunComparison.incomparable_reason` codes (spec 0020, AC-24,
- * AC-89, AC-90). `metrics_version_unrecorded` fires when EITHER side's
- * formula was never stamped (a batch from before `metrics_version` existed);
- * `metrics_version_mismatch` only once both sides ARE recorded and differ —
- * `server/src/modules/evals/helpers.ts:459-469`. Each needs its own message:
- * a legacy batch's numbers were never comparable to begin with, which is a
- * different fact from "we know both formulas and they disagree".
+ * `EvalRunComparison.incomparable_reason` codes (spec 0020, AC-24, AC-89,
+ * AC-90), taken from the contract enum rather than a hand-written union —
+ * that private copy is exactly how AC-90 shipped broken: a second server
+ * code landed, this map's own union didn't know about it, both sides
+ * compiled, and the new case fell into the generic bucket until a reviewer
+ * caught it (`@devdigest/shared`'s `IncomparableReason`,
+ * `eval-ci.ts:181-192`). `metrics_version_unrecorded` fires when EITHER
+ * side's formula was never stamped (a batch from before `metrics_version`
+ * existed); `metrics_version_mismatch` only once both sides ARE recorded and
+ * differ — `server/src/modules/evals/helpers.ts:459-469`. Each needs its own
+ * message: a legacy batch's numbers were never comparable to begin with,
+ * which is a different fact from "we know both formulas and they disagree".
  */
-type IncomparableReasonCode = "metrics_version_mismatch" | "metrics_version_unrecorded";
-
 const INCOMPARABLE_REASON_KEY_MAP = {
   metrics_version_mismatch: "compare.reasons.metricsVersionMismatch",
   metrics_version_unrecorded: "compare.reasons.metricsVersionUnrecorded",
-} satisfies Record<IncomparableReasonCode, string>;
+} satisfies Record<IncomparableReason, string>;
 
 export const INCOMPARABLE_REASON_KEY: Readonly<Record<string, string | undefined>> =
   INCOMPARABLE_REASON_KEY_MAP;

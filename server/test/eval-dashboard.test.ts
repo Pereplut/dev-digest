@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { buildComparison, buildDashboard } from '../src/modules/evals/helpers.js';
 import type { EvalRunBatchRow } from '../src/db/rows.js';
 import type { AgentVersionConfig } from '@devdigest/shared';
-import { EvalDashboard } from '@devdigest/shared';
+import { EvalDashboard, EvalRunComparison } from '@devdigest/shared';
 
 /**
  * Spec 0020 S7 — the pure dashboard/compare helpers (R12 – R18, R20, R24,
@@ -378,10 +378,21 @@ describe('buildComparison (spec 0020)', () => {
     expect(comparison.new_config).toBeNull();
   });
 
-  it('every produced comparison parses as EvalRunComparison', () => {
-    const a = makeBatch({ ranAt: new Date('2026-01-01T00:00:00.000Z') });
-    const b = makeBatch({ ranAt: new Date('2026-01-02T00:00:00.000Z') });
-    expect(() => buildComparison(a, null, b, null)).not.toThrow();
+  it('every produced comparison parses as EvalRunComparison, over BOTH a comparable and an incomparable pair', () => {
+    // Comparable branch — all fields present, delta all numeric.
+    const comparableA = makeBatch({ ranAt: new Date('2026-01-01T00:00:00.000Z'), metricsVersion: 2 });
+    const comparableB = makeBatch({ ranAt: new Date('2026-01-02T00:00:00.000Z'), metricsVersion: 2 });
+    const comparableResult = buildComparison(comparableA, null, comparableB, null);
+    expect(() => EvalRunComparison.parse(comparableResult)).not.toThrow();
+
+    // Incomparable branch — the ONLY one that emits incomparable_reason and
+    // null metric deltas; with the IncomparableReason enum in place, this
+    // parse also proves the emitted code is a member of that union.
+    const incomparableA = makeBatch({ ranAt: new Date('2026-01-01T00:00:00.000Z'), metricsVersion: 1 });
+    const incomparableB = makeBatch({ ranAt: new Date('2026-01-02T00:00:00.000Z'), metricsVersion: 2 });
+    const incomparableResult = buildComparison(incomparableA, null, incomparableB, null);
+    expect(() => EvalRunComparison.parse(incomparableResult)).not.toThrow();
+    expect(incomparableResult.incomparable_reason).not.toBeNull();
   });
 });
 

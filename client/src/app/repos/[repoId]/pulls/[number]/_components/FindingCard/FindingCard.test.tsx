@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import type { FindingRecord } from "@devdigest/shared";
@@ -136,6 +136,31 @@ describe("FindingCard — Turn into eval case (AC-48–52)", () => {
     const hint = control.closest("[title]");
     expect(hint, "the disabled control carries no explanatory title").not.toBeNull();
     expect(hint!.getAttribute("title")).toContain("Accept or dismiss this finding first");
+  });
+
+  // `title` is hover-only and a disabled <button> is out of the tab order —
+  // neither reaches a keyboard or screen-reader user. The hint must also be
+  // reachable WITHOUT hover: rendered as real text, and wired as the
+  // control's accessible description via `aria-describedby`.
+  it("the hint is reachable without hover — present as real text and the control's accessible description", () => {
+    renderWithIntl(<FindingCard f={FINDING} onAction={() => {}} />);
+    const control = screen.getByRole("button", { name: "Turn into eval case" });
+    expect(screen.getByText(/Accept or dismiss this finding first/)).toBeInTheDocument();
+    expect(control).toHaveAccessibleDescription(/Accept or dismiss this finding first/);
+  });
+
+  // Regression: the hint text used to live INSIDE the `role="button"` card
+  // header (`:89` in FindingCard.tsx), whose accessible name is computed
+  // from its own descendants' text (client/INSIGHTS.md:126-132) — so the
+  // whole hint sentence was concatenated onto the expand/collapse toggle's
+  // name on every open finding. `aria-describedby` resolves by id from
+  // anywhere in the document, so the hint now sits OUTSIDE that header and
+  // the wiring still holds (asserted by the test above).
+  it("the hint text is not concatenated onto the expand/collapse toggle's accessible name", () => {
+    renderWithIntl(<FindingCard f={FINDING} onAction={() => {}} />);
+    const toggle = screen.getByRole("button", { expanded: false });
+    expect(within(toggle).queryByText(/Accept or dismiss this finding first/)).not.toBeInTheDocument();
+    expect(toggle.textContent ?? "").not.toContain("Accept or dismiss this finding first");
   });
 
   it("drops the hint once the finding carries a verdict", () => {
