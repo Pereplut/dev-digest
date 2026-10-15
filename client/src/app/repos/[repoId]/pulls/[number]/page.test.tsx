@@ -16,7 +16,7 @@
  *
  * `AppShell` and `PrDetailHeader` are stubbed: both are rendered
  * unconditionally by this page but their own data (shell nav/commands,
- * `RunReviewDropdown`'s agents/run hooks) has no bearing on AC-42, and
+ * `AgentPicker`'s agents/run hooks) has no bearing on AC-42, and
  * stubbing a sibling whose internals are out of scope — rather than wiring
  * up its whole hook chain — is the pattern `OverviewTab.test.tsx` already
  * uses for `PrIntentCard`. `FindingsTab`, `DiffTab` and `RunTraceDrawer` are

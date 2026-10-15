@@ -1,0 +1,52 @@
+import type { CSSProperties } from "react";
+
+export const s = {
+  grid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+    gap: 14,
+    alignItems: "start",
+  } satisfies CSSProperties,
+  col: {
+    display: "flex",
+    flexDirection: "column",
+    background: "var(--bg-elevated)",
+    border: "1px solid var(--border)",
+    borderRadius: 8,
+    overflow: "hidden",
+  } satisfies CSSProperties,
+  head: { display: "flex", alignItems: "center", gap: 10, padding: 12 } satisfies CSSProperties,
+  headMain: { flex: 1, minWidth: 0 } satisfies CSSProperties,
+  name: { fontSize: 14, fontWeight: 600 } satisfies CSSProperties,
+  meta: { fontSize: 12, color: "var(--text-muted)", marginTop: 2 } satisfies CSSProperties,
+  body: { display: "flex", flexDirection: "column", gap: 8, padding: "0 12px 12px" } satisfies CSSProperties,
+  row: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+    padding: "8px 10px",
+    borderRadius: 6,
+    background: "var(--bg-hover)",
+  } satisfies CSSProperties,
+  rowTitle: { fontSize: 13, fontWeight: 600 } satisfies CSSProperties,
+  rowFile: { fontSize: 11.5, color: "var(--text-muted)", wordBreak: "break-all" } satisfies CSSProperties,
+  note: { fontSize: 13, color: "var(--text-secondary)" } satisfies CSSProperties,
+  error: { fontSize: 13, color: "var(--crit)", wordBreak: "break-word" } satisfies CSSProperties,
+  foot: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: "8px 12px",
+    borderTop: "1px solid var(--border)",
+    fontSize: 12,
+    color: "var(--text-muted)",
+  } satisfies CSSProperties,
+  linkBtn: {
+    border: "none",
+    background: "transparent",
+    cursor: "pointer",
+    padding: 0,
+    fontSize: 12,
+    color: "var(--text-secondary)",
+  } satisfies CSSProperties,
+};

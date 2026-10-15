@@ -11,7 +11,7 @@ Specs:
 | PR list → FINDINGS column | `app/repos/[repoId]/pulls/_components/PRRow` + `components/findings-summary` | `PrMeta.findings_counts` (server) | Open findings of the PR's **latest run with a review** | Hover or focus opens a **read-only** popover |
 | PR → Agent runs → **Timeline** tile | `…/[number]/_components/RunHistory` (`RunFindingsLine`) | `GET /pulls/:id/reviews` (already loaded by the page), `openFindingsByRun` | Open findings of **that run** | Chips aren't clickable; the hover card is read-only |
 | PR → Agent runs → **Review runs** card | `ReviewRunAccordion` → `VerdictBanner` → `FindingsPanel` → `FindingCard` | `review.findings` of that run | **Every card rendered** in that run (pills) | Pills filter; each card has **Accept / Reject** |
-| Run trace drawer → Findings | `RunTraceDrawer/_components/FindingsSection` | the run's reviews | none | read-only |
+| Run trace drawer → Findings | `components/run-trace-drawer/_components/FindingsSection` | the run's reviews | none | read-only |
 
 ### Read-only popover (`components/findings-summary/FindingsPopover.tsx`)
 - **Title:** `prReview.findingsSummary.inRunTitle` ("{count} findings in this run"). CSS uppercases it to **"N FINDINGS IN THIS RUN"**.

@@ -24,3 +24,18 @@ describe("NAV — onboarding tour item", () => {
     expect(resolveHref(item!.href, null)).toBe("/repos/_/tour");
   });
 });
+
+/** Spec 0021, AC-28: a GLOBAL section holds the Multi-Agent Review item. */
+describe("NAV — multi-agent review item", () => {
+  const item = NAV.find((g) => g.section === "GLOBAL")?.items.find((i) => i.key === "multi-agent");
+
+  it("is registered in the GLOBAL group and links to /multi-agent-review", () => {
+    expect(item?.label).toBe("Multi-Agent Review");
+    expect(item?.href).toBe("/multi-agent-review");
+    expect(resolveHref(item!.href, "r1")).toBe("/multi-agent-review");
+  });
+
+  it("registers no g-shortcut", () => {
+    expect(item?.gKey).toBeUndefined();
+  });
+});

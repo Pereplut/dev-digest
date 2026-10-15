@@ -30,4 +30,9 @@ describe("activeKeyFor", () => {
   it("falls back to an empty key for an unmapped route", () => {
     expect(activeKeyFor("/nowhere")).toBe("");
   });
+
+  it("marks the Multi-Agent Review nav item active on its page and every page below it (AC-28)", () => {
+    expect(activeKeyFor("/multi-agent-review")).toBe("multi-agent");
+    expect(activeKeyFor("/multi-agent-review/abc")).toBe("multi-agent");
+  });
 });

@@ -83,7 +83,7 @@ describe("evals-static — source-text assertions (spec 0020)", () => {
     }
   });
 
-  it("client/messages/en/ gained no new file", () => {
+  it("client/messages/en/ gained no eval file (spec 0021 added multiAgentReview.json)", () => {
     const dir = join(CLIENT_ROOT, "messages/en");
     const files = readdirSync(dir).sort();
     expect(files).toEqual(
@@ -95,6 +95,7 @@ describe("evals-static — source-text assertions (spec 0020)", () => {
         "errors.json",
         "evals.json",
         "home.json",
+        "multiAgentReview.json",
         "onboarding.json",
         "prReview.json",
         "runs.json",
