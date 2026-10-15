@@ -238,6 +238,16 @@ class WorktreeTest(unittest.TestCase):
             fh.write(f"gitdir: {os.path.join(self.other, '.git')}\n")
         self.assertEqual(run_hook(payload(os.path.join(forged, "specs", "x.md"), cwd=self.main)), "deny")
 
+    def test_a_copied_git_file_naming_this_repos_real_worktree_is_denied(self):
+        """The admin dir is real and of THIS repo, but it does not point back at the copy."""
+        with open(os.path.join(self.wt, ".git"), encoding="utf-8") as fh:
+            dot_git = fh.read()
+        copy = os.path.join(os.path.dirname(self.main), "copied-wt")
+        os.makedirs(os.path.join(copy, "specs"))
+        with open(os.path.join(copy, ".git"), "w", encoding="utf-8") as fh:
+            fh.write(dot_git)
+        self.assertEqual(run_hook(payload(os.path.join(copy, "specs", "x.md"), cwd=self.main)), "deny")
+
     def test_a_session_inside_the_worktree_can_write_the_main_checkouts_specs(self):
         """Symmetric: the common dir agrees from either side."""
         target = os.path.join(self.main, "specs", "0021-x.md")

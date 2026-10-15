@@ -87,7 +87,9 @@ def git_common_dir(root):
 
     A main checkout holds a `.git` DIRECTORY, which is the common dir. A `git worktree` holds a
     `.git` FILE (`gitdir: <main>/.git/worktrees/<name>`) whose target names the common dir in its
-    `commondir` file. Two checkouts belong to one repository exactly when these agree.
+    `commondir` file — accepted only if that admin dir sits under `<common>/worktrees/` and its own
+    `gitdir` file points back at this checkout's `.git`. Two checkouts belong to one repository
+    when these agree.
     """
     dot_git = os.path.join(root, ".git")
     if os.path.isdir(dot_git):
@@ -100,10 +102,19 @@ def git_common_dir(root):
         return None
     gitdir = os.path.realpath(os.path.join(root, line[len("gitdir:"):].strip()))
     commondir = os.path.join(gitdir, "commondir")
-    if not os.path.isfile(commondir):
+    backlink = os.path.join(gitdir, "gitdir")
+    if not (os.path.isfile(commondir) and os.path.isfile(backlink)):
         return None
+    # A `.git` file is just text, so the admin dir must point BACK at this checkout: a copied or
+    # planted `.git` file naming a real worktree's admin dir is not that worktree.
+    with open(backlink, encoding="utf-8") as fh:
+        if os.path.realpath(fh.read().strip()) != os.path.realpath(dot_git):
+            return None
     with open(commondir, encoding="utf-8") as fh:
-        return os.path.realpath(os.path.join(gitdir, fh.read().strip()))
+        common = os.path.realpath(os.path.join(gitdir, fh.read().strip()))
+    if os.path.dirname(gitdir) != os.path.join(common, "worktrees"):
+        return None
+    return common
 
 
 def root_for(session_root, target):
