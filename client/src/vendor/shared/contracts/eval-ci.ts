@@ -332,15 +332,21 @@ export type CiRun = z.infer<typeof CiRun>;
  * Ingested back on refresh to populate `ci_runs` (L06).
  */
 export const CiResultArtifact = z.object({
+  status: z.enum(['ok', 'error']),
+  error: z.string().max(500).nullish(),
+  agent: z.string().nullable(),
   findings_count: z.number().int(),
   critical: z.number().int().nullish(),
   warning: z.number().int().nullish(),
   suggestion: z.number().int().nullish(),
+  blockers: z.number().int().nonnegative(),
+  gate_triggered: z.boolean(),
   cost_usd: z.number().nullable(),
   duration_ms: z.number().int().nullish(),
-  agent: z.string(),
   version: z.string().nullish(),
   pr_number: z.number().int().nullish(),
+  commit_sha: z.string().regex(/^[0-9a-f]{40}$/),
+  repository_id: z.number().int().positive(),
 });
 export type CiResultArtifact = z.infer<typeof CiResultArtifact>;
 
