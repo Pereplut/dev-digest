@@ -92,4 +92,4 @@ exempt by construction. What it deliberately does not check is in its own docstr
 | [0018-pr-brief](0018-pr-brief.md) | in-progress | server, client, e2e |
 | [0019-evals](0019-evals.md) | done | server, client, reviewer-core |
 | [0020-eval-compare](0020-eval-compare.md) | approved | server, client |
-| [0021-multi-agent-review](0021-multi-agent-review.md) (lesson brief: `specs/multi-agent-review.md`) | approved | server, client |
+| [0021-multi-agent-review](0021-multi-agent-review.md) (lesson brief: `specs/multi-agent-review.md`) | in-progress | server, client |

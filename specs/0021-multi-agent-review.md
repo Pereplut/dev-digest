@@ -1,6 +1,6 @@
 ---
 title: Multi-Agent Review — parallel fan-out, grouped findings, "where agents disagree"
-status: approved
+status: in-progress
 packages: [server, client]
 ---
 
@@ -414,6 +414,6 @@ beforehand.
 |---|---|---|
 | Initiation | 2026-10-15 | mockups + brief read; 1 researcher (CI, handed off) + 2 Explore runs (upstream cf47df3, local state) before the spec |
 | Planning | 2026-10-15 | spec-creator (first write blocked by spec-scope-gate on worktrees → fixed in PR #24); 44 ACs; approved by the user. implementation-planner → `0021-multi-agent-review.plan.md`; user then amended: one `latest` route (AC-13/27/29), "Select all" in the PR picker (AC-24), server tests in `server/test/` (plan D5), `FindingCard` imported in place, AC-44 1-agent group counts "n/a" |
-| Implementation | | |
-| Validation | | typecheck · lint · tests · e2e · manual |
+| Implementation | 2026-10-15 | 2 sequential implementers: server S1–S11 (a537005; 702 unit tests, migration 0025 generated) and client S12–S22 (483fce7; 515 client tests). Spec in-progress |
+| Validation | 2026-10-15 | plan-verifier clean (113 items, 0 Missing / 0 Contradicted); architecture-reviewer 0 CRITICAL, 2 WARNING — `FindingCard` cross-route import kept (user decision Q2), `columnMeta` lifted to `app/multi-agent-review/helpers.ts`; `pnpm arch` 0 errors in the worktree. **User-owned, pending:** `pnpm db:migrate`, `.it.test` lane, `./scripts/e2e.sh`, dev-app check, AC-44 measurement, `/pr-self-review` |
 | Completion | | status done, docs, insights wrap-up |

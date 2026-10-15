@@ -9,7 +9,7 @@ import { CircularScore } from "@/components/ui-client";
 import { formatCost, formatSeconds } from "@/lib/utils/multiAgentEstimate";
 import type { AgentColumn } from "@devdigest/shared";
 import { AttributedFinding } from "../AttributedFinding";
-import { columnMeta } from "../ColumnsView/helpers";
+import { columnMeta } from "../../helpers";
 import { s } from "./styles";
 
 export function TabsView({

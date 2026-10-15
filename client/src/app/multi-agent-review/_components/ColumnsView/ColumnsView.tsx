@@ -7,7 +7,8 @@ import { useTranslations } from "next-intl";
 import { Badge, CircularScore, SeverityBadge } from "@/components/ui-client";
 import { formatCost, formatSeconds } from "@/lib/utils/multiAgentEstimate";
 import type { AgentColumn } from "@devdigest/shared";
-import { STATUS_COLOR, columnMeta } from "./helpers";
+import { columnMeta } from "../../helpers";
+import { STATUS_COLOR } from "./helpers";
 import { s } from "./styles";
 
 export function ColumnsView({
