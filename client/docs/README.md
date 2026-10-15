@@ -10,3 +10,4 @@ planned work goes in [`../specs/`](../specs/README.md).
 | [`run-cost-ui.md`](run-cost-ui.md) | `RunCostBadge` states and where the PR list, Timeline and trace drawer read cost from |
 | [`pr-brief-ui.md`](pr-brief-ui.md) | The PR Brief block: why the envelope's snapshot is never rendered, how `summary` avoids rendering twice, and the review-focus deep link into Files changed |
 | [`evals-ui.md`](evals-ui.md) | "Turn into eval case" on `FindingCard`, and the Agent editor's Evals tab: the latest-vs-latest-completed batch split, reusing the review SSE stream, and the stream-completion refetch |
+| [`multi-agent-review-ui.md`](multi-agent-review-ui.md) | The agent picker, `/multi-agent-review` landing, Configure run and results page: polling plus SSE refetch, the `latest` query-key rules, estimates, the shared trace drawer and the in-place `FindingCard` import |

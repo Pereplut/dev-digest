@@ -3,17 +3,24 @@
  * (spec 0021, AC-16..AC-22). Pure: imports only `@devdigest/shared` types — no
  * DB, no `this`, no clock — so it unit-tests without Postgres.
  *
- * Two findings share a group exactly when they are on the same file and their
- * line ranges, each widened by TOLERANCE lines, overlap (transitively). That
- * relation is computed by sorting and sweeping — O(F log F) — rather than by
- * pairwise union-find (O(F²)), which would miss the 500-finding time bound.
- * The output depends only on the SET of inputs: every tie is broken down to
- * the finding id, and takes are ordered inside this function.
+ * Two findings are linked when they are on the same file, their line ranges,
+ * each widened by TOLERANCE lines, overlap, AND neither range is more than
+ * MAX_LENGTH_RATIO times longer than the other. Groups are the connected
+ * components of that relation. The ratio keeps a file-wide finding ("all routes
+ * lack auth", lines 9-64) from swallowing every narrow finding inside it — on
+ * PR #6 it had merged 9 unrelated findings into one group.
+ * Linking is pairwise but pruned by start order (a finding is compared only with
+ * those starting before its widened end), so 500 findings stay well under the
+ * time bound. The output depends only on the SET of inputs: every tie is broken
+ * down to the finding id, and takes are ordered inside this function.
  */
 import type { Conflict, ConflictTake, Severity } from '@devdigest/shared';
 
 /** Each range is widened by this many lines on both sides before overlap is tested. */
 const TOLERANCE = 2;
+
+/** Two linked ranges differ in length by at most this factor. */
+const MAX_LENGTH_RATIO = 3;
 
 const SEVERITY_RANK: Record<Severity, number> = { CRITICAL: 0, WARNING: 1, SUGGESTION: 2 };
 
@@ -90,22 +97,33 @@ export function groupFindings(columns: GroupingColumn[]): Conflict[] {
 
   entries.sort((a, b) => cmp(a.file, b.file) || a.start - b.start || a.end - b.end || cmp(a.id, b.id));
 
-  const groups: Entry[][] = [];
-  let current: Entry[] = [];
-  let maxEnd = 0;
-  for (const e of entries) {
-    const last = current[0];
-    // Widened ranges overlap iff e.start - T <= maxEnd + T (sorted by start).
-    if (last && last.file === e.file && e.start - TOLERANCE <= maxEnd + TOLERANCE) {
-      current.push(e);
-      if (e.end > maxEnd) maxEnd = e.end;
-    } else {
-      if (current.length > 0) groups.push(current);
-      current = [e];
-      maxEnd = e.end;
+  // Union-find over pairwise links; `parent` indexes into the sorted entries.
+  const parent = entries.map((_, i) => i);
+  const find = (i: number): number => {
+    while (parent[i] !== i) i = parent[i] = parent[parent[i]!]!;
+    return i;
+  };
+  const length = (e: Entry) => e.end - e.start + 1;
+  for (let i = 0; i < entries.length; i++) {
+    const a = entries[i]!;
+    for (let j = i + 1; j < entries.length; j++) {
+      const b = entries[j]!;
+      // Sorted by (file, start): once b starts past a's widened end, nothing later can link.
+      if (b.file !== a.file || b.start - TOLERANCE > a.end + TOLERANCE) break;
+      const [short, long] = length(a) <= length(b) ? [length(a), length(b)] : [length(b), length(a)];
+      if (long <= MAX_LENGTH_RATIO * short) parent[find(j)] = find(i);
     }
   }
-  if (current.length > 0) groups.push(current);
+
+  // Components in order of their first (lowest-sorted) member.
+  const byRoot = new Map<number, Entry[]>();
+  entries.forEach((e, i) => {
+    const root = find(i);
+    const members = byRoot.get(root);
+    if (members) members.push(e);
+    else byRoot.set(root, [e]);
+  });
+  const groups = [...byRoot.values()];
 
   return groups.map((members) => {
     const top = topOf(members);
@@ -136,7 +154,9 @@ export function groupFindings(columns: GroupingColumn[]): Conflict[] {
       start_line: members[0]!.start,
       end_line: members.reduce((m, e) => (e.end > m ? e.end : m), members[0]!.end),
       title: top.title,
-      divergent: new Set(takes.map((t) => t.verdict)).size > 1,
+      // Agents that flagged the group disagree on severity. "Did not flag" is not a
+      // conflict: with specialised agents nearly every group has a silent one.
+      divergent: new Set(takes.filter((t) => t.verdict !== 'ignored').map((t) => t.verdict)).size > 1,
       takes,
     };
   });

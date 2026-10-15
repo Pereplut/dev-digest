@@ -438,3 +438,21 @@ Extends: "Parallel agent shell calls share one working directory"
 **Insight:** `.env` files are gitignored, so a new worktree has none, and `migrate.ts` reads only `process.env.DATABASE_URL`. `db:generate` works without it, because drizzle-kit only diffs the schema files. Agents are denied reading or copying the main checkout's `.env`. The container's own settings are enough to build the URL: the `devdigest-postgres` container is published on host port 5433.
 **Apply:** in a worktree, run `DATABASE_URL="$(docker exec devdigest-postgres sh -c 'printf "postgres://%s:%s@localhost:5433/%s" "$POSTGRES_USER" "$POSTGRES_PASSWORD" "$POSTGRES_DB"')" pnpm db:migrate`, which never prints the password. To run the whole stack from a worktree, have the user copy `server/.env` themselves.
 **Evidence:** `server/src/db/migrate.ts:38-40`; observed 2026-10-15 (first attempt exited 1; the second applied 0026, and `drizzle.__drizzle_migrations` went from 26 to 27 rows).
+
+### 2026-10-15 — [measured] Resuming pr-self-review reviewers with `--since` saves tool calls and time, not tokens
+**Context:** spec 0021, 143 files / 21 shards. Round 1 (fresh agents): 59k–104k tokens and 5–16 tool calls per shard, ~1.71M total. Round 2 resumed the 16 shards whose files changed, via `SendMessage` + `show <ID> --since 811cb19`.
+**Insight:** round 2 cost 61k–111k tokens per shard (~1.43M total) with only 2–3 tool calls and 9–35 s each. A resumed agent is re-billed its whole prior context, so a delta round costs about the same tokens as the first; the saving is reading work and wall-clock.
+**Apply:** budget a re-review round at ~85% of the first round's tokens. To cut tokens, shrink the number of touched shards (batch fixes into fewer files) rather than relying on resume. Extends: "`show --since` can only delta against a COMMIT, so commit each reviewed round".
+**Evidence:** `.claude/skills/pr-self-review/SKILL.md:74` (the resume rule); per-agent `<usage>` rows in `.claude/.retro/27d2f66d-9b23-4c9c-aaec-34d2d7b13657.runs.jsonl` (orders 13–14).
+
+### 2026-10-15 — [dep] A fresh `git worktree` needs three manual bootstrap steps an agent cannot do alone
+**Context:** lesson-7 feature worktrees (`../devdigest-review`) created with `git worktree add`, then migrated and e2e-tested from an agent session.
+**Insight:** (1) `server/.env` is untracked, and `.claude/settings.json:30-31` deny agents `Read(./**/.env)`, so `cp` of the main checkout's `.env` is refused — `pnpm db:migrate` fails with `DATABASE_URL is required` until the user copies it. (2) `scripts/e2e.sh:188` runs `cd e2e && npm test` without installing `e2e/` deps — run `cd e2e && npm ci` first. (3) Per-package deps (`server`, `client`, `reviewer-core`) are not shared with the main checkout.
+**Apply:** after `git worktree add`, have the user run `! cp <main>/server/.env <worktree>/server/.env`; the agent installs `server`/`client` (pnpm), `reviewer-core`/`e2e` (`npm ci`). The `.it.test` lane needs neither `.env` nor the dev DB (testcontainers).
+**Evidence:** `.claude/settings.json:30-31`, `scripts/e2e.sh:188`; `DATABASE_URL is required` from `pnpm db:migrate` in the worktree.
+
+### 2026-10-15 — [tool] `docker compose -f docker-compose.yml up -d` silently drops the local override and moves Postgres to 5432
+**Context:** starting the dev DB with an explicit `-f` from another directory; the container was "Recreated" and published `5432:5432` instead of `5433`.
+**Insight:** an explicit `-f` disables compose's automatic `docker-compose.override.yml` merge. This clone's untracked override (`ports: !override ["5433:5432"]`, because another project owns 5432) was skipped, so the recreated container moved to 5432 while `server/.env` still points at 5433. The named volume survives the recreate, so no data is lost.
+**Apply:** start the DB from the repo root with plain `docker compose up -d` (no `-f`), or pass both files (`-f docker-compose.yml -f docker-compose.override.yml`). Never `down -v`.
+**Evidence:** `docker-compose.yml:12-13` (the base `5432:5432` mapping); `docker ps` showed `0.0.0.0:5432->5432` after the `-f` run and `0.0.0.0:5433->5432` after `docker compose up -d`.
