@@ -1,0 +1,72 @@
+# agent-runner suite — the CI runner Export to CI ships into a target repo
+# (@devdigest/agent-runner). Hermetic units (LLM and GitHub stubbed), plus an
+# ncc build so a bundling break surfaces here, not in someone else's Actions.
+#
+# reviewer-core/src/** and server/src/vendor/shared/** are in the path filter:
+# agent-runner aliases both as raw source, and ncc inlines them into the bundle.
+name: agent-runner
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'agent-runner/**'
+      - 'reviewer-core/src/**'
+      - 'server/src/vendor/shared/**'
+      - '.github/workflows/agent-runner.yml'
+  pull_request:
+    paths:
+      - 'agent-runner/**'
+      - 'reviewer-core/src/**'
+      - 'server/src/vendor/shared/**'
+      - '.github/workflows/agent-runner.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-runner-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent-runner
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # pnpm is only for the server install below (server/ is a pnpm package).
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            agent-runner/package-lock.json
+            reviewer-core/package-lock.json
+
+      - run: npm ci
+
+      # The path aliases resolve shared/reviewer-core imports (`zod`, `openai`)
+      # from THOSE packages' node_modules, not from agent-runner's — the
+      # importing file's ancestors are searched, and agent-runner is a sibling.
+      # Without these two installs tsc fails with TS2307 (see INSIGHTS.md).
+      - name: Install server deps (for @devdigest/shared -> zod)
+        working-directory: server
+        run: pnpm install --frozen-lockfile
+
+      - name: Install reviewer-core deps
+        working-directory: reviewer-core
+        run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm test
+
+      - run: npm run build
