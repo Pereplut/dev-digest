@@ -1,6 +1,6 @@
 ---
 title: Export to CI — run a tuned agent on every pull request in GitHub Actions
-status: in-progress
+status: done
 packages: [agent-runner, server, client]
 ---
 
@@ -647,5 +647,5 @@ At Completion, the implementing session reports, per PR (runner, feature):
 | Initiation | 2026-10-15 | 3 researcher runs (upstream agent-runner, upstream 0574487 reference, local scaffold); INSIGHTS routed |
 | Planning | 2026-10-15 | spec-creator draft + 3 rounds of user decisions; approved by the user 2026-10-15 |
 | Implementation | 2026-10-15 | W1 runner (I1, took over the 0021 session's staged port), W2 server+client in parallel (I2, I3); wiring checklist clean; migration deferred until after the 0021 rebase |
-| Validation | 2026-10-15 (partial) | plan-verifier 138 Met / 0 Missing; architecture-reviewer clean (1 suggestion, kept); test-writer TW-1..TW-5 green (runner 38, server 732, client 487). Pending (user): migration, .it.test lane, e2e, manual GHA walk, /pr-self-review |
-| Completion | | status done, docs, insights wrap-up |
+| Validation | 2026-10-15 | plan-verifier 138 Met / 0 Missing; architecture-reviewer clean (1 suggestion, kept); test-writer TW-1..TW-5 green (runner 38, server 732, client 487). Migration 0026 generated after the 0021 rebase (add-only) and applied. /pr-self-review on PR 2: 16 reviewers, 3 rounds; round 1 had 13 WARNINGs (incl. fork-run artifact forgery), all fixed (implementer + test-writer, +44 tests); final 0 CRITICAL / 0 WARNING / 33 SUGGESTION; server 791, client 556. Not run by an agent (user-owned): .it.test lane, e2e, manual GHA walk on a demo fork |
+| Completion | 2026-10-15 | PR 1 #25 (5506265) and PR 2 #28 (8cf8b28) merged. Final plan-verifier: 140/140 Met, 0 Missing/Partial/Contradicted → status done. Known limitation: a runner error entry with `agent: null` (hard failure before a manifest loads) is not ingested, because AC-51 needs the agent name to match. Docs by doc-writer; INSIGHTS entries in agent-runner, server and root |
