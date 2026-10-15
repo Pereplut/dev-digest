@@ -50,4 +50,29 @@ export const s = {
   }),
   empty: { fontSize: 13, color: "var(--text-muted)", padding: "12px 0" } satisfies CSSProperties,
   confirmFooter: { display: "flex", justifyContent: "flex-end", gap: 8 } satisfies CSSProperties,
+  // spec 0020 — the per-agent dashboard + recent-runs table.
+  dashboardSection: {
+    marginTop: 28,
+    paddingTop: 20,
+    borderTop: "1px solid var(--border)",
+    display: "flex",
+    flexDirection: "column",
+    gap: 14,
+  } satisfies CSSProperties,
+  h3: { fontSize: 15, fontWeight: 700 } satisfies CSSProperties,
+  alertBanner: {
+    padding: "10px 14px",
+    borderRadius: 7,
+    background: "var(--crit-bg)",
+    color: "var(--crit)",
+    fontSize: 13,
+    fontWeight: 600,
+  } satisfies CSSProperties,
+  trendNote: { fontSize: 12, color: "var(--text-muted)" } satisfies CSSProperties,
+  recentRunsHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  } satisfies CSSProperties,
 } as const;

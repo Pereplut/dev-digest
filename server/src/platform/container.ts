@@ -36,6 +36,7 @@ import { AstGrepParser } from '../adapters/astgrep/index.js';
 import type { ArchiveReader } from '../adapters/archive/port.js';
 import { FflateArchiveReader } from '../adapters/archive/index.js';
 import { SkillsRepository } from '../modules/skills/repository/skill.repo.js';
+import { EvalBatchRepository } from '../modules/evals/repository/eval-batch.repo.js';
 
 /**
  * DI container. One per app instance. Holds config, db, the JobRunner,
@@ -84,6 +85,7 @@ export class Container {
   private _agentsRepo?: AgentsRepository;
   private _reviewRepo?: ReviewRepository;
   private _skillsRepo?: SkillsRepository;
+  private _evalBatchRepo?: EvalBatchRepository;
   private _archiveReader?: ArchiveReader;
   private _repoIntel?: RepoIntel;
   private _depgraph?: DepGraph;
@@ -117,6 +119,20 @@ export class Container {
   /** Skills (spec 0006) — the run executor reads an agent's enabled skills here. */
   get skillsRepo(): SkillsRepository {
     return (this._skillsRepo ??= new SkillsRepository(this.db));
+  }
+
+  /**
+   * spec 0020 `## Decisions I settled` #1 — the escape hatch `no-cross-
+   * module-internals` names in its own comment (`.dependency-cruiser.cjs:91`,
+   * "Use the container"). `modules/agents/service.ts`'s promote guard
+   * (AC-34) needs to know whether a sweep is live for the agent; that is one
+   * SELECT on a table `evals` owns, not an external system, so it is a
+   * container getter rather than a new ring-2 port — a port would be the only
+   * one in this codebase fronting a local table. `modules/agents/` imports
+   * nothing from `modules/evals/` as a result; it reads this getter instead.
+   */
+  get evalBatchRepo(): EvalBatchRepository {
+    return (this._evalBatchRepo ??= new EvalBatchRepository(this.db));
   }
 
   /** Zip reader for skill imports: in-memory, never touches disk, never executes. */

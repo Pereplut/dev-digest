@@ -8,3 +8,4 @@ repair, map-reduce, ADRs (`adr/NNNN-title.md`). The pipeline overview stays in
 |---|---|
 | [`cost-aggregation.md`](cost-aggregation.md) | Per-call `costUsd` (OpenRouter `usage.cost` / injected estimator) summed per run; one unpriced call → null |
 | [`grounding.md`](grounding.md) | `groundFindings()` drops findings off the diff; the score is recomputed from survivors |
+| [`eval-scoring.md`](eval-scoring.md) | `scoreEvalCase`: the shared `rangesIntersect` matcher, why `must_not_flag` inverts precision, and the zero-denominator rule |

@@ -9,12 +9,20 @@ import { describe, it, expect } from "vitest";
 import {
   EvalBatchRecord as ServerEvalBatchRecord,
   EvalRunRecord as ServerEvalRunRecord,
+  EvalTrendPoint as ServerEvalTrendPoint,
+  EvalDashboard as ServerEvalDashboard,
+  EvalRunComparison as ServerEvalRunComparison,
+  EvalPromoteResult as ServerEvalPromoteResult,
 } from "../../../server/src/vendor/shared/contracts/eval-ci";
 import { EvalCase as ServerEvalCase } from "../../../server/src/vendor/shared/contracts/knowledge";
 
 import {
   EvalBatchRecord as ClientEvalBatchRecord,
   EvalRunRecord as ClientEvalRunRecord,
+  EvalTrendPoint as ClientEvalTrendPoint,
+  EvalDashboard as ClientEvalDashboard,
+  EvalRunComparison as ClientEvalRunComparison,
+  EvalPromoteResult as ClientEvalPromoteResult,
 } from "../vendor/shared/contracts/eval-ci";
 import { EvalCase as ClientEvalCase } from "../vendor/shared/contracts/knowledge";
 
@@ -42,6 +50,7 @@ describe("eval contract parity: server vs client vendored copies (spec 0019, AC-
     cases_passed: 4,
     duration_ms: 12000,
     cost_usd: 0.000456,
+    metrics_version: 2,
   };
 
   const { agent_id: _agentId, ...batchMissingAgentId } = validBatch;
@@ -51,6 +60,10 @@ describe("eval contract parity: server vs client vendored copies (spec 0019, AC-
     { label: "unknown status member", value: { ...validBatch, status: "paused" } },
     { label: "wrong type for cases_total", value: { ...validBatch, cases_total: "five" } },
     { label: "missing required field", value: batchMissingAgentId },
+    { label: "missing metrics_version (spec 0020)", value: (() => {
+      const { metrics_version: _mv, ...rest } = validBatch;
+      return rest;
+    })() },
   ];
 
   it.each(batchFixtures)("EvalBatchRecord: $label parses identically in both copies", ({ value }) => {
@@ -93,6 +106,141 @@ describe("eval contract parity: server vs client vendored copies (spec 0019, AC-
     const server = ServerEvalCase.safeParse(value);
     const client = ClientEvalCase.safeParse(value);
     expect(client.success).toBe(server.success);
+  });
+
+  /**
+   * Spec 0020, S2: the client's `EvalTrendPoint`, `EvalDashboard`,
+   * `EvalRunComparison` and `EvalPromoteResult` mirror the server's, field-for-
+   * field — AC-10. `EvalRunComparison`/`EvalPromoteResult` are new exports in
+   * both copies, so "parity" here means both copies agree on every fixture,
+   * not that either one is independently correct (that is contracts-eval's job).
+   */
+  const validTrendPoint = {
+    ran_at: "2026-10-07T00:00:00.000Z",
+    recall: null,
+    precision: 0.5,
+    citation_accuracy: 1,
+    pass_rate: 0.5,
+    cost_usd: 0.0001,
+  };
+  const trendPointFixtures: { label: string; value: unknown }[] = [
+    { label: "valid, with a null metric", value: validTrendPoint },
+    { label: "valid, no null metric", value: { ...validTrendPoint, recall: 0.9 } },
+    { label: "wrong type for recall", value: { ...validTrendPoint, recall: "0.8" } },
+    { label: "missing pass_rate", value: (() => {
+      const { pass_rate: _pr, ...rest } = validTrendPoint;
+      return rest;
+    })() },
+    { label: "unknown extra field (strips, does not reject)", value: { ...validTrendPoint, bogus: 1 } },
+  ];
+  it.each(trendPointFixtures)("EvalTrendPoint: $label parses identically in both copies", ({ value }) => {
+    expect(ClientEvalTrendPoint.safeParse(value).success).toBe(
+      ServerEvalTrendPoint.safeParse(value).success,
+    );
+  });
+
+  const validDashboard = {
+    owner_kind: "agent",
+    owner_id: "agent-1",
+    cases_total: 5,
+    current: {
+      recall: null,
+      precision: 0.5,
+      citation_accuracy: 1,
+      traces_passed: 2,
+      traces_total: 5,
+      cost_usd: 0.001,
+    },
+    delta: { recall: null, precision: 0.1, citation_accuracy: 0 },
+    trend: [],
+    recent_runs: [validBatch],
+    alert: null,
+    trend_excluded: { other_version: 0, incomplete_metrics: 0 },
+  };
+  const dashboardFixtures: { label: string; value: unknown }[] = [
+    { label: "valid, all-null metrics", value: {
+      ...validDashboard,
+      current: { ...validDashboard.current, recall: null, precision: null, citation_accuracy: null },
+      delta: { recall: null, precision: null, citation_accuracy: null },
+    } },
+    { label: "valid, recent_runs holds batches", value: validDashboard },
+    { label: "negative trend_excluded.other_version", value: {
+      ...validDashboard,
+      trend_excluded: { other_version: -1, incomplete_metrics: 0 },
+    } },
+    { label: "recent_runs holding an EvalRunRecord instead of a batch", value: {
+      ...validDashboard,
+      recent_runs: [{ id: "r1", case_id: "c1", ran_at: "2026-10-07T00:00:00.000Z", actual_output: {}, pass: true, recall: 1, precision: 1, citation_accuracy: 1, duration_ms: 1, cost_usd: 1 }],
+    } },
+    { label: "missing trend_excluded", value: (() => {
+      const { trend_excluded: _te, ...rest } = validDashboard;
+      return rest;
+    })() },
+  ];
+  it.each(dashboardFixtures)("EvalDashboard: $label parses identically in both copies", ({ value }) => {
+    expect(ClientEvalDashboard.safeParse(value).success).toBe(
+      ServerEvalDashboard.safeParse(value).success,
+    );
+  });
+
+  const validComparison = {
+    old: validBatch,
+    new: { ...validBatch, id: "b2", agent_version: 3 },
+    old_config: null,
+    new_config: null,
+    comparable: false,
+    incomparable_reason: "metrics_version_mismatch",
+    delta: { recall: null, precision: null, citation_accuracy: null, cost_usd: 0.002 },
+  };
+  const comparisonFixtures: { label: string; value: unknown }[] = [
+    { label: "valid, incomparable with null configs", value: validComparison },
+    { label: "valid, comparable with numeric deltas", value: {
+      ...validComparison,
+      comparable: true,
+      incomparable_reason: null,
+      delta: { recall: 0.1, precision: 0.1, citation_accuracy: 0, cost_usd: 0.002 },
+    } },
+    { label: "comparable as a string", value: { ...validComparison, comparable: "false" } },
+    { label: "missing old", value: (() => {
+      const { old: _old, ...rest } = validComparison;
+      return rest;
+    })() },
+    { label: "delta.recall as a string", value: {
+      ...validComparison,
+      delta: { ...validComparison.delta, recall: "0.1" },
+    } },
+  ];
+  it.each(comparisonFixtures)("EvalRunComparison: $label parses identically in both copies", ({ value }) => {
+    expect(ClientEvalRunComparison.safeParse(value).success).toBe(
+      ServerEvalRunComparison.safeParse(value).success,
+    );
+  });
+
+  const validAgent = {
+    id: "agent-1",
+    name: "Agent",
+    description: "",
+    provider: "openai",
+    model: "gpt-4.1",
+    system_prompt: "review carefully",
+    enabled: true,
+    version: 3,
+  };
+  const validPromoteResult = { agent: validAgent, version: 3, skills_not_restored: [] };
+  const promoteResultFixtures: { label: string; value: unknown }[] = [
+    { label: "valid, nothing unrestored", value: validPromoteResult },
+    { label: "valid, two skills unrestored", value: { ...validPromoteResult, skills_not_restored: ["s1", "s2"] } },
+    { label: "missing agent", value: (() => {
+      const { agent: _agent, ...rest } = validPromoteResult;
+      return rest;
+    })() },
+    { label: "version as a string", value: { ...validPromoteResult, version: "3" } },
+    { label: "skills_not_restored holding a number", value: { ...validPromoteResult, skills_not_restored: [1] } },
+  ];
+  it.each(promoteResultFixtures)("EvalPromoteResult: $label parses identically in both copies", ({ value }) => {
+    expect(ClientEvalPromoteResult.safeParse(value).success).toBe(
+      ServerEvalPromoteResult.safeParse(value).success,
+    );
   });
 
   /**

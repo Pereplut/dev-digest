@@ -31,6 +31,8 @@ export interface InsertQueuedBatch {
   agentId: string;
   agentVersion: number;
   casesTotal: number;
+  /** spec 0020 AC-3 — the caller passes `EVAL_METRICS_VERSION`, never a literal. */
+  metricsVersion: number;
 }
 
 export interface CompleteTerminalValues {
@@ -79,6 +81,7 @@ export class EvalBatchRepository {
           agentVersion: values.agentVersion,
           status: 'queued',
           casesTotal: values.casesTotal,
+          metricsVersion: values.metricsVersion,
         })
         .returning();
       return row!;
@@ -179,6 +182,49 @@ export class EvalBatchRepository {
         and(eq(t.evalRunBatches.ownerId, ownerId), inArray(t.evalRunBatches.status, [...LIVE_STATUSES])),
       );
     return row !== undefined;
+  }
+
+  /**
+   * spec 0020 AC-34 — whether a `queued`/`running` batch exists for this
+   * AGENT, keyed on `agent_id` rather than `owner_id` (server/INSIGHTS.md —
+   * `hasLiveBatch` above is owner-keyed so a future skill-owned batch still
+   * blocks the right owner; promote's guard is specifically about THIS
+   * agent's config changing underneath a live sweep, so it must key on
+   * `agent_id` even once a batch can be owned by a skill). Consumed only
+   * through `Container.evalBatchRepo` (spec 0020 `## Decisions I settled` #1)
+   * — `modules/agents/` never imports this repository directly.
+   */
+  async hasLiveBatchForAgent(agentId: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: t.evalRunBatches.id })
+      .from(t.evalRunBatches)
+      .where(
+        and(eq(t.evalRunBatches.agentId, agentId), inArray(t.evalRunBatches.status, [...LIVE_STATUSES])),
+      );
+    return row !== undefined;
+  }
+
+  /**
+   * spec 0020 AC-20/AC-21 — both named batches, scoped to the workspace AND
+   * this agent, in one `inArray` query. A batch that belongs to a different
+   * agent or a different workspace simply does not come back, so the caller
+   * can tell "found both" from "found one or zero" without a second query.
+   */
+  async getPairScoped(
+    workspaceId: string,
+    agentId: string,
+    ids: [string, string],
+  ): Promise<EvalRunBatchRow[]> {
+    return this.db
+      .select()
+      .from(t.evalRunBatches)
+      .where(
+        and(
+          eq(t.evalRunBatches.workspaceId, workspaceId),
+          eq(t.evalRunBatches.agentId, agentId),
+          inArray(t.evalRunBatches.id, ids),
+        ),
+      );
   }
 
   /** One case's execution within a batch (AC-41). */

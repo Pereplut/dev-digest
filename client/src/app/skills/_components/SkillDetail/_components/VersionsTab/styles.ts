@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import type { DiffKind } from "./helpers";
+import type { DiffKind } from "@/lib/text-diff";
 
 const DIFF_BG: Record<DiffKind, string> = { add: "var(--ok-bg)", del: "var(--crit-bg)", same: "transparent" };
 const DIFF_FG: Record<DiffKind, string> = {

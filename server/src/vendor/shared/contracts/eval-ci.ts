@@ -1,6 +1,15 @@
 import { z } from 'zod';
 import { Verdict, Finding } from './findings.js';
-import { EvalRun, EvalOwnerKind, EvalExpectationKind, Conformance, Provider, CiFailOn } from './knowledge.js';
+import {
+  EvalRun,
+  EvalOwnerKind,
+  EvalExpectationKind,
+  Conformance,
+  Provider,
+  CiFailOn,
+  Agent,
+  AgentVersionConfig,
+} from './knowledge.js';
 
 /**
  * A4 — Eval / CI / Compose / Conformance API contracts (L06).
@@ -53,41 +62,6 @@ export const EvalRunResult = z.object({
 });
 export type EvalRunResult = z.infer<typeof EvalRunResult>;
 
-/** One point on the dashboard trend (per run, chronological). */
-export const EvalTrendPoint = z.object({
-  ran_at: z.string(),
-  recall: z.number(),
-  precision: z.number(),
-  citation_accuracy: z.number(),
-  pass_rate: z.number(),
-  cost_usd: z.number().nullable(),
-});
-export type EvalTrendPoint = z.infer<typeof EvalTrendPoint>;
-
-/** Aggregate dashboard for an owner (agent/skill) or the whole workspace. */
-export const EvalDashboard = z.object({
-  owner_kind: EvalOwnerKind.nullable(),
-  owner_id: z.string().nullable(),
-  cases_total: z.number().int(),
-  current: z.object({
-    recall: z.number(),
-    precision: z.number(),
-    citation_accuracy: z.number(),
-    traces_passed: z.number().int(),
-    traces_total: z.number().int(),
-    cost_usd: z.number().nullable(),
-  }),
-  delta: z.object({
-    recall: z.number(),
-    precision: z.number(),
-    citation_accuracy: z.number(),
-  }),
-  trend: z.array(EvalTrendPoint),
-  recent_runs: z.array(EvalRunRecord),
-  alert: z.string().nullable(),
-});
-export type EvalDashboard = z.infer<typeof EvalDashboard>;
-
 // ===========================================================================
 // Eval — batch run (spec 0019)
 // ===========================================================================
@@ -119,8 +93,52 @@ export const EvalBatchRecord = z.object({
   cases_passed: z.number().int(),
   duration_ms: z.number().int().nullable(),
   cost_usd: z.number().nullable(),
+  /** Which formula produced `recall`/`precision`/`citation_accuracy` (AC-1 – AC-3) —
+   * added additively (AC-4) so a cross-formula delta is refusable rather than silent. */
+  metrics_version: z.number().int(),
 });
 export type EvalBatchRecord = z.infer<typeof EvalBatchRecord>;
+
+/** One point on the dashboard trend (per run, chronological). */
+export const EvalTrendPoint = z.object({
+  ran_at: z.string(),
+  recall: z.number().nullable(),
+  precision: z.number().nullable(),
+  citation_accuracy: z.number().nullable(),
+  pass_rate: z.number(),
+  cost_usd: z.number().nullable(),
+});
+export type EvalTrendPoint = z.infer<typeof EvalTrendPoint>;
+
+/** Aggregate dashboard for an owner (agent/skill) or the whole workspace. */
+export const EvalDashboard = z.object({
+  owner_kind: EvalOwnerKind.nullable(),
+  owner_id: z.string().nullable(),
+  cases_total: z.number().int(),
+  current: z.object({
+    recall: z.number().nullable(),
+    precision: z.number().nullable(),
+    citation_accuracy: z.number().nullable(),
+    traces_passed: z.number().int(),
+    traces_total: z.number().int(),
+    cost_usd: z.number().nullable(),
+  }),
+  delta: z.object({
+    recall: z.number().nullable(),
+    precision: z.number().nullable(),
+    citation_accuracy: z.number().nullable(),
+  }),
+  trend: z.array(EvalTrendPoint),
+  recent_runs: z.array(EvalBatchRecord),
+  alert: z.string().nullable(),
+  /** Counts of `done` batches the trend omitted — AC-82/AC-83 — so the client
+   * can report the exclusion without re-deriving it from `trend`/`recent_runs`. */
+  trend_excluded: z.object({
+    other_version: z.number().int().nonnegative(),
+    incomplete_metrics: z.number().int().nonnegative(),
+  }),
+});
+export type EvalDashboard = z.infer<typeof EvalDashboard>;
 
 /** Body of `POST /eval-cases` — turn one finding into an eval case. */
 export const EvalCaseFromFindingInput = z.object({
@@ -159,6 +177,53 @@ export const EvalBatchDetail = z.object({
   runs: z.array(EvalRunRecord),
 });
 export type EvalBatchDetail = z.infer<typeof EvalBatchDetail>;
+
+/**
+ * The closed set of reasons `comparable` can be `false` (AC-89, AC-90).
+ * A contract enum, not a bare string, so a third reason code is a compile
+ * error on BOTH sides of the barrel rather than a silent string that each
+ * side's own private union has to be kept in sync with by hand — which is
+ * exactly how AC-90 shipped broken earlier today (`server/INSIGHTS.md`
+ * 2026-10-08): a second code was added here, the client's hand-rolled copy
+ * of the union didn't know about it, both sides compiled, and the new case
+ * fell into a generic bucket until a reviewer caught it.
+ */
+export const IncomparableReason = z.enum(['metrics_version_mismatch', 'metrics_version_unrecorded']);
+export type IncomparableReason = z.infer<typeof IncomparableReason>;
+
+/**
+ * Response of `GET /agents/:id/eval-runs/compare` — two batches ordered old → new
+ * by `ran_at`, each side's agent-version config snapshot (`null` when absent or
+ * unparseable), and a per-metric delta withheld (`null`) when `comparable` is
+ * `false` — AC-8, AC-20, AC-24 – AC-26, AC-86.
+ */
+export const EvalRunComparison = z.object({
+  old: EvalBatchRecord,
+  new: EvalBatchRecord,
+  old_config: AgentVersionConfig.nullable(),
+  new_config: AgentVersionConfig.nullable(),
+  comparable: z.boolean(),
+  incomparable_reason: IncomparableReason.nullable(),
+  delta: z.object({
+    recall: z.number().nullable(),
+    precision: z.number().nullable(),
+    citation_accuracy: z.number().nullable(),
+    cost_usd: z.number().nullable(),
+  }),
+});
+export type EvalRunComparison = z.infer<typeof EvalRunComparison>;
+
+/**
+ * Response of `POST /agents/:id/versions/:version/promote` — the agent as it now
+ * stands, its new version number, and the ids the promoted snapshot named that
+ * the resulting version does not carry, for any reason (AC-9, AC-32, AC-87, AC-88).
+ */
+export const EvalPromoteResult = z.object({
+  agent: Agent,
+  version: z.number().int(),
+  skills_not_restored: z.array(z.string()),
+});
+export type EvalPromoteResult = z.infer<typeof EvalPromoteResult>;
 
 // ===========================================================================
 // Compose Review

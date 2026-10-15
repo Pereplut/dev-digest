@@ -17,12 +17,17 @@ import { toEvalBatchRecordDto, toEvalCaseDto, toEvalRunRecordDto } from './helpe
  *   GET    /agents/:id/eval-runs           → an agent's batches, newest first
  *   GET    /eval-runs/:batchId             → one batch + its per-case runs
  *   POST   /eval-runs/:batchId/cancel      → cancel a live batch
+ *   GET    /agents/:id/eval-dashboard       → per-agent dashboard (spec 0020)
+ *   GET    /agents/:id/eval-runs/compare    → compare two of this agent's batches (spec 0020)
  *
  * Progress streams over the EXISTING `GET /runs/:id/events` (reviews module) —
  * a batch id is just another id to that route, which does no DB lookup. No new
  * SSE route here (spec 0019 Decisions: "Reusing GET /runs/:id/events").
  */
 const BatchIdParams = z.object({ batchId: z.string().uuid() });
+
+/** spec 0020 AC-20 — two named query params, each a uuid. */
+const CompareQuery = z.object({ a: z.string().uuid(), b: z.string().uuid() });
 
 export default async function evalsRoutes(appBase: FastifyInstance) {
   const app = appBase.withTypeProvider<ZodTypeProvider>();
@@ -79,6 +84,22 @@ export default async function evalsRoutes(appBase: FastifyInstance) {
     const rows = await service.listBatches(workspaceId, req.params.id);
     return rows.map(toEvalBatchRecordDto);
   });
+
+  // ---- Dashboard + compare (spec 0020) --------------------------------------
+  app.get('/agents/:id/eval-dashboard', { schema: { params: IdParams } }, async (req) => {
+    const { workspaceId } = await getContext(container, req);
+    return service.dashboard(workspaceId, req.params.id);
+  });
+
+  app.get(
+    '/agents/:id/eval-runs/compare',
+    { schema: { params: IdParams, querystring: CompareQuery } },
+    async (req) => {
+      const { workspaceId } = await getContext(container, req);
+      const { a, b } = req.query;
+      return service.compare(workspaceId, req.params.id, a, b);
+    },
+  );
 
   app.get('/eval-runs/:batchId', { schema: { params: BatchIdParams } }, async (req) => {
     const { workspaceId } = await getContext(container, req);

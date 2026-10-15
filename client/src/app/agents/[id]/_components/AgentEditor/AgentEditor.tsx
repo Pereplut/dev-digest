@@ -29,7 +29,7 @@ export function AgentEditor({ agent, tab, onTab }: { agent: Agent; tab: string; 
         {tab === "skills" ? (
           <SkillsTab key={agent.id} agentId={agent.id} />
         ) : tab === "evals" ? (
-          <EvalsTab key={agent.id} agentId={agent.id} />
+          <EvalsTab key={agent.id} agentId={agent.id} agentVersion={agent.version} />
         ) : (
           <ConfigTab key={agent.id} agent={agent} />
         )}

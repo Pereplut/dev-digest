@@ -146,7 +146,16 @@ export class EvalRunExecutor {
             evalCase: { index: n, total: cases.length, pass: false },
           });
           await recordCaseFailure(n, case_, reason, Date.now() - caseStart);
-          results.push({ pass: false, recall: null, precision: null, citationAccuracy: null, costUsd: null });
+          results.push({
+            pass: false,
+            recallMatched: null,
+            recallTotal: null,
+            precisionAvoided: null,
+            precisionAvoidedTotal: null,
+            citationKept: null,
+            citationDropped: null,
+            costUsd: null,
+          });
           continue;
         }
 
@@ -200,9 +209,17 @@ export class EvalRunExecutor {
           });
           results.push({
             pass: score.pass,
-            recall: score.recall,
-            precision: score.precision,
-            citationAccuracy: score.citationAccuracy,
+            recallMatched: score.recallMatched,
+            recallTotal: score.recallTotal,
+            // Batch `precision` pools must_not_flag expectation counts, not
+            // finding counts (spec 0019 AC-13 amendment) — see
+            // `EvalCaseResult`'s doc comment. `score.precision` itself (the
+            // finding-denominated per-case ratio) is unaffected and is what
+            // `insertCaseRun` above persists on the `eval_runs` row.
+            precisionAvoided: score.mustNotFlagAvoided,
+            precisionAvoidedTotal: score.mustNotFlagTotal,
+            citationKept: score.citationKept,
+            citationDropped: score.citationDropped,
             costUsd: outcome.costUsd,
           });
         } catch (err) {
@@ -220,7 +237,16 @@ export class EvalRunExecutor {
             evalCase: { index: n, total: cases.length, pass: false },
           });
           await recordCaseFailure(n, case_, msg, Date.now() - caseStart);
-          results.push({ pass: false, recall: null, precision: null, citationAccuracy: null, costUsd: null });
+          results.push({
+            pass: false,
+            recallMatched: null,
+            recallTotal: null,
+            precisionAvoided: null,
+            precisionAvoidedTotal: null,
+            citationKept: null,
+            citationDropped: null,
+            costUsd: null,
+          });
         }
       }
 

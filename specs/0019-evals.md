@@ -1,6 +1,6 @@
 ---
 title: Evals — regression harness for reviewer agents
-status: approved
+status: done
 lesson: L06
 packages: [server, client, reviewer-core]
 ---
@@ -191,6 +191,11 @@ dead and is never reused.)*
   (number of produced findings), WHERE a produced finding is correct for a `must_find` case when it
   matches at least one expectation, and correct for a `must_not_flag` case when it matches **none** —
   a finding on the forbidden range being the false positive that case exists to catch, never a hit.
+  **This governs the PER-CASE ratio only** — the one persisted on each `eval_runs` row and shown in
+  the case list. The batch-level `precision` is a different quantity with a different denominator;
+  see AC-18. The two are deliberately not the same number, because a per-case diagnostic wants
+  "what share of what this case produced was noise" while a batch metric must not let the model
+  choose its own weight.
 - **AC-14** — `scoreEvalCase` shall return `citation_accuracy` = `kept / (kept + dropped)`, taken
   from the `ReviewOutcome`'s grounded findings and `ReviewOutcome.dropped`
   (`reviewer-core/src/review/run.ts:161`).
@@ -205,9 +210,59 @@ dead and is never reused.)*
 
 **Batch rollup**
 
-- **AC-18** — The eval run executor shall set the batch's `recall`, `precision` and
-  `citation_accuracy` to the unweighted arithmetic mean of those metrics over the cases whose
-  per-case metrics are non-null.
+- **AC-18** — The eval run executor shall set the batch's three metrics as follows, with each case
+  kind driving exactly one of the first two:
+  - `recall` = total matched `must_find` expectations / total `must_find` expectations, **pooled**
+    across the cases that were scored.
+  - `precision` = total `must_not_flag` expectations **avoided** / total `must_not_flag`
+    expectations, pooled the same way. An expectation is avoided when no produced finding matches
+    it. A `must_find` case contributes nothing to `precision`; a `must_not_flag` case contributes
+    nothing to `recall`.
+  - `citation_accuracy` = the **unweighted mean** of each scored case's own
+    `kept / (kept + dropped)` — one vote per case row, **not pooled**.
+  - WHERE a pooled denominator sums to zero — every contributing case was of the opposite kind —
+    the metric shall be `null`, never `1`. The `0/0 → 1` convention is AC-17's **per-case** rule and
+    does not apply at batch scope: a batch that measured nothing must not read as perfect.
+
+  **No number the model chooses may influence a batch metric's weighting.** That is the requirement
+  the three bullets implement. `recall` and `precision` take their counts from stored case rows.
+  `citation_accuracy`'s per-case denominator is necessarily a count of produced findings, so it is
+  averaged rather than pooled — averaging caps each case's influence at one vote, while pooling
+  would make a case's weight equal its model-emitted finding count. The per-case ratios on each
+  `eval_runs` row are unchanged and remain finding-denominated (AC-13).
+
+  **Amended three times on 2026-10-07/08, after this spec reached `done`.** Each amendment was
+  correct about the defect it found and wrong about something else; the history is kept because the
+  wrong turns are the instructive part.
+
+  1. The original wording said "unweighted arithmetic mean" for all three, and that is what shipped.
+     The first live run showed it could not detect the regression this feature exists to detect:
+     degrading an agent's prompt took findings per call from 9.0 to 16.7 and collapsed per-case
+     `must_find` precision (0.071 → 0.050, 0.111 → 0.062), while the batch mean moved
+     **0.344 → 0.343** — a `must_not_flag` case's precision *rises* as the agent gets noisier, and
+     cancelled the `must_find` cases falling.
+  2. The first amendment replaced the mean with pooling over finding-denominated counts. A
+     `/pr-self-review` security pass showed that traded one pathology for another: with no `.max()`
+     between the model and `findings.length`, a case's *weight* became proportional to a number the
+     model chooses — one `must_not_flag` case emitting 1000 off-target findings scores 1000/1001 and
+     drags the batch to ~1.0 regardless of every other case. Capping was rejected as arbitrary;
+     denominating by expectation count removes the lever.
+  3. The second amendment did that but kept `citation_accuracy` pooled, on the argument that its
+     model-derived denominator is inherent to what it measures. That argument addresses the
+     *per-case* denominator and not *cross-case weighting*, which was the actual exposure — so the
+     lever simply moved to the one metric still pooled. The same review also found that
+     `poolRatio`'s `0/0 → 1` made an **all-`must_find` batch report `precision: 1.00`** — the
+     default shape, since `must_find` cases come from accepted findings and nothing requires a
+     dismissed one. A reviewer reproduced it: three such cases that dropped 5 of 6 citations
+     returned `precision: 1`, rendered "100%". An agent emitting nothing but false positives would
+     have scored perfectly.
+
+  One more thing that review established, worth stating because it narrows what pooling is for:
+  **a case row carries exactly one expectation**, so `recall`'s and `precision`'s denominators are
+  always 0 or 1 and denominator-weighting is unreachable for them. Pooling those two buys only the
+  exclusion of opposite-kind cases' vacuous `0/0`, which is what the mean was wrongly averaging in.
+  All three amendments are recorded in `server/INSIGHTS.md` with the batch ids and measured figures.
+
 - **AC-19** — The eval run executor shall set `cases_total` to the number of cases the batch was
   queued with and `cases_passed` to the number of its `eval_runs` rows with `pass = true`.
 - **AC-20** — The eval run executor shall set the batch's `cost_usd` to the decimal sum of its
@@ -408,7 +463,7 @@ the *input* to the scorer, never an acceptance criterion.
 | **The same finding clicked twice** | The second `POST /eval-cases` is rejected `409` by the unique partial index (AC-67), so a reload no longer defeats the client's session-scoped disable (AC-50). Hand-written cases keep `source_finding_id` null and are unaffected (AC-64). |
 | **A case ran on a model with no price** | The case's `cost_usd` is `null`, so the **batch's** `cost_usd` is `null` too — not a partial sum (AC-65, `reviewer-core/INSIGHTS.md:9-15`). The tab's cost tile then renders the placeholder (AC-73). Metrics are unaffected; only the money is unknown. |
 | **Finding whose review has no retrievable diff** | `POST /eval-cases` → `422` naming the reason, no row (AC-26). The reviews diff loader already falls back to a synthetic diff assembled from `pr_files` (`server/src/modules/reviews/diff-loader.ts:9`), so this fires only when both paths fail. |
-| **Cost rollup when a case fails** | A failed case is counted in `cases_total` and contributes nothing to the metric means, which average only non-null metrics (AC-18, AC-19). Its `cost_usd` joins the sum when it is a number — a case that failed before any model call spent `0`, which is a fact, not an absence — and makes the batch's rollup `null` when it is itself `null` (AC-20, AC-65). |
+| **Cost rollup when a case fails** | A failed case is counted in `cases_total` and contributes nothing to any batch metric — neither to the pooled counts behind `recall` and `precision` nor to the `citation_accuracy` mean, which averages only scored cases (AC-18, AC-19). Its `cost_usd` joins the sum when it is a number — a case that failed before any model call spent `0`, which is a fact, not an absence — and makes the batch's rollup `null` when it is itself `null` (AC-20, AC-65). |
 | **Zero findings produced on a `must_find` case** | `recall = 0`, `precision = 1` by AC-17 (no findings to be wrong about), `pass = false` by AC-15. The pair is intentional: precision alone cannot detect a silent agent, which is why both tiles exist. |
 | **All ratios on a perfect `must_not_flag` case** | `1 / 1 / 1` and `pass = true` (AC-16, AC-17). |
 | **Finding accepted *and* dismissed** | Not reachable through the findings API today, but AC-23 reads `accepted_at` first, so the case becomes `must_find`. |
@@ -540,7 +595,7 @@ through the same engine function rather than by new code**:
 | AC-14 | `reviewer-core/` unit test: an outcome with 3 kept + 1 dropped → `0.75`; 4 kept + 0 dropped → `1`. |
 | AC-15, AC-16 | `reviewer-core/` unit test: `must_find` with one of two matched → `pass false`, both matched → `pass true`; `must_not_flag` with a finding on the named range → `pass false`, with a finding on a different file → `pass true`, with no findings → `pass true`. |
 | AC-17 | `reviewer-core/` unit test: zero `must_find` expectations → `recall 1`; zero findings → `precision 1`, `citation_accuracy 1`; every returned ratio asserted `Number.isFinite`. |
-| AC-18, AC-19, AC-20, AC-65 | `server/` unit test on the rollup helper with a fake clock: three cases (metrics, metrics, failed-with-null-metrics) → means over the two scored, `cases_total 3`, `cases_passed` from the `pass` flags, `cost_usd` the exact decimal sum of `0.000001 + 0.000002` with no float accumulator, `duration_ms` the fake clock's delta. Then the null path: one case with `cost_usd: null` → the batch's `cost_usd` is `null`, not `0.000003`, while the three metric means are unchanged. Values cross the repository boundary as strings (`Number()`/`String()`, `run.repo.ts:67,186`), so the test asserts the repository hands the service numbers and writes a string. |
+| AC-18, AC-19, AC-20, AC-65 | `server/` unit test on the rollup helper with a fake clock: three cases (metrics, metrics, failed-with-null-metrics) → the two scored cases' counts pooled, `cases_total 3`, `cases_passed` from the `pass` flags, `cost_usd` the exact decimal sum of `0.000001 + 0.000002` with no float accumulator, `duration_ms` the fake clock's delta. Then the null path: one case with `cost_usd: null` → the batch's `cost_usd` is `null`, not `0.000003`, while the three pooled metrics are unchanged. **Each metric must be mutation-checked separately** — changing one metric's aggregation must fail that metric's own test and no other. A wholesale revert is not sufficient: that gap let `recall` and `citation_accuracy` ship pooled but untested. Three assertions carry the amendments: an **all-`must_find` batch pins `precision` to `null`, never `1`** (the vacuous-denominator regression, which a reviewer reproduced live at `precision: 1` for a batch that dropped 5 of 6 citations); a `citation_accuracy` case where one case's finding count dwarfs another's pins the **mean**, and fails if pooled; and the finding-count invariance of `precision` is pinned in `reviewer-core` **through `scoreEvalCase`**, not by hand-written rollup fixtures — fixtures that never call the scorer cannot detect a reverted mapping, which is how the first version of that test came to be vacuous. Note for `recall` and `precision` the rollup fixtures pin the *exclusion of vacuous `0/0` contributors*, not denominator-weighting: a case row carries one expectation, so those denominators are always 0 or 1. Values cross the repository boundary as strings (`Number()`/`String()`, `run.repo.ts:67,186`), so the test asserts the repository hands the service numbers and writes a string. |
 | AC-21, AC-22, AC-23, AC-24, AC-66 | `server/` integration test (`evals-cases.it.test.ts`) over a seeded accepted finding and a seeded dismissed finding: `201`, exactly one row each, derived owner and expectation target fields, `source_finding_id` equal to the finding id, `must_find` vs `must_not_flag`, and `input_diff` unchanged after the pull request's diff is mutated. |
 | AC-25, AC-26, AC-67 | Same file, negative paths: an open finding → `422 validation_error`, row count unchanged; a finding whose pull request has neither a loadable diff nor `pr_files` → `422` with a reason; the same finding posted twice → `409 conflict` with the row count still `1`. Positive control in the same test: a *different* accepted finding on the same agent still returns `201`, so the index constrains the pair and not the owner. |
 | AC-27, AC-28, AC-29, AC-30 | `server/` integration test: list ordering over three cases inserted with controlled `created_at` values, newest first, ties broken by id ascending; a `PATCH` of `name` alone leaves `expected_file` intact; a `DELETE` removes the case and its runs; a second workspace's case id → `404 not_found` on `GET`, `PATCH`, `DELETE` and `GET /eval-runs/:batchId`. |
@@ -570,6 +625,6 @@ through the same engine function rather than by new code**:
 |---|---|---|
 | Initiation | 2026-10-06 | request read, specs + INSIGHTS checked; three `researcher` passes run (repo-side eval scaffolding, course-branch comparison, engine/grounding surface) |
 | Planning | 2026-10-07 | spec approved by the user. 9 decisions recorded: real LLM calls only · background + SSE over the existing `runBus` · agents + skills as owners (agents in 0019) · runner calls `reviewPullRequest` directly rather than reusing `ReviewRunExecutor` · `eval_run_batches` as a parent table · open findings refused (422) rather than defaulted to `must_find` · `source_finding_id` + `created_at` + partial unique index land in this migration · cancellation and the startup sweep in 0019 · no hard cap on `cases_total`, confirmation names N. Three rounds with `spec-creator`; round 2 introduced an AC-72 boot test that could never pass (the reap is env-gated at `server/src/app.ts:101`) and round 3 split it into AC-72 (method behaviour) + AC-75 (wiring, read-verified). Rounds 4–5 then applied the eight corrections `implementation-planner` raised (`specs/0019-evals.plan.md`): AC-37 narrowed to the executor with a positive control, a live-batch unique index added (AC-76), three contract criteria added (AC-77, AC-78, AC-79) with AC-8 reworded, AC-10 restated as a static import assertion, AC-11 pointed at the shared `rangesIntersect`, AC-5 demoted to a review-checklist line and AC-53/54 collapsed. **AC-5 and AC-54 are retired ids — never reuse them.** `scripts/check-specs.sh` green at 77 criteria. |
-| Implementation | | |
+| Implementation | 2026-10-07 | Multi-agent, per `specs/0019-evals.plan.md`'s decomposition: wave 1 shared contracts (both `vendor/shared` copies) → waves 2a/2b in parallel (the pure scorer + schema + migration `0022_chemical_harrier`, and the client i18n/hooks/`FindingCard` control/Evals tab) → wave 3 the `evals` server module, executor, routes and boot reap. Three corrections to the plan were made during implementation and are recorded in `## Decisions`: `EvalBatchRecord` has 15 fields not 16 (the plan miscounted; AC-7 is authoritative), `EvalExpectationKind` is defined in `knowledge.ts` and re-exported from `eval-ci.ts` to avoid a module cycle, and `loadSkills` was lifted only as its pure half (`toLoadedSkills`) rather than whole, because moving the I/O into `modules/skills/helpers.ts` would have put an impure function in the one file class `pnpm arch` cannot police. |
 | Validation | 2026-10-07 | `plan-verifier` green (26/26 steps, 77/77 criteria, 0 Missing/Contradicted) · `architecture-reviewer` 0 violations · `/code-review` high found **6**, two MAJOR (executor `try/finally` with no `catch` → permanent agent wedge, AC-44; `EvalsTab` never refetching on SSE completion — a requirement written as prose at `## Edge cases`, so invisible to the criteria gate), all fixed · precision inverted for `must_not_flag` (AC-13 reworded, both directions pinned) · integration lane **28 files / 151 tests green** on the third run: run 1 exposed 4 test defects (the bare-hunk diff fixture in two more files, an FK violation from assuming `eval_cases.owner_id` and `eval_run_batches.agent_id` are symmetric, and AC-32 asserting a status that cannot be observed because the sweep is not awaited), run 2 hit the documented `skills.it.test.ts` Docker-contention flake · unit: server 598, client 385, reviewer-core 84 · e2e **12/12 with 1 `⊘` mutating skip = 13 flow files, so the suite was complete** · manual walk still outstanding. |
-| Completion | | status done, docs, insights wrap-up |
+| Completion | 2026-10-07 | `status: done` set by the user. Shipped as `a65850a`, merged with `origin/main` (`1cbe225`) and pushed to `origin/feat/pr-brief` at `e2a89be`. `/pr-self-review` PASS — 0 CRITICAL, 21 WARNING, 56 SUGGESTION, full tables in `.claude/.pr-self-review/report.md`; the warnings are recorded, not fixed. Insights wrap-up done across root, `server/`, `client/` and `e2e/`. **Two phase-5 items were NOT performed, and `done` does not assert them:** (1) the manual walk — so **AC-75 remains read-verified only** (no automated test can observe the boot reap, by construction), and the spec's own experiment at `## Test plan` (degrade the system prompt, confirm precision visibly falls) has never been run against a live provider; (2) `doc-writer` — nothing was moved into `docs/`. Also unexercised: AC-45's `maxConcurrent` assertion is unfalsifiable as written (`typescript-expert#3`), and the terminal-write guard's unit test passes when `or` replaces `and` in the predicate, so it does not pin the clause it claims to. **Amended three times on 2026-10-07/08 after `done`,** all recorded in AC-18 itself rather than by reopening the status. (1) The unweighted mean could not see a deliberate prompt degradation — findings per call 9.0 → 16.7, batch precision 0.344 → 0.343 — so AC-18 moved to pooling. (2) `/pr-self-review` found pooling over finding counts made each case's *weight* proportional to a model-chosen number, so `precision` became denominated by `must_not_flag` expectation count. (3) The next review found that had left the same lever on `citation_accuracy`, the one metric still pooled, and that `poolRatio`'s `0/0 → 1` made an all-`must_find` batch — the default shape — report **`precision: 1.00`** however many false positives the agent emitted; a reviewer reproduced it live. `citation_accuracy` returned to the per-case mean and a vacuous pooled denominator now yields `null`. AC-13 was scoped along the way to make clear it governs the per-case ratio only. **Each amendment was right about the defect it found and wrong about something else** — the metric was harder to get right than the feature around it, and three review rounds were what surfaced that. |

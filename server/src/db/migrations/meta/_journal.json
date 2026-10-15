@@ -162,6 +162,20 @@
       "when": 1791361296028,
       "tag": "0022_chemical_harrier",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1791455550817,
+      "tag": "0023_natural_vargas",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791455572823,
+      "tag": "0024_sad_morg",
+      "breakpoints": true
     }
   ]
 }

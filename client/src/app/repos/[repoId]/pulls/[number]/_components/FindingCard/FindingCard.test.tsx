@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import type { FindingRecord } from "@devdigest/shared";
@@ -122,6 +122,57 @@ describe("FindingCard — Turn into eval case (AC-48–52)", () => {
     renderWithIntl(<FindingCard f={FINDING} onAction={() => {}} />);
     const control = screen.getByRole("button", { name: "Turn into eval case" });
     expect(control).toBeDisabled();
+  });
+
+  // The disabled control used to give no reason at all, which is how a user
+  // ends up reading the spec to find out that AC-25 derives the expectation
+  // from the accept/dismiss verdict. The tooltip lives on a wrapper span
+  // because a disabled <button> receives no pointer events, so a `title` on
+  // the button itself would render nothing — assert the span, not the button.
+  it("explains WHY the control is disabled on an open finding", () => {
+    renderWithIntl(<FindingCard f={FINDING} onAction={() => {}} />);
+    const control = screen.getByRole("button", { name: "Turn into eval case" });
+    expect(control).toBeDisabled();
+    const hint = control.closest("[title]");
+    expect(hint, "the disabled control carries no explanatory title").not.toBeNull();
+    expect(hint!.getAttribute("title")).toContain("Accept or dismiss this finding first");
+  });
+
+  // `title` is hover-only and a disabled <button> is out of the tab order —
+  // neither reaches a keyboard or screen-reader user. The hint must also be
+  // reachable WITHOUT hover: rendered as real text, and wired as the
+  // control's accessible description via `aria-describedby`.
+  it("the hint is reachable without hover — present as real text and the control's accessible description", () => {
+    renderWithIntl(<FindingCard f={FINDING} onAction={() => {}} />);
+    const control = screen.getByRole("button", { name: "Turn into eval case" });
+    expect(screen.getByText(/Accept or dismiss this finding first/)).toBeInTheDocument();
+    expect(control).toHaveAccessibleDescription(/Accept or dismiss this finding first/);
+  });
+
+  // Regression: the hint text used to live INSIDE the `role="button"` card
+  // header (`:89` in FindingCard.tsx), whose accessible name is computed
+  // from its own descendants' text (client/INSIGHTS.md:126-132) — so the
+  // whole hint sentence was concatenated onto the expand/collapse toggle's
+  // name on every open finding. `aria-describedby` resolves by id from
+  // anywhere in the document, so the hint now sits OUTSIDE that header and
+  // the wiring still holds (asserted by the test above).
+  it("the hint text is not concatenated onto the expand/collapse toggle's accessible name", () => {
+    renderWithIntl(<FindingCard f={FINDING} onAction={() => {}} />);
+    const toggle = screen.getByRole("button", { expanded: false });
+    // The DOM-level control: the sentence is not among the toggle's descendants.
+    expect(within(toggle).queryByText(/Accept or dismiss this finding first/)).not.toBeInTheDocument();
+    // The assertion that matches this test's name. The accessible name is
+    // COMPUTED, not raw text, so a regression that reintroduced the sentence
+    // via `aria-label` would leave `textContent` clean and still break every
+    // screen reader — `toHaveAccessibleName` is the only matcher that sees it.
+    expect(toggle).not.toHaveAccessibleName(/Accept or dismiss this finding first/);
+  });
+
+  it("drops the hint once the finding carries a verdict", () => {
+    renderWithIntl(<FindingCard f={ACCEPTED} onAction={() => {}} />);
+    const control = screen.getByRole("button", { name: "Turn into eval case" });
+    expect(control).toBeEnabled();
+    expect(control.closest("[title]")).toBeNull();
   });
 
   it("activating the control issues one POST via useCreateEvalCase and no finding-action request (AC-49)", async () => {

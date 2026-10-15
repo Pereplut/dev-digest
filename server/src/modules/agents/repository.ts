@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
-import type { Db } from '../../db/client.js';
+import type { Db, DbOrTx } from '../../db/client.js';
 import * as t from '../../db/schema.js';
-import type { CiFailOn, Provider, ReviewStrategy } from '@devdigest/shared';
+import { AgentVersionConfig, type CiFailOn, type Provider, type ReviewStrategy } from '@devdigest/shared';
 import { DEFAULT_AGENT_DESCRIPTION, INITIAL_AGENT_VERSION } from './constants.js';
 import { isConfigChange } from './helpers.js';
 
@@ -53,6 +53,17 @@ export type ReplaceSkillLinksResult =
   | { ok: true }
   | { ok: false; reason: 'agent_not_found' }
   | { ok: false; reason: 'unknown_skills'; skillIds: string[] };
+
+/**
+ * spec 0020 AC-9 — `skillsNotRestored` carries every snapshot skill id the
+ * NEW snapshot does not carry, for any reason: deleted (AC-32) or globally
+ * disabled (AC-87). `undefined` means no `agent_versions` row for that
+ * `version` (route → 404, AC-35).
+ */
+export interface PromoteVersionResult {
+  row: AgentRow;
+  skillsNotRestored: string[];
+}
 
 export class AgentsRepository {
   constructor(private db: Db) {}
@@ -165,9 +176,16 @@ export class AgentsRepository {
     return row;
   }
 
-  private async snapshotVersion(row: AgentRow, version: number): Promise<void> {
-    const skills = await this.skillIdsForAgent(row.id);
-    await this.db
+  /**
+   * `dbOrTx` defaults to the repository's own pool so every pre-existing call
+   * site (`insert`, `update`, both outside a transaction) is unchanged.
+   * `promoteVersion` passes its own `tx` explicitly so this reads the skill
+   * links it JUST rebuilt in the same transaction, not a stale snapshot from
+   * the autocommit pool (spec 0020 — the AC-28 ordering trap).
+   */
+  private async snapshotVersion(row: AgentRow, version: number, dbOrTx: DbOrTx = this.db): Promise<void> {
+    const skills = await this.skillIdsForAgent(row.id, dbOrTx);
+    await dbOrTx
       .insert(t.agentVersions)
       .values({
         agentId: row.id,
@@ -222,8 +240,8 @@ export class AgentsRepository {
    * Ordered ids of the skills a run of this agent would send (link enabled AND
    * skill enabled) — what an agent_versions snapshot records as `skills`.
    */
-  async skillIdsForAgent(agentId: string): Promise<string[]> {
-    const rows = await this.db
+  async skillIdsForAgent(agentId: string, dbOrTx: DbOrTx = this.db): Promise<string[]> {
+    const rows = await dbOrTx
       .select({ id: t.skills.id })
       .from(t.agentSkills)
       .innerJoin(t.skills, eq(t.agentSkills.skillId, t.skills.id))
@@ -297,6 +315,116 @@ export class AgentsRepository {
         );
       }
       return { ok: true };
+    });
+  }
+
+  /**
+   * spec 0020 AC-28 – AC-32, AC-87, AC-88 — restore `version`'s snapshot onto
+   * the agent as a NEW version, in one transaction: `name`, `description`
+   * and `enabled` are untouched (AC-29, not in `config_json`); skill links
+   * are reconciled BEFORE the new snapshot is inserted (the ordering trap —
+   * `snapshotVersion` reads `skillIdsForAgent` at write time, so inserting it
+   * first would record the PRE-promote skill set). `undefined` means either
+   * the agent or the version snapshot was not found (both 404 at the
+   * service/route); the caller (`AgentsService.promote`) has already
+   * rejected `version === agent.version` (AC-33) and a live batch (AC-34)
+   * before this runs, so a refused promote never opens this transaction.
+   *
+   * Deliberately NOT `update()` + `replaceSkillLinks()`: `update()` snapshots
+   * BEFORE any link change (the ordering trap, inverted), and
+   * `replaceSkillLinks` rejects the WHOLE call on an unknown skill id
+   * (`:297` above) where AC-32 requires skipping just that one id and still
+   * applying the rest.
+   */
+  async promoteVersion(
+    workspaceId: string,
+    agentId: string,
+    version: number,
+  ): Promise<PromoteVersionResult | undefined> {
+    return this.db.transaction(async (tx) => {
+      const [agent] = await tx
+        .select()
+        .from(t.agents)
+        .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.id, agentId)))
+        .for('update');
+      if (!agent) return undefined;
+
+      const [snapshot] = await tx
+        .select()
+        .from(t.agentVersions)
+        .where(and(eq(t.agentVersions.agentId, agentId), eq(t.agentVersions.version, version)));
+      if (!snapshot) return undefined;
+
+      const config = AgentVersionConfig.parse(snapshot.configJson);
+      const snapshotSkillIds = config.skills;
+
+      // Which snapshot skill ids still have a `skills` row in this workspace
+      // (AC-31/AC-32). A deleted skill's `agent_skills` link row is already
+      // gone too — `skillId` cascades (`db/schema/agents.ts:57-59`) — so
+      // "exists" here is exactly "can still be linked".
+      const existingSkillRows =
+        snapshotSkillIds.length > 0
+          ? await tx
+              .select({ id: t.skills.id })
+              .from(t.skills)
+              .where(and(eq(t.skills.workspaceId, workspaceId), inArray(t.skills.id, snapshotSkillIds)))
+          : [];
+      const liveSkillIds = new Set(existingSkillRows.map((r) => r.id));
+
+      // AC-30/AC-31: keep the agent's EXISTING links in their current order,
+      // flipping only `enabled`; a snapshot skill with no link row but a live
+      // skill row is appended AFTER them, enabled.
+      const existingLinks = await tx
+        .select({ skillId: t.agentSkills.skillId })
+        .from(t.agentSkills)
+        .where(eq(t.agentSkills.agentId, agentId))
+        .orderBy(asc(t.agentSkills.order));
+      const existingLinkIds = new Set(existingLinks.map((l) => l.skillId));
+      const snapshotSet = new Set(snapshotSkillIds);
+
+      const rebuiltLinks: { skillId: string; enabled: boolean }[] = [
+        ...existingLinks.map((l) => ({ skillId: l.skillId, enabled: snapshotSet.has(l.skillId) })),
+        ...snapshotSkillIds
+          .filter((id) => liveSkillIds.has(id) && !existingLinkIds.has(id))
+          .map((id) => ({ skillId: id, enabled: true })),
+      ];
+
+      await tx.delete(t.agentSkills).where(eq(t.agentSkills.agentId, agentId));
+      if (rebuiltLinks.length > 0) {
+        await tx
+          .insert(t.agentSkills)
+          .values(rebuiltLinks.map((l, i) => ({ agentId, skillId: l.skillId, order: i, enabled: l.enabled })));
+      }
+
+      const nextVersion = agent.version + 1;
+      const [row] = await tx
+        .update(t.agents)
+        .set({
+          provider: config.provider,
+          model: config.model,
+          systemPrompt: config.system_prompt,
+          outputSchema: (config.output_schema as object | undefined) ?? null,
+          strategy: config.strategy,
+          ciFailOn: config.ci_fail_on,
+          repoIntel: config.repo_intel,
+          version: nextVersion,
+        })
+        .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.id, agentId)))
+        .returning();
+
+      // The ordering trap: snapshot LAST, inside the same `tx`, so it reads
+      // the links this call just rebuilt (AC-28).
+      await this.snapshotVersion(row!, nextVersion, tx);
+
+      // AC-87/AC-88: `skillIdsForAgent` is the same filter (link enabled AND
+      // skill enabled) `snapshotVersion` just used to build the new
+      // snapshot — so whatever it drops (deleted OR globally disabled) is
+      // exactly `skillsNotRestored`, making the union invariant hold by
+      // construction rather than by two independently-written lists.
+      const newSnapshotSkillIds = new Set(await this.skillIdsForAgent(agentId, tx));
+      const skillsNotRestored = snapshotSkillIds.filter((id) => !newSnapshotSkillIds.has(id));
+
+      return { row: row!, skillsNotRestored };
     });
   }
 }

@@ -1,22 +1,8 @@
-import { diffLines } from "diff";
 import type { SkillVersion } from "@devdigest/shared";
 
-export type DiffKind = "add" | "del" | "same";
-export interface DiffRow {
-  kind: DiffKind;
-  text: string;
-}
-
-/** Line diff of an older body against the current one, one row per line. */
-export function toDiffRows(older: string, current: string): DiffRow[] {
-  const rows: DiffRow[] = [];
-  for (const part of diffLines(older, current)) {
-    const kind: DiffKind = part.added ? "add" : part.removed ? "del" : "same";
-    const lines = part.value.replace(/\n$/, "").split("\n");
-    for (const text of lines) rows.push({ kind, text });
-  }
-  return rows;
-}
+// `DiffKind`/`DiffRow`/`toDiffRows` moved to `@/lib/text-diff` (spec 0020,
+// AC-55/AC-68) — the compare modal is a second consumer, so the helper has
+// exactly one definition, imported from there by both features.
 
 /** Newest first. */
 export function sortVersions(versions: SkillVersion[]): SkillVersion[] {

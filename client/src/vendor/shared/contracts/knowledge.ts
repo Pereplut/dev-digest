@@ -431,3 +431,25 @@ export type AgentSkillLink = z.infer<typeof AgentSkillLink>;
 
 export const AgentSkill = AgentSkillLink.extend({ skill: Skill });
 export type AgentSkill = z.infer<typeof AgentSkill>;
+
+// The immutable config snapshot captured in `agent_versions` whenever an agent's
+// config changes (everything but `enabled`). Mirrors the shape written by the
+// agents repository — provider/model/prompt/output_schema/strategy/gate/repo_intel
+// plus the ordered skill ids linked at snapshot time. Used for reproducibility
+// (eval replays a past version) and for surfacing an agent's edit history.
+//
+// Mirrored from the server's canonical copy (`server/src/vendor/shared/contracts/
+// knowledge.ts:446`) for spec 0020 (`EvalRunComparison.old_config`/`new_config`).
+// `AgentVersion` (the server's `:458`) is NOT mirrored — nothing in 0020 or
+// elsewhere in the client references it; mirror it only when something does.
+export const AgentVersionConfig = z.object({
+  provider: Provider,
+  model: z.string(),
+  system_prompt: z.string(),
+  output_schema: z.unknown().nullish(),
+  strategy: ReviewStrategy,
+  ci_fail_on: CiFailOn,
+  repo_intel: z.boolean(),
+  skills: z.array(z.string()),
+});
+export type AgentVersionConfig = z.infer<typeof AgentVersionConfig>;

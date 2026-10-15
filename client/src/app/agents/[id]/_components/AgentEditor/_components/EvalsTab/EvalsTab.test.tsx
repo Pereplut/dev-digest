@@ -1,9 +1,17 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { EvalBatchRecord, EvalCase, EvalRunRecord, RunEvent } from "@devdigest/shared";
+import type {
+  EvalBatchRecord,
+  EvalCase,
+  EvalDashboard,
+  EvalRunComparison,
+  EvalRunRecord,
+  EvalTrendPoint,
+  RunEvent,
+} from "@devdigest/shared";
 import agentsMessages from "../../../../../../../../messages/en/agents.json";
 import evalsMessages from "../../../../../../../../messages/en/evals.json";
 
@@ -17,6 +25,8 @@ const h = vi.hoisted(() => ({
   cases: { data: [] as unknown[], isLoading: false, isError: false },
   batches: { data: [] as unknown[], isLoading: false, isError: false },
   batchDetail: undefined as { batch: unknown; runs: unknown[] } | undefined,
+  dashboard: { data: undefined as unknown, isLoading: false, isError: false },
+  compare: { data: undefined as unknown, isLoading: false, isError: false },
   events: [] as unknown[],
   // Mirrors `useRunEvents`' real `running` flag (true until the SSE stream
   // closes). Tests that need the falling edge flip this and re-render —
@@ -28,10 +38,17 @@ const h = vi.hoisted(() => ({
 const runEvalsMutate = vi.fn();
 const casesRefetch = vi.fn();
 const batchesRefetch = vi.fn();
+const dashboardRefetch = vi.fn();
+const compareRefetch = vi.fn();
+const promoteMutate = vi.fn();
 
 vi.mock("@/lib/hooks/evals", () => ({
   useAgentEvalCases: () => ({ ...h.cases, refetch: casesRefetch }),
   useAgentEvalBatches: () => ({ ...h.batches, refetch: batchesRefetch }),
+  useAgentEvalDashboard: () => ({ ...h.dashboard, refetch: dashboardRefetch }),
+  // CompareModal (a real, unmocked component EvalsTab renders) now owns this
+  // query itself — `h.compare` still drives its content from here.
+  useEvalCompare: () => ({ ...h.compare, refetch: compareRefetch }),
   useEvalBatch: () => ({ data: h.batchDetail }),
   useRunEvals: () => ({ mutate: runEvalsMutate, isPending: false }),
 }));
@@ -39,6 +56,32 @@ vi.mock("@/lib/hooks/evals", () => ({
 vi.mock("@/lib/hooks/reviews", () => ({
   useRunEvents: () => ({ events: h.events, running: h.running }),
 }));
+
+// CompareModal (a real, unmocked component EvalsTab renders) calls this
+// directly — mocked here so mounting the compare dialog in these tests never
+// attempts a real `fetch`. The promote FLOW itself is CompareModal.test.tsx's
+// job, not this file's.
+vi.mock("@/lib/hooks/agents", () => ({
+  usePromoteAgentVersion: () => ({ mutate: promoteMutate, isPending: false, isError: false, error: null }),
+}));
+
+// Stub the vendored `LineChart` so these tests can assert the PROPS this
+// feature's own code passes it (AC-66, AC-67) without depending on recharts'
+// jsdom rendering. Everything else in the kit stays real.
+vi.mock("@/components/ui-client", async () => {
+  const actual = await vi.importActual<typeof import("@/components/ui-client")>("@/components/ui-client");
+  return {
+    ...actual,
+    LineChart: (props: { series: { name: string; data: number[] }[]; yMin?: number; yMax?: number }) => (
+      <div
+        data-testid="line-chart"
+        data-ymin={props.yMin}
+        data-ymax={props.yMax}
+        data-series={JSON.stringify(props.series)}
+      />
+    ),
+  };
+});
 
 import { EvalsTab } from "./EvalsTab";
 
@@ -80,6 +123,47 @@ function makeBatch(over: Partial<EvalBatchRecord> = {}): EvalBatchRecord {
     cases_passed: 2,
     duration_ms: 1000,
     cost_usd: 0.014,
+    metrics_version: 2,
+    ...over,
+  };
+}
+
+function makeTrendPoint(over: Partial<EvalTrendPoint> = {}): EvalTrendPoint {
+  return {
+    ran_at: "2026-10-01T00:00:00.000Z",
+    recall: 0.5,
+    precision: 0.5,
+    citation_accuracy: 0.5,
+    pass_rate: 0.5,
+    cost_usd: 0.01,
+    ...over,
+  };
+}
+
+function makeDashboard(over: Partial<EvalDashboard> = {}): EvalDashboard {
+  return {
+    owner_kind: "agent",
+    owner_id: "ag1",
+    cases_total: 2,
+    current: { recall: 0.9, precision: 0.8, citation_accuracy: 0.85, traces_passed: 2, traces_total: 2, cost_usd: 0.01 },
+    delta: { recall: 0.02, precision: -0.01, citation_accuracy: 0 },
+    trend: [makeTrendPoint(), makeTrendPoint({ ran_at: "2026-10-02T00:00:00.000Z" })],
+    recent_runs: [makeBatch()],
+    alert: null,
+    trend_excluded: { other_version: 0, incomplete_metrics: 0 },
+    ...over,
+  };
+}
+
+function makeComparison(over: Partial<EvalRunComparison> = {}): EvalRunComparison {
+  return {
+    old: makeBatch({ id: "batch-old", agent_version: 1 }),
+    new: makeBatch({ id: "batch-new", agent_version: 2 }),
+    old_config: null,
+    new_config: null,
+    comparable: true,
+    incomparable_reason: null,
+    delta: { recall: 0.1, precision: 0.05, citation_accuracy: 0, cost_usd: 0.001 },
     ...over,
   };
 }
@@ -113,7 +197,7 @@ function renderTab(qc: QueryClient = makeQueryClient()) {
   return render(
     <QueryClientProvider client={qc}>
       <NextIntlClientProvider locale="en" messages={{ agents: agentsMessages, evals: evalsMessages }}>
-        <EvalsTab agentId="ag1" />
+        <EvalsTab agentId="ag1" agentVersion={1} />
       </NextIntlClientProvider>
     </QueryClientProvider>,
   );
@@ -122,12 +206,23 @@ function renderTab(qc: QueryClient = makeQueryClient()) {
 beforeEach(() => {
   setQuery(h.cases, { data: [], isLoading: false, isError: false });
   setQuery(h.batches, { data: [], isLoading: false, isError: false });
+  // Defaults to perpetually-loading (a Skeleton, no text) so none of 0019's
+  // pre-existing literal-count assertions (e.g. `getAllByText("—")`) collide
+  // with the new dashboard section's own tiles/placeholders — exactly the
+  // failure mode `client/INSIGHTS.md:206-211` records for a shared
+  // component's first real query hook. Tests that exercise the dashboard
+  // opt in explicitly with their own `setQuery(h.dashboard, …)`.
+  setQuery(h.dashboard, { data: undefined, isLoading: true, isError: false });
+  setQuery(h.compare, { data: undefined, isLoading: false, isError: false });
   h.batchDetail = undefined;
   h.events = [];
   h.running = true;
   runEvalsMutate.mockReset();
   casesRefetch.mockReset();
   batchesRefetch.mockReset();
+  dashboardRefetch.mockReset();
+  compareRefetch.mockReset();
+  promoteMutate.mockReset();
 });
 afterEach(cleanup);
 
@@ -321,7 +416,7 @@ describe("EvalsTab — stream completion refetches the batch (edge case, specs/0
     rerender(
       <QueryClientProvider client={qc}>
         <NextIntlClientProvider locale="en" messages={{ agents: agentsMessages, evals: evalsMessages }}>
-          <EvalsTab agentId="ag1" />
+          <EvalsTab agentId="ag1" agentVersion={1} />
         </NextIntlClientProvider>
       </QueryClientProvider>,
     );
@@ -339,7 +434,7 @@ describe("EvalsTab — stream completion refetches the batch (edge case, specs/0
     const tree = (
       <QueryClientProvider client={qc}>
         <NextIntlClientProvider locale="en" messages={{ agents: agentsMessages, evals: evalsMessages }}>
-          <EvalsTab agentId="ag1" />
+          <EvalsTab agentId="ag1" agentVersion={1} />
         </NextIntlClientProvider>
       </QueryClientProvider>
     );
@@ -414,12 +509,320 @@ describe("EvalsTab — every string resolves through next-intl (AC-62)", () => {
           onError={() => {}}
           getMessageFallback={({ key, namespace }) => `MISSING:${namespace}.${key}`}
         >
-          <EvalsTab agentId="ag1" />
+          <EvalsTab agentId="ag1" agentVersion={1} />
         </NextIntlClientProvider>
       </QueryClientProvider>,
     );
     expect(screen.getAllByText(/^MISSING:/).length).toBeGreaterThan(0);
     expect(screen.queryByText("Run all evals")).not.toBeInTheDocument();
     expect(screen.queryByText(evalsMessages.empty)).not.toBeInTheDocument();
+  });
+});
+
+describe("EvalsTab — dashboard delta tiles (AC-37 – AC-40)", () => {
+  it("renders the current value and a signed, coloured delta for each of the three tiles", () => {
+    setQuery(h.cases, { data: [makeCase()] });
+    setQuery(h.batches, { data: [] });
+    setQuery(h.dashboard, {
+      data: makeDashboard({
+        current: { recall: 0.9, precision: 0.8, citation_accuracy: 0.85, traces_passed: 2, traces_total: 2, cost_usd: 0.01 },
+        delta: { recall: 0.02, precision: -0.03, citation_accuracy: 0 },
+      }),
+      isLoading: false,
+    });
+    renderTab();
+    expect(screen.getByText("90%")).toBeInTheDocument();
+    expect(screen.getByText("80%")).toBeInTheDocument();
+    expect(screen.getByText("85%")).toBeInTheDocument();
+    expect(screen.getByText("+2.0pt")).toBeInTheDocument();
+    expect(screen.getByText("-3.0pt")).toBeInTheDocument();
+    expect(screen.getByText("0.0pt")).toBeInTheDocument();
+  });
+
+  it("a null current metric renders the placeholder, never NaN/null/0%", () => {
+    setQuery(h.cases, { data: [makeCase()] });
+    setQuery(h.batches, { data: [] });
+    setQuery(h.dashboard, {
+      data: makeDashboard({
+        current: { recall: 0.9, precision: null, citation_accuracy: 0.85, traces_passed: 2, traces_total: 2, cost_usd: 0.01 },
+        delta: { recall: 0.02, precision: null, citation_accuracy: 0 },
+      }),
+      isLoading: false,
+    });
+    renderTab();
+    expect(screen.getAllByText(evalsMessages.placeholder).length).toBeGreaterThanOrEqual(2); // value + delta
+    expect(screen.queryByText(/NaN/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^null$/)).not.toBeInTheDocument();
+    expect(screen.queryByText("0%")).not.toBeInTheDocument();
+  });
+
+  it("a null delta renders the placeholder and no sign (AC-39)", () => {
+    setQuery(h.cases, { data: [makeCase()] });
+    setQuery(h.batches, { data: [] });
+    setQuery(h.dashboard, {
+      data: makeDashboard({ delta: { recall: null, precision: -0.01, citation_accuracy: 0 } }),
+      isLoading: false,
+    });
+    renderTab();
+    expect(screen.queryByText("+0.0pt")).not.toBeInTheDocument();
+    expect(screen.queryByText("-0.0pt")).not.toBeInTheDocument();
+  });
+
+  it("a non-null alert renders a banner built from the code and the deltas; null renders none", () => {
+    setQuery(h.cases, { data: [makeCase()] });
+    setQuery(h.batches, { data: [] });
+    setQuery(h.dashboard, {
+      data: makeDashboard({ alert: "precision_drop", delta: { recall: 0, precision: -0.02, citation_accuracy: 0 } }),
+      isLoading: false,
+    });
+    renderTab();
+    expect(screen.getByRole("alert")).toHaveTextContent("Precision dropped 2.0pt since the previous sweep.");
+  });
+
+  it("no alert renders no banner", () => {
+    setQuery(h.cases, { data: [makeCase()] });
+    setQuery(h.batches, { data: [] });
+    setQuery(h.dashboard, { data: makeDashboard({ alert: null }), isLoading: false });
+    renderTab();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+describe("EvalsTab — trend chart (AC-42 – AC-44, AC-66, AC-67)", () => {
+  it("passes yMin=0, yMax=1 and only finite series data to the stubbed LineChart", () => {
+    setQuery(h.cases, { data: [makeCase()] });
+    setQuery(h.batches, { data: [] });
+    setQuery(h.dashboard, {
+      data: makeDashboard({
+        trend: [
+          makeTrendPoint({ recall: 0, precision: 0, citation_accuracy: 0 }), // a real 0.00 — must not be clipped
+          makeTrendPoint({ recall: 0.5, precision: 0.5, citation_accuracy: 0.5 }),
+        ],
+      }),
+      isLoading: false,
+    });
+    renderTab();
+    const chart = screen.getByTestId("line-chart");
+    expect(chart).toHaveAttribute("data-ymin", "0");
+    expect(chart).toHaveAttribute("data-ymax", "1");
+    const series = JSON.parse(chart.getAttribute("data-series")!) as { data: number[] }[];
+    expect(series).toHaveLength(3);
+    for (const s of series) {
+      expect(s.data).toHaveLength(2);
+      for (const v of s.data) expect(Number.isFinite(v)).toBe(true);
+    }
+  });
+
+  it("fewer than two plottable points renders the empty state instead of the chart", () => {
+    setQuery(h.cases, { data: [makeCase()] });
+    setQuery(h.batches, { data: [] });
+    setQuery(h.dashboard, { data: makeDashboard({ trend: [makeTrendPoint()] }), isLoading: false });
+    renderTab();
+    expect(screen.queryByTestId("line-chart")).not.toBeInTheDocument();
+    expect(screen.getByText(evalsMessages.trend.empty)).toBeInTheDocument();
+  });
+
+  it("names both exclusion counts separately, from the payload — not derived from trend or recent_runs", () => {
+    setQuery(h.cases, { data: [makeCase()] });
+    setQuery(h.batches, { data: [] });
+    // trend has 5 points, recent_runs has 10 — neither matches 3 or 2, so a
+    // client-side derivation from either array would read the wrong number.
+    setQuery(h.dashboard, {
+      data: makeDashboard({
+        trend: Array.from({ length: 5 }, (_, i) => makeTrendPoint({ ran_at: `2026-10-0${i + 1}T00:00:00.000Z` })),
+        recent_runs: Array.from({ length: 10 }, (_, i) => makeBatch({ id: `b-${i}` })),
+        trend_excluded: { other_version: 3, incomplete_metrics: 2 },
+      }),
+      isLoading: false,
+    });
+    renderTab();
+    expect(screen.getByText(/3 sweeps excluded — different metrics formula\./)).toBeInTheDocument();
+    expect(screen.getByText(/2 sweeps excluded — incomplete metrics\./)).toBeInTheDocument();
+  });
+
+  it("renders no exclusion note when both counts are zero", () => {
+    setQuery(h.cases, { data: [makeCase()] });
+    setQuery(h.batches, { data: [] });
+    setQuery(h.dashboard, { data: makeDashboard({ trend_excluded: { other_version: 0, incomplete_metrics: 0 } }), isLoading: false });
+    renderTab();
+    expect(screen.queryByText(/excluded/)).not.toBeInTheDocument();
+  });
+
+  it("AC-83 guard: the server's incomplete_metrics count and the client's own drop count must match on a shared fixture", () => {
+    // The same predicate ("any of the three metrics is null") is computed
+    // twice — server-side over EVERY batch (trend_excluded.incomplete_metrics)
+    // and client-side over just the returned `trend` (toTrendSeries' own
+    // `dropped`). They cannot share code across the package boundary; this
+    // fixture makes both counts non-zero and asserts them against EACH
+    // OTHER, not against a literal, so drift on either side fails loudly.
+    const trend = [
+      makeTrendPoint({ citation_accuracy: null }),
+      makeTrendPoint(),
+      makeTrendPoint({ recall: null }),
+      makeTrendPoint(),
+      makeTrendPoint(),
+    ];
+    const serverIncompleteMetrics = trend.filter(
+      (p) => p.recall == null || p.precision == null || p.citation_accuracy == null,
+    ).length;
+    expect(serverIncompleteMetrics).toBeGreaterThan(0);
+    setQuery(h.cases, { data: [makeCase()] });
+    setQuery(h.batches, { data: [] });
+    setQuery(h.dashboard, {
+      data: makeDashboard({ trend, trend_excluded: { other_version: 0, incomplete_metrics: serverIncompleteMetrics } }),
+      isLoading: false,
+    });
+    renderTab();
+    // The note's rendered count is the SERVER's — assert it equals the
+    // independently-computed client-side drop, not a hardcoded number.
+    expect(screen.getByText(new RegExp(`${serverIncompleteMetrics} sweeps excluded — incomplete metrics\\.`))).toBeInTheDocument();
+  });
+});
+
+describe("EvalsTab — recent-runs selection and Compare (AC-46 – AC-50, AC-72 – AC-74)", () => {
+  function fourRunFixture() {
+    return [
+      makeBatch({ id: "b1", status: "done", agent_version: 1, ran_at: "2026-10-01T00:00:00.000Z" }),
+      makeBatch({ id: "b2", status: "running", agent_version: 2, ran_at: "2026-10-02T00:00:00.000Z" }),
+      makeBatch({ id: "b3", status: "done", agent_version: 3, ran_at: "2026-10-03T00:00:00.000Z" }),
+      makeBatch({ id: "b4", status: "failed", agent_version: 4, ran_at: "2026-10-04T00:00:00.000Z" }),
+    ];
+  }
+
+  it("only `done` rows carry a checkbox; selecting two disables the rest, and Compare enables only at two", async () => {
+    const user = userEvent.setup();
+    setQuery(h.cases, { data: [makeCase()] });
+    setQuery(h.batches, { data: [] });
+    setQuery(h.dashboard, { data: makeDashboard({ recent_runs: fourRunFixture() }), isLoading: false });
+    renderTab();
+
+    const checkboxes = screen.getAllByRole("checkbox");
+    expect(checkboxes).toHaveLength(2); // b1, b3 — the two `done` rows
+    expect(screen.getByRole("button", { name: "Compare" })).toBeDisabled();
+
+    await user.click(checkboxes[0]!);
+    expect(screen.getByRole("button", { name: "Compare" })).toBeDisabled();
+    await user.click(checkboxes[1]!);
+    expect(screen.getByRole("button", { name: "Compare" })).toBeEnabled();
+
+    // At two selections both are still checked and neither is disabled (they
+    // can still be deselected); a third row never gets a checkbox at all.
+    expect(checkboxes[0]!).toBeEnabled();
+    expect(checkboxes[1]!).toBeEnabled();
+
+    await user.click(checkboxes[0]!);
+    expect(screen.getByRole("button", { name: "Compare" })).toBeDisabled();
+  });
+
+  it("AC-49: at two selections, every UNSELECTED done row's checkbox becomes disabled", async () => {
+    const user = userEvent.setup();
+    setQuery(h.cases, { data: [makeCase()] });
+    setQuery(h.batches, { data: [] });
+    setQuery(h.dashboard, {
+      data: makeDashboard({
+        recent_runs: [
+          makeBatch({ id: "b1", status: "done", agent_version: 1 }),
+          makeBatch({ id: "b2", status: "done", agent_version: 2 }),
+          makeBatch({ id: "b3", status: "done", agent_version: 3 }),
+        ],
+      }),
+      isLoading: false,
+    });
+    renderTab();
+    const [c1, c2, c3] = screen.getAllByRole("checkbox");
+    if (!c1 || !c2 || !c3) throw new Error("expected three checkboxes");
+    await user.click(c1);
+    await user.click(c2);
+    expect(c1).toBeEnabled();
+    expect(c2).toBeEnabled();
+    expect(c3).toBeDisabled();
+
+    // Deselecting one re-enables the third (negative control).
+    await user.click(c1);
+    expect(c3).toBeEnabled();
+  });
+
+  it("activating Compare with two selections opens the modal titled with both versions", async () => {
+    const user = userEvent.setup();
+    setQuery(h.cases, { data: [makeCase()] });
+    setQuery(h.batches, { data: [] });
+    setQuery(h.dashboard, { data: makeDashboard({ recent_runs: fourRunFixture() }), isLoading: false });
+    setQuery(h.compare, {
+      data: makeComparison({
+        old: makeBatch({ id: "b1", agent_version: 1 }),
+        new: makeBatch({ id: "b3", agent_version: 3 }),
+      }),
+      isLoading: false,
+    });
+    renderTab();
+    const checkboxes = screen.getAllByRole("checkbox");
+    await user.click(checkboxes[0]!);
+    await user.click(checkboxes[1]!);
+    await user.click(screen.getByRole("button", { name: "Compare" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Compare v1 → v3")).toBeInTheDocument();
+  });
+
+  it("each row's detail button has an exact, distinct accessible name and opens that row's batch (third row)", async () => {
+    const user = userEvent.setup();
+    setQuery(h.cases, { data: [makeCase()] });
+    setQuery(h.batches, { data: [] });
+    setQuery(h.dashboard, { data: makeDashboard({ recent_runs: fourRunFixture() }), isLoading: false });
+    h.batchDetail = { batch: fourRunFixture()[2], runs: [] };
+    renderTab();
+    const thirdRowButton = screen.getByRole("button", { name: "View case detail for v3 (2026-10-03)" });
+    await user.click(thirdRowButton);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    // The case-detail dialog's own empty state, proving it opened THIS row's
+    // (empty) batch rather than always the first.
+    expect(within(screen.getByRole("dialog")).getByText(evalsMessages.caseDetail.empty)).toBeInTheDocument();
+  });
+});
+
+describe("EvalsTab — Escape closes a dialog and restores focus (AC-64)", () => {
+  it("closes the compare modal on Escape and returns focus to the Compare control", async () => {
+    const user = userEvent.setup();
+    setQuery(h.cases, { data: [makeCase()] });
+    setQuery(h.batches, { data: [] });
+    setQuery(h.dashboard, {
+      data: makeDashboard({
+        recent_runs: [
+          makeBatch({ id: "b1", status: "done", agent_version: 1 }),
+          makeBatch({ id: "b2", status: "done", agent_version: 2 }),
+        ],
+      }),
+      isLoading: false,
+    });
+    setQuery(h.compare, { data: makeComparison(), isLoading: false });
+    renderTab();
+    const checkboxes = screen.getAllByRole("checkbox");
+    await user.click(checkboxes[0]!);
+    await user.click(checkboxes[1]!);
+    const compareButton = screen.getByRole("button", { name: "Compare" });
+    await user.click(compareButton);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(compareButton);
+  });
+
+  it("closes the case-detail dialog on Escape and returns focus to its own detail button", async () => {
+    const user = userEvent.setup();
+    setQuery(h.cases, { data: [makeCase()] });
+    setQuery(h.batches, { data: [] });
+    setQuery(h.dashboard, {
+      data: makeDashboard({ recent_runs: [makeBatch({ id: "b1", status: "done", agent_version: 1, ran_at: "2026-10-01T00:00:00.000Z" })] }),
+      isLoading: false,
+    });
+    h.batchDetail = { batch: makeBatch(), runs: [] };
+    renderTab();
+    const detailButton = screen.getByRole("button", { name: "View case detail for v1 (2026-10-01)" });
+    await user.click(detailButton);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(detailButton);
   });
 });

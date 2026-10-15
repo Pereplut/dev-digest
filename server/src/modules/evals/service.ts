@@ -1,12 +1,19 @@
 import type { Container } from '../../platform/container.js';
-import type { EvalCaseFromFindingInput, EvalCasePatch } from '@devdigest/shared';
+import type {
+  EvalCaseFromFindingInput,
+  EvalCasePatch,
+  EvalDashboard,
+  EvalRunComparison,
+} from '@devdigest/shared';
+import { AgentVersionConfig } from '@devdigest/shared';
 import type { AgentRow, EvalCaseRow, EvalRunBatchRow, EvalRunRow } from '../../db/rows.js';
 import { ConflictError, NotFoundError, ValidationError } from '../../platform/errors.js';
 // Case creation needs the finding's pull request's diff — the ONE place
 // `modules/evals/` may import `reviews/diff-loader.ts` (AC-37); the background
 // executor (`run-executor.ts`) imports neither it nor `reviews/run-executor.ts`.
 import { loadDiff } from '../reviews/diff-loader.js';
-import { EVAL_REAP_ERROR } from './constants.js';
+import { EVAL_METRICS_VERSION, EVAL_REAP_ERROR } from './constants.js';
+import { buildComparison, buildDashboard } from './helpers.js';
 import { EvalBatchRepository } from './repository/eval-batch.repo.js';
 import { EvalCaseRepository } from './repository/eval-case.repo.js';
 import { EvalRunExecutor, type Logger } from './run-executor.js';
@@ -141,6 +148,8 @@ export class EvalService {
       agentId: agent.id,
       agentVersion: agent.version,
       casesTotal: cases.length,
+      // AC-3 — the single exported constant names the formula; never a literal.
+      metricsVersion: EVAL_METRICS_VERSION,
     });
 
     // Fire-and-forget: the route returns 202 with batch_id now; the sweep
@@ -181,6 +190,80 @@ export class EvalService {
     // (AC-71) — this call only signals it, mirroring `registerAbort`'s
     // contract: a no-op if nothing is currently in flight.
     this.container.runBus.cancel(batchId);
+  }
+
+  // ===========================================================================
+  // Dashboard + compare (spec 0020)
+  // ===========================================================================
+
+  /**
+   * AC-11 – AC-19, AC-83 – AC-85: the per-agent dashboard. Two queries — the
+   * agent's full batch list and its eval-case count — into the pure
+   * `buildDashboard`; `owner_kind`/`owner_id` are set here from the request's
+   * own `:id`, never derived from a row (an agent with no `done` batch has no
+   * row to derive them from — AC-18).
+   */
+  async dashboard(workspaceId: string, agentId: string): Promise<EvalDashboard> {
+    await this.requireAgent(workspaceId, agentId);
+    const [batches, casesTotal] = await Promise.all([
+      this.batchRepo.listForAgent(workspaceId, agentId),
+      this.caseRepo.countForAgent(workspaceId, agentId),
+    ]);
+    const dashboard = buildDashboard(batches, casesTotal);
+    return { ...dashboard, owner_kind: 'agent', owner_id: agentId };
+  }
+
+  /**
+   * AC-20 – AC-27, AC-86: compare two of this agent's batches. Guards run in
+   * the order the spec states them: equal ids (422) before the DB read, then
+   * "both batches actually came back, scoped to this agent and workspace"
+   * (404 — `getPairScoped` makes a foreign/unknown id indistinguishable from
+   * a missing one), then each batch's own status (422, naming it).
+   */
+  async compare(
+    workspaceId: string,
+    agentId: string,
+    idA: string,
+    idB: string,
+  ): Promise<EvalRunComparison> {
+    await this.requireAgent(workspaceId, agentId);
+    if (idA === idB) {
+      throw new ValidationError('Provide two different eval run ids to compare');
+    }
+    const pair = await this.batchRepo.getPairScoped(workspaceId, agentId, [idA, idB]);
+    if (pair.length !== 2) {
+      throw new NotFoundError('Eval run not found');
+    }
+    for (const batch of pair) {
+      if (batch.status !== 'done') {
+        throw new ValidationError(`Eval run ${batch.id} has not finished (status: ${batch.status})`);
+      }
+    }
+    const [batchA, batchB] = pair as [EvalRunBatchRow, EvalRunBatchRow];
+    const [configA, configB] = await Promise.all([
+      this.resolveVersionConfig(agentId, batchA.agentVersion),
+      this.resolveVersionConfig(agentId, batchB.agentVersion),
+    ]);
+    return buildComparison(batchA, configA, batchB, configB);
+  }
+
+  /**
+   * AC-26/AC-86: a missing snapshot AND a snapshot that fails to parse both
+   * degrade to `null` rather than a 500 — a drifted historical
+   * `agent_versions` row must only cost the prompt diff, never the whole
+   * comparison.
+   */
+  private async resolveVersionConfig(
+    agentId: string,
+    version: number,
+  ): Promise<AgentVersionConfig | null> {
+    const row = await this.container.agentsRepo.getVersion(agentId, version);
+    if (!row) return null;
+    try {
+      return AgentVersionConfig.parse(row.configJson);
+    } catch {
+      return null;
+    }
   }
 
   // ===========================================================================

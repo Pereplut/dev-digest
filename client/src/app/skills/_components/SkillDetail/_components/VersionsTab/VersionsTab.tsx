@@ -8,8 +8,9 @@ import type { Skill, SkillVersion } from "@devdigest/shared";
 import { Badge, Button, EmptyState, ErrorState, Modal, Skeleton } from "@/components/ui-client";
 import { useRestoreSkillVersion, useSkillVersions } from "@/lib/hooks/skills";
 import { useToast } from "@/lib/toast";
+import { toDiffRows } from "@/lib/text-diff";
 import { DIFF_MARK } from "./constants";
-import { formatDate, sortVersions, toDiffRows } from "./helpers";
+import { formatDate, sortVersions } from "./helpers";
 import { s } from "./styles";
 
 function DiffModal({ older, current, onClose }: { older: SkillVersion; current: Skill; onClose: () => void }) {

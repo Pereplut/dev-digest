@@ -21,6 +21,8 @@ vi.mock("../../../../../lib/hooks/skills", () => ({
 vi.mock("../../../../../lib/hooks/evals", () => ({
   useAgentEvalCases: () => ({ data: [], isLoading: false, isError: false, refetch: vi.fn() }),
   useAgentEvalBatches: () => ({ data: [], isLoading: false, isError: false, refetch: vi.fn() }),
+  useAgentEvalDashboard: () => ({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() }),
+  useEvalCompare: () => ({ data: undefined, isLoading: false, isError: false }),
   useEvalBatch: () => ({ data: undefined }),
   useRunEvals: () => ({ mutate: vi.fn(), isPending: false }),
 }));

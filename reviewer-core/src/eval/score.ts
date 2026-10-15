@@ -10,6 +10,13 @@ import { rangesIntersect } from '../grounding.js';
  * every input arrives as a plain argument (AC-9, AC-10). Never call this with
  * raw model output; `findings` must already be `ReviewOutcome.review.findings`
  * (grounded), per AC-46.
+ *
+ * `precision` (the top-level field) is always finding-denominated — correct
+ * findings over produced findings — and that is intentional: it is the
+ * per-case diagnostic persisted on the `eval_runs` row and read by the UI,
+ * and it stays that way even though the BATCH rollup pools a different pair
+ * (`mustNotFlagAvoided`/`mustNotFlagTotal`) for its own `precision` metric.
+ * Never "fix" this by making the two consistent — see `ScoreEvalCaseResult`.
  */
 
 /** One target a produced finding is checked against — file + inclusive line range. */
@@ -37,6 +44,56 @@ export interface ScoreEvalCaseResult {
   precision: number;
   citationAccuracy: number;
   pass: boolean;
+  /**
+   * Raw counts behind the ratios above, for the batch rollup
+   * (`server/src/modules/evals/helpers.ts`'s `rollupBatch`) to combine across
+   * cases instead of trusting any ratio this function already computed.
+   * `recall` and `precision` are POOLED (summed numerators, summed
+   * denominators, divided once); `citationAccuracy` is AVERAGED (one vote
+   * per case) — see that file's doc comments for why each metric gets a
+   * different combination rule.
+   *
+   * `recallMatched / recallTotal` mirrors `recall` exactly, and is safe to
+   * pool: the denominator (`must_find` expectation count) comes from the
+   * database case rows, never from the model.
+   *
+   * `precisionCorrect / precisionTotal` mirrors the per-case `precision`
+   * above — the finding-denominated diagnostic kept on the `eval_runs` row —
+   * and must stay finding-denominated there; it is NOT what the batch pools.
+   * `mustNotFlagAvoided / mustNotFlagTotal` is the pair the batch pools for
+   * `precision` instead: `must_not_flag` expectations this case avoided over
+   * total `must_not_flag` expectations, both counts from the case rows. Doing
+   * this closes the gap pooling `precisionCorrect`/`precisionTotal` would
+   * reopen — that denominator is `findings.length`, a count the model
+   * controls, so a `must_not_flag` case emitting many off-target findings
+   * would buy itself a weight approaching 1 regardless of every `must_find`
+   * case's score (security finding, server/INSIGHTS.md 2026-10-07). With this
+   * pair instead, both `recall`'s and `precision`'s batch denominators come
+   * from the database, and no model output can move a batch metric's
+   * weighting.
+   *
+   * `citationKept / (citationKept + citationDropped)` is `citationAccuracy`.
+   * Its denominator (grounding decisions) is inherently model-derived (what
+   * share of PRODUCED findings cited a real diff line) and nothing caps it,
+   * so the batch rollup AVERAGES this pair instead of pooling it — pooling
+   * would make a case's batch weight proportional to how many findings it
+   * happened to emit, the same reward-for-noise `mustNotFlagAvoided` exists
+   * to keep out of `precision` (security finding, server/INSIGHTS.md
+   * 2026-10-07).
+   */
+  recallMatched: number;
+  recallTotal: number;
+  precisionCorrect: number;
+  precisionTotal: number;
+  /** `must_not_flag` expectations this case avoided (matched by no produced
+   *  finding). Always `0` for a `must_find` case. */
+  mustNotFlagAvoided: number;
+  /** Total `must_not_flag` expectations for this case. Always `0` for a
+   *  `must_find` case — that case contributes nothing to batch `precision`,
+   *  exactly as a `must_not_flag` case contributes nothing to `recall`. */
+  mustNotFlagTotal: number;
+  citationKept: number;
+  citationDropped: number;
 }
 
 /** A produced finding "matches" an expectation: same file, intersecting inclusive ranges (AC-11). */
@@ -72,6 +129,14 @@ export function scoreEvalCase(input: ScoreEvalCaseInput): ScoreEvalCaseResult {
       : findings.filter((f) => !expectations.some((e) => findingMatches(f, e)));
   const precision = findings.length === 0 ? 1 : correctFindings.length / findings.length;
 
+  // must_not_flag expectations this case avoided — the batch's pooled
+  // precision numerator/denominator (see ScoreEvalCaseResult's doc comment).
+  // Expectation-denominated, never finding-denominated, so it mirrors
+  // `recall`'s shape: a `must_find` case contributes nothing here, exactly as
+  // a `must_not_flag` case contributes nothing to recall's counts above.
+  const mustNotFlagExpectations = expectationKind === 'must_not_flag' ? expectations : [];
+  const avoidedMustNotFlag = mustNotFlagExpectations.filter((e) => !findings.some((f) => findingMatches(f, e)));
+
   // AC-14 — citation accuracy from the grounding gate; zero denominator → 1 (AC-17).
   const citationAccuracy = kept + dropped === 0 ? 1 : kept / (kept + dropped);
 
@@ -82,5 +147,18 @@ export function scoreEvalCase(input: ScoreEvalCaseInput): ScoreEvalCaseResult {
       ? expectations.every((e) => findings.some((f) => findingMatches(f, e)))
       : !findings.some((f) => expectations.some((e) => findingMatches(f, e)));
 
-  return { recall, precision, citationAccuracy, pass };
+  return {
+    recall,
+    precision,
+    citationAccuracy,
+    pass,
+    recallMatched: matchedMustFind.length,
+    recallTotal: mustFindExpectations.length,
+    precisionCorrect: correctFindings.length,
+    precisionTotal: findings.length,
+    mustNotFlagAvoided: avoidedMustNotFlag.length,
+    mustNotFlagTotal: mustNotFlagExpectations.length,
+    citationKept: kept,
+    citationDropped: dropped,
+  };
 }

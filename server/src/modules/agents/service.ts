@@ -4,6 +4,7 @@ import type {
   AgentSkill,
   AgentVersion,
   CiFailOn,
+  EvalPromoteResult,
   ModelInfo,
   Provider,
   ReviewStrategy,
@@ -11,7 +12,7 @@ import type {
 import { AgentsRepository } from './repository.js';
 import { toAgentDto, toAgentVersionDto } from './helpers.js';
 import type { AgentRow } from '../../db/rows.js';
-import { NotFoundError, ValidationError } from '../../platform/errors.js';
+import { ConflictError, NotFoundError, ValidationError } from '../../platform/errors.js';
 // Pure skill helpers (ring 1) — the ONE prompt-block formatter and the Skill
 // DTO mapping; never the skills module's service or repository.
 import { renderSkillBlock, toSkillDto } from '../skills/helpers.js';
@@ -197,6 +198,35 @@ export class AgentsService {
       });
     }
     return (await this.skillLinks(workspaceId, agentId)) ?? [];
+  }
+
+  /**
+   * spec 0020 AC-28 – AC-36 — restore `version`'s stored config onto the
+   * agent as a new version. Both guards run BEFORE `repo.promoteVersion`
+   * opens its transaction, so a refused promote changes no row: `version`
+   * already current (AC-33) and a live sweep for this agent (AC-34), read
+   * through `Container.evalBatchRepo` — the container-getter escape hatch
+   * `no-cross-module-internals` names for a cross-module read of a LOCAL
+   * table, not a new port (spec 0020 `## Decisions I settled` #1). This
+   * service imports no type from `modules/evals/`.
+   */
+  async promote(workspaceId: string, agentId: string, version: number): Promise<EvalPromoteResult> {
+    const agent = await this.repo.getById(workspaceId, agentId);
+    if (!agent) throw new NotFoundError('Agent not found');
+    if (version === agent.version) {
+      throw new ConflictError('This version is already the agent’s current version');
+    }
+    if (await this.container.evalBatchRepo.hasLiveBatchForAgent(agentId)) {
+      throw new ConflictError('An eval run is already queued or running for this agent');
+    }
+    const result = await this.repo.promoteVersion(workspaceId, agentId, version);
+    if (!result) throw new NotFoundError('Agent version not found');
+    const dto = await this.withSkillCount(workspaceId, result.row);
+    return {
+      agent: dto,
+      version: result.row.version,
+      skills_not_restored: result.skillsNotRestored,
+    };
   }
 
   /**
