@@ -70,8 +70,8 @@ beforehand.
 | Nav landing | `/multi-agent-review` opens the latest run if there is one, else Configure run; `?new=1` forces Configure run. Nav item lives in a new GLOBAL section, as in the mockup. | `client/src/vendor/ui/nav.ts` changes (allowed exception). |
 | Execution | Diff + intent prepared once (already true); agents run with `Promise.allSettled`; failure/cancel isolated per agent. | Wall-clock ≈ slowest agent; up to 10 concurrent LLM calls per request. |
 | Empty diff | Keep current behaviour: `loadDiff` returns an empty diff without throwing (`diff-loader.ts:19-29`); every agent runs and ends `done` with 0 findings. `failAll` only when the diff load throws. | No new guard; single-agent behaviour unchanged. |
-| Grouping rule | Pure, deterministic: same file AND ranges overlapping with ±2-line tolerance, transitive (union-find). No text similarity. All original finding ids kept with attribution. | Unrelated issues on adjacent lines may share a group; nothing is hidden. |
-| Takes | Only `done` agents get a take; an agent with no finding in the group = "did not flag" (`ignored`). Non-`done` agents are omitted from the group row. `divergent` = done takes' verdicts not all equal. | A failed agent never reads as "did not flag". |
+| Grouping rule | Pure, deterministic: same file AND ranges overlapping with ±2-line tolerance AND lengths within 3× of each other, transitive (union-find). No text similarity. All original finding ids kept with attribution. | Unrelated issues on adjacent lines may share a group; nothing is hidden. |
+| Takes | Only `done` agents get a take; an agent with no finding in the group = "did not flag" (`ignored`). Non-`done` agents are omitted from the group row. `divergent` = the flagging takes' severities are not all equal ("did not flag" alone is not a conflict). | A failed agent never reads as "did not flag". |
 | Title / verdict / note | Group title = title of the highest-severity finding (tie → lowest `start_line`, then id). Flagged take verdict = its highest severity; note = that finding's title. Did-not-flag note is empty; UI shows "did not flag". | No LLM-written notes. |
 | Totals and estimates | Wall-clock = max of agent durations; cost = null-safe sum. Estimates = per-agent avg duration/cost of past `done` runs on `GET /agents` (`est_duration_ms`, `est_cost_usd`, nullable). Agents without history show "no history" and are excluded; the summary is hidden when no selected agent has history. Card teaser = `agents.description`. | No estimate endpoint; the client computes the summary. |
 | Configure run with 1 agent | The run button requires ≥2 checked agents. The PR-page picker keeps 1 agent = normal single run. | No null-`multi_run_id` navigation case. |
@@ -192,8 +192,9 @@ beforehand.
 **Grouping — pure function over the persisted findings of one multi-agent run**
 
 - AC-16: The grouping function shall put two findings in one group exactly when they share `file`
-  and their ranges `[start_line − 2, end_line + 2]` overlap, transitively (A~B and B~C → one group),
-  so that findings in different files, or with identical titles but non-overlapping ranges, stay in
+  and their ranges `[start_line − 2, end_line + 2]` overlap and neither range (`end − start + 1`) is
+  more than 3× the other's length, transitively (A~B and B~C → one group), so that a file-wide finding
+  does not absorb the narrow findings inside it, and so that findings in different files, or with identical titles but non-overlapping ranges, stay in
   separate groups.
 - AC-17: The grouping function shall emit every input finding id exactly once across all groups,
   under the take of the agent run that produced it (`ConflictTake.finding_ids`).
@@ -204,8 +205,8 @@ beforehand.
   agent's findings in the group (`CRITICAL` > `WARNING` > `SUGGESTION`) and its note to that
   finding's title, an `ignored` take's note to `""`, and the group title to the title of the
   highest-severity finding in the group (tie: lowest `start_line`, then id).
-- AC-20: The grouping function shall set `divergent: true` on a group exactly when its takes'
-  verdicts are not all equal.
+- AC-20: The grouping function shall set `divergent: true` on a group exactly when the verdicts of
+  its non-`ignored` takes are not all equal, so that "did not flag" alone is not a conflict.
 - AC-21: The grouping function shall return identical output for any permutation of its input, with
   groups ordered by `file` then first line.
 - AC-22: The grouping function shall treat a finding whose `end_line` is null or less than
@@ -359,7 +360,7 @@ beforehand.
 | Run trace | `GET /runs/:id/trace`, `RunTraceDrawer` | [reused: spec 0009] | Drawer moved, not rewritten |
 | Finding actions | `FindingCard`, `useFindingAction`, `useCreateEvalCase` | [reused: spec 0019] | Accept, Dismiss, Turn into eval case |
 | `multi_agent_runs` parent, `agent_runs.multi_run_id` | this feature | [new] | |
-| Groups, takes, `divergent`, group title, notes | grouping function | [deterministic: union-find over file + `[start−2, end+2]` overlap; severity ordering] | Computed on read, not stored |
+| Groups, takes, `divergent`, group title, notes | grouping function | [deterministic: union-find over file + `[start−2, end+2]` overlap + 3× length ratio; severity ordering] | Computed on read, not stored |
 | Totals | read service | [deterministic: max of durations, null-safe sum of costs] | |
 | `est_duration_ms`, `est_cost_usd` | `GET /agents` | [deterministic: SQL average over `done` runs] | |
 | Pre-run summary | client | [deterministic: max / sum over checked agents with estimates] | |
@@ -390,7 +391,7 @@ beforehand.
 | AC-11 | Read `server/src/db/migrations/0025_*.sql`: only `ADD COLUMN` / `ADD CONSTRAINT` / `CREATE INDEX`; `git diff --name-only origin/main -- server/src/db/migrations` lists only the new `0025` file and `meta/` additions |
 | AC-12, AC-13, AC-14, AC-23 | `server/test/multi-agent.it.test.ts` (**user-run**): run in workspace → 200 with `pr_id`/`pr_number`; foreign workspace / unknown id → 404; two runs on one PR → `latest?pr_id=` returns the newer, `latest` returns newest across PRs; empty → 200 `null`; a single run on the same PR is not a column; `cancelled` surfaces; findings carry `confidence`/`suggestion`; deleted agent → `agent_id: null`; agent with done runs 1000/3000 ms and $0.01/$0.03 → 2000 and 0.02 as numbers, agent with only failed/cancelled/running runs → both null |
 | AC-15 | `server/test/multi-agent-read.test.ts`: costs are `number`; max of `[1200, null, 800]` = 1200, all null → 0; sum of `[0.01, null, 0.02]` = 0.03, all null → `null` |
-| AC-16, AC-17, AC-18, AC-19, AC-20, AC-21, AC-22 | `server/test/multi-agent-grouping.test.ts`: lines 10 and 12 group, 10 and 14 group by tolerance, 10 and 20 do not; A–B–C chain is one group; same lines in two files → two groups; identical titles, disjoint ranges → two groups; every id exactly once under its run; 3 done + 1 failed column → 3 takes, `ignored` + `[]` for the silent one; WARNING+SUGGESTION from one agent → WARNING with that title as note, ignored note `""`, group title from the highest severity with tie on `start_line`; all-equal → `divergent: false`, mixed → true; shuffled input deep-equals; `end_line` null / below start clamps; 500 findings incl. 2147483647 < 100 ms |
+| AC-16, AC-17, AC-18, AC-19, AC-20, AC-21, AC-22 | `server/test/multi-agent-grouping.test.ts`: lines 10 and 12 group, 10 and 14 group by tolerance, 10 and 20 do not; 9–64 does not absorb 59–63 / 61–63 while 18–49 joins it; 3× lengths group, just over 3× do not; A–B–C chain is one group; same lines in two files → two groups; identical titles, disjoint ranges → two groups; every id exactly once under its run; 3 done + 1 failed column → 3 takes, `ignored` + `[]` for the silent one; WARNING+SUGGESTION from one agent → WARNING with that title as note, ignored note `""`, group title from the highest severity with tie on `start_line`; all-equal → `divergent: false`, mixed severities → true, one flag + did-not-flag → false; shuffled input deep-equals; `end_line` null / below start clamps; 500 findings incl. 2147483647 < 100 ms |
 | AC-24, AC-25, AC-26 | `client/src/app/repos/[repoId]/pulls/[number]/_components/AgentPicker/AgentPicker.test.tsx`: enabled agents with `~Ns` / "no history"; Clear unchecks; Configure link href; disabled at 0, label N at 2; one checked posts `[id]` and does not navigate; two checked posts both and navigates |
 | AC-27 | `PrDetailHeader` test: link present with the run id when the latest route returns a run, absent on `null` |
 | AC-28, AC-29 | Nav test in `client/src/components/app-shell`: GLOBAL section item, active on `/multi-agent-review/abc`; `client/src/app/multi-agent-review/page.test.tsx`: latest exists → navigates; `null` → Configure run; `?new=1` → Configure run even when latest exists |
@@ -426,7 +427,14 @@ wall-clock 4.77×.
   input tokens per agent are ~11–13k because each agent's prompt carries the same diff.
 - The one group: `server/src/adapters/llm/openrouter.ts:81-93`, General flagged CRITICAL
   ("Unhandled promise rejection from inner provider when timeout fires"), Security and Performance did not
-  flag → divergent. Not verified here; it is a review finding on PR #21, not on this branch.
+  flag → divergent under the original rule (not divergent since the 2026-10-15 amendment below).
+  Not verified here; it is a review finding on PR #21, not on this branch.
+
+## Amendment 2026-10-15 — grouping and conflicts (after PR #26)
+Found on the dev app with a 4-agent run on PR #6 (27 findings): all 9 groups were divergent, so "Show only
+conflicts" hid nothing, and file-wide findings (`routes.ts:9-64`, "all routes lack auth") merged up to 9
+unrelated findings into one group. AC-16 gained the 3× length ratio and AC-20 now ignores "did not flag".
+Replayed on the same 27 findings: 17 groups, 5 divergent.
 
 ## Phases
 | Phase | Date | Note |

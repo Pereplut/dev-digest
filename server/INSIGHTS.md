@@ -619,3 +619,9 @@ Extends: "The dev DB had 8 pre-migration batches stamped `metrics_version = 1`, 
 **Insight:** on a `pull_request` event from a fork, GitHub runs the workflow file from the PR's merge commit. The fork author can delete the fork gate and upload any `devdigest-result`. Both values the artifact echoes are public (the head SHA, and `github.repository_id` of the base repo), so they authenticate nothing. The run still lists under the same workflow path.
 **Apply:** decide trust from the run's own metadata before downloading anything. Require `run.event === 'pull_request'` and `run.head_repository.full_name` equal to the installed repo, and fail closed when it is null. Never trust echoed fields inside the artifact.
 **Evidence:** `server/src/modules/ci/helpers.ts:207-215` (`isTrustedRun`), `server/src/modules/ci/service.ts:314`, `server/src/adapters/github/octokit.ts:392-393`; tests `server/test/ci-ingest.test.ts:336`, `server/test/ci-trust.test.ts`.
+
+### 2026-10-15 — [llm] Reviewer agents emit file-wide line ranges, and specialists leave most groups "did not flag"
+**Context:** a 4-agent multi-agent run on PR #6 (27 findings) showed 9 groups, all divergent, so "Show only conflicts" hid nothing.
+**Insight:** models report a cross-cutting issue over the whole file (`routes.ts` 9-64 "all routes lack auth"), so pure overlap grouping merged up to 9 unrelated findings into one group; and with specialised agents nearly every group has a silent agent, so "verdicts not all equal" was true everywhere. A 3× length-ratio link rule plus divergent-over-flagging-takes-only gave 17 groups / 5 divergent on the same findings.
+**Apply:** never group by raw range overlap or count `ignored` as a disagreement; replay a real run's `GET /multi-agent/:id` columns through `groupFindings` before changing either rule.
+**Evidence:** `server/src/modules/reviews/multi-agent-grouping.ts:23,159`; replay of multi-agent run `1a967e4b` through `groupFindings` via `tsx`.

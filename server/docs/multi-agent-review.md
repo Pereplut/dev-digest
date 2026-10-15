@@ -63,11 +63,12 @@ sequenceDiagram
 The decision to use geometry rather than text is recorded in
 [`adr/0001-group-findings-by-line-overlap.md`](adr/0001-group-findings-by-line-overlap.md).
 
-- **Same group** = same `file` and line ranges, each widened by 2 lines (`TOLERANCE`, line 16), overlap,
-  transitively (A~B and B~C is one group).
-- **Sort and sweep**, not pairwise (lines 91-107): sort by file, start, end, id; walk once, tracking the
-  running max end; a finding joins the current group when `start - 2 <= maxEnd + 2` on the same file.
-  O(F log F). Pairwise union-find is O(F²) and missed the 500-finding / 100 ms bound (AC-22).
+- **Linked** = same `file`, line ranges each widened by 2 lines (`TOLERANCE`) overlap, AND neither
+  range is more than 3× the other's length (`MAX_LENGTH_RATIO`). Groups are the connected components
+  (A~B and B~C is one group). The ratio stops a file-wide finding ("all routes lack auth", 9-64) from
+  absorbing every narrow finding inside it; on PR #6 that had merged 9 unrelated findings.
+- **Pruned pairwise union-find:** entries sorted by file, start, end, id; each is compared only with
+  later entries that start before its widened end. 500 findings group in a few ms (AC-22).
 - **Bounds against model-controlled numbers:** a null or inverted `end_line` is clamped to `start_line`
   (line 78), and the loop iterates findings, never line values, so `start_line = 2147483647` costs nothing.
 - **Takes only for `done` columns** (line 70); a failed, cancelled or running column has no cell, so it
@@ -79,8 +80,9 @@ The decision to use geometry rather than text is recorded in
   produced it.
 - **Selection:** a flagged take's verdict is its highest severity and its note that finding's title; the
   group title is the top-severity finding's. Ties break on lowest start, then id (`topOf`, line 58).
-- **`divergent`** is true when the takes' verdicts are not all equal (line 139), so a lone agent flagging
-  something the others ignored is divergent.
+- **`divergent`** is true when the agents that flagged the group disagree on severity; `ignored` takes
+  are left out. With specialised agents nearly every group has a silent agent, so counting "did not
+  flag" made every group a conflict and the "Show only conflicts" filter a no-op.
 - **Determinism:** takes are ordered by (agent name, run id) inside the function (line 70-72), and every
   sort ends at the id, so output depends only on the set of inputs, not on column order.
 

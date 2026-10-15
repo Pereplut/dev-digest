@@ -60,10 +60,26 @@ describe('groupFindings', () => {
     expect(g[0]!.title).toBe('earlier warn');
   });
 
-  it('divergent: all-equal false, mixed true', () => {
+  it('divergent: flagging agents disagree on severity; "did not flag" alone is not a conflict', () => {
     expect(groupFindings([col(1, [f('a.ts', 1, 1)]), col(2, [f('a.ts', 1, 1)])])[0]!.divergent).toBe(false);
     expect(groupFindings([col(1, [f('a.ts', 1, 1)]), col(2, [f('a.ts', 1, 1, 'CRITICAL')])])[0]!.divergent).toBe(true);
-    expect(groupFindings([col(1, [f('a.ts', 1, 1)]), col(2, [])])[0]!.divergent).toBe(true);
+    expect(groupFindings([col(1, [f('a.ts', 1, 1)]), col(2, [])])[0]!.divergent).toBe(false);
+    expect(groupFindings([col(1, [f('a.ts', 1, 1)]), col(2, [f('a.ts', 1, 1, 'CRITICAL')]), col(3, [])])[0]!.divergent).toBe(true);
+  });
+
+  it('a range more than 3x longer does not absorb the narrow findings inside it', () => {
+    // PR #6, routes.ts: "all routes lack auth" 9-64 vs SSRF 59-63 / 61-63.
+    const g = groupFindings([
+      col(1, [f('r.ts', 9, 64), f('r.ts', 59, 63)]),
+      col(2, [f('r.ts', 18, 49), f('r.ts', 34, 37)]),
+      col(3, [f('r.ts', 61, 63)]),
+    ]);
+    expect(g.map((x) => [x.start_line, x.end_line])).toEqual([[9, 64], [34, 37], [59, 63]]);
+  });
+
+  it('lengths exactly 3x apart still group; just over 3x do not', () => {
+    expect(groupFindings([col(1, [f('a.ts', 10, 12)]), col(2, [f('a.ts', 10, 10)])])).toHaveLength(1);
+    expect(groupFindings([col(1, [f('a.ts', 10, 13)]), col(2, [f('a.ts', 10, 10)])])).toHaveLength(2);
   });
 
   it('output is identical for any permutation of columns and findings', () => {

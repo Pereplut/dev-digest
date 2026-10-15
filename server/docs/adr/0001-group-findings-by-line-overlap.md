@@ -24,3 +24,7 @@ model call. Groups are computed on read, not stored.
   Rephrasings of one issue on distant lines stay in separate groups. Both are accepted losses.
 - The +/-2 tolerance is a constant, not a setting. Changing it needs no migration because nothing is stored.
 - A semantic matcher can replace `groupFindings` later without touching the routes or the contract.
+
+## Amendment 2026-10-15
+Overlap alone let a file-wide finding swallow everything inside it. A link now also requires the two
+ranges' lengths to be within 3× of each other (`MAX_LENGTH_RATIO`). Still geometry only, still no text.
