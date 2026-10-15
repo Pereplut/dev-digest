@@ -183,6 +183,13 @@
       "when": 1792058720816,
       "tag": "0025_yielding_medusa",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1792073162106,
+      "tag": "0026_special_bill_hollister",
+      "breakpoints": true
     }
   ]
 }
