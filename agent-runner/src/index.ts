@@ -19,6 +19,7 @@
  */
 import path from 'node:path';
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { OpenRouterProvider } from '@devdigest/reviewer-core';
 import { runCi, type PostAs } from './run.js';
 import { redactSecrets } from './artifact.js';
@@ -69,10 +70,11 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<number
 
 // Only run when executed directly (CI), never on import (tests import `main`
 // / `runCi` directly and drive them with injected fixtures).
+// Compare URLs, not a hand-built string: `import.meta.url` is percent-encoded,
+// so a checkout path with a space, `#` or non-ASCII never matched and the job
+// exited 0 without reviewing anything.
 const isDirectRun =
-  typeof process !== 'undefined' &&
-  process.argv[1] != null &&
-  import.meta.url === `file://${process.argv[1]}`;
+  process.argv[1] != null && import.meta.url === pathToFileURL(process.argv[1]).href;
 
 if (isDirectRun) {
   main().then(

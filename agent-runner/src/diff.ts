@@ -25,22 +25,51 @@ function isIgnoredDiffPath(path: string): boolean {
 }
 
 /**
+ * The path a `diff --git` section changes, or null when it cannot be read
+ * unambiguously. The `diff --git a/<p> b/<p>` header is NOT split on the first
+ * ` b/`: git leaves spaces unquoted, so a PR adding `src/x b/.devdigest/y`
+ * would make that split yield `.devdigest/y` and hide real code from review.
+ * The `+++ b/<p>` line (or `--- a/<p>` for a deletion) holds exactly one path;
+ * the header is only a fallback (binary / mode-only sections), and only when
+ * its two halves are identical.
+ */
+function sectionPath(section: readonly string[]): string | null {
+  for (const line of section) {
+    if (line.startsWith('@@')) break;
+    if (line.startsWith('+++ b/')) return line.slice('+++ b/'.length);
+  }
+  for (const line of section) {
+    if (line.startsWith('@@')) break;
+    if (line.startsWith('--- a/')) return line.slice('--- a/'.length);
+  }
+  const rest = section[0]?.slice('diff --git '.length) ?? '';
+  // `a/P b/P` is 2·len(P) + 5 characters; anything else is ambiguous.
+  if ((rest.length - 5) % 2 !== 0) return null;
+  const len = (rest.length - 5) / 2;
+  const a = rest.slice(0, len + 2);
+  const b = rest.slice(len + 3);
+  if (!a.startsWith('a/') || !b.startsWith('b/') || a.slice(2) !== b.slice(2)) return null;
+  return b.slice(2);
+}
+
+/**
  * Remove whole `diff --git` sections for ignored paths from a raw unified diff,
- * keeping the raw text and the later-parsed file list consistent. GitHub's diff
- * media type emits exactly one `diff --git a/<path> b/<path>` header per file,
- * so splitting on that header and reading the new-side (`b/`) path is enough to
- * decide which sections to drop.
+ * keeping the raw text and the later-parsed file list consistent. A section
+ * whose path cannot be read unambiguously is kept (reviewed), never dropped.
  */
 export function stripIgnoredFiles(raw: string): string {
   const kept: string[] = [];
-  let skipping = false;
+  let section: string[] = [];
+  const flush = (): void => {
+    const path = section[0]?.startsWith('diff --git') ? sectionPath(section) : null;
+    if (path === null || !isIgnoredDiffPath(path)) kept.push(...section);
+    section = [];
+  };
   for (const line of raw.split('\n')) {
-    if (line.startsWith('diff --git')) {
-      const match = line.match(/ b\/(.*)$/);
-      skipping = isIgnoredDiffPath(match?.[1]?.trim() ?? '');
-    }
-    if (!skipping) kept.push(line);
+    if (line.startsWith('diff --git')) flush();
+    section.push(line);
   }
+  flush();
   return kept.join('\n');
 }
 

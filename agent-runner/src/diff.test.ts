@@ -110,4 +110,33 @@ diff --git a/.github/workflows/devdigest-review.yml b/.github/workflows/devdiges
   it('is a no-op when nothing is ignored', () => {
     expect(stripIgnoredFiles(FIXTURE_DIFF_RAW)).toBe(FIXTURE_DIFF_RAW);
   });
+
+  it('keeps a file whose name embeds " b/.devdigest/" (crafted header cannot hide code)', () => {
+    const crafted = `diff --git a/src/x b/.devdigest/y b/src/x b/.devdigest/y
+new file mode 100644
+--- /dev/null
++++ b/src/x b/.devdigest/y
+@@ -0,0 +1,1 @@
++evil()
+`;
+    expect(stripIgnoredFiles(crafted)).toBe(crafted);
+  });
+
+  it('drops a deleted ignored file, read from its --- a/ line', () => {
+    const deleted = `diff --git a/.devdigest/runner/old.js b/.devdigest/runner/old.js
+deleted file mode 100644
+--- a/.devdigest/runner/old.js
++++ /dev/null
+@@ -1,1 +0,0 @@
+-gone
+`;
+    expect(stripIgnoredFiles(deleted)).not.toContain('gone');
+  });
+
+  it('decides a binary section (no ---/+++ lines) from an unambiguous header only', () => {
+    const binary = `diff --git a/.devdigest/runner/blob.bin b/.devdigest/runner/blob.bin
+Binary files differ
+`;
+    expect(stripIgnoredFiles(binary)).not.toContain('Binary files differ');
+  });
 });
