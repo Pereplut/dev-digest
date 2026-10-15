@@ -185,6 +185,65 @@ class HookEndToEndTest(unittest.TestCase):
         self.assertEqual(run_hook(data), "deny")
 
 
+def git(*args, cwd):
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True, timeout=30)
+
+
+class WorktreeTest(unittest.TestCase):
+    """The session stays in the main checkout while features live in sibling `git worktree`s.
+
+    Built with REAL git, not hand-written `.git` files, so the test follows whatever layout git
+    actually produces. The forged case below is the one place a hand-written file is the point.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        tmp = os.path.realpath(self._tmp.name)
+        self.main = os.path.join(tmp, "main")
+        self.wt = os.path.join(tmp, "feature-wt")
+        self.other = os.path.join(tmp, "other-repo")
+        for repo in (self.main, self.other):
+            os.makedirs(repo)
+            git("init", "-q", cwd=repo)
+            git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty",
+                "-m", "init", cwd=repo)
+        git("worktree", "add", "-q", self.wt, "-b", "feature", cwd=self.main)
+        os.makedirs(os.path.join(self.other, "specs"))
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_a_spec_in_a_worktree_of_the_session_repo_is_allowed(self):
+        for path in ("specs/0021-x.md", "server/specs/0002-y.md", "specs/README.md"):
+            with self.subTest(path=path):
+                target = os.path.join(self.wt, path)
+                self.assertIsNone(run_hook(payload(target, cwd=self.main)), f"{target} was blocked")
+
+    def test_code_in_a_worktree_is_still_denied(self):
+        for path in ("server/src/x.ts", "INSIGHTS.md", ".claude/settings.json", "specs/x.txt",
+                     "specs/../server/src/x.ts"):
+            with self.subTest(path=path):
+                target = os.path.join(self.wt, path)
+                self.assertEqual(run_hook(payload(target, cwd=self.main)), "deny")
+
+    def test_a_different_repository_is_still_denied(self):
+        target = os.path.join(self.other, "specs", "x.md")
+        self.assertEqual(run_hook(payload(target, cwd=self.main)), "deny")
+
+    def test_a_forged_git_file_naming_another_repo_is_denied(self):
+        """A `.git` file is just text: a dir claiming to be a worktree of ANOTHER repo stays out."""
+        forged = os.path.join(os.path.dirname(self.main), "forged")
+        os.makedirs(os.path.join(forged, "specs"))
+        with open(os.path.join(forged, ".git"), "w", encoding="utf-8") as fh:
+            fh.write(f"gitdir: {os.path.join(self.other, '.git')}\n")
+        self.assertEqual(run_hook(payload(os.path.join(forged, "specs", "x.md"), cwd=self.main)), "deny")
+
+    def test_a_session_inside_the_worktree_can_write_the_main_checkouts_specs(self):
+        """Symmetric: the common dir agrees from either side."""
+        target = os.path.join(self.main, "specs", "0021-x.md")
+        self.assertIsNone(run_hook(payload(target, cwd=self.wt)))
+
+
 class AgentContractTest(unittest.TestCase):
     """The hook's guarantee holds only while spec-creator has no other way to write a file.
 

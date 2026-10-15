@@ -26,6 +26,9 @@ symlink pointing elsewhere all fail the containment check rather than the string
 spent seven review rounds learning that a guard which reasons about a path as typed loses to the
 first spelling nobody thought of (root INSIGHTS.md, 2026-09-23).
 
+WORKTREES. "The repo" is the session's checkout OR a `git worktree` of the same repository (same git
+common dir) — see `root_for`. Any other repository on disk is outside, as before.
+
 THE CEILING — what this actually guarantees, stated instead of a list of gaps, because a gap list is
 a promise that everything absent from it is covered:
 
@@ -77,6 +80,50 @@ def repo_root(start):
         if parent == cur:
             return os.path.realpath(start or os.getcwd())
         cur = parent
+
+
+def git_common_dir(root):
+    """The repository's shared git dir for checkout `root`, or None if `root` is no checkout.
+
+    A main checkout holds a `.git` DIRECTORY, which is the common dir. A `git worktree` holds a
+    `.git` FILE (`gitdir: <main>/.git/worktrees/<name>`) whose target names the common dir in its
+    `commondir` file. Two checkouts belong to one repository exactly when these agree.
+    """
+    dot_git = os.path.join(root, ".git")
+    if os.path.isdir(dot_git):
+        return os.path.realpath(dot_git)
+    if not os.path.isfile(dot_git):
+        return None
+    with open(dot_git, encoding="utf-8") as fh:
+        line = fh.readline().strip()
+    if not line.startswith("gitdir:"):
+        return None
+    gitdir = os.path.realpath(os.path.join(root, line[len("gitdir:"):].strip()))
+    commondir = os.path.join(gitdir, "commondir")
+    if not os.path.isfile(commondir):
+        return None
+    with open(commondir, encoding="utf-8") as fh:
+        return os.path.realpath(os.path.join(gitdir, fh.read().strip()))
+
+
+def root_for(session_root, target):
+    """The checkout `target` is judged against: the session's own, or a worktree of the SAME repo.
+
+    The lesson workflow runs features in sibling `git worktree`s (`../devdigest-review`) while the
+    session — and so `cwd` — stays in the main checkout. Judged against `cwd` alone, every spec in
+    a worktree resolves to `../…` and is denied. A target's own checkout is accepted only when it
+    shares the session's git common dir; any other repository on disk falls back to the session
+    root, where `is_spec_path` refuses it as outside.
+    """
+    if not target or not os.path.isabs(target):
+        return session_root
+    target_root = repo_root(os.path.dirname(os.path.realpath(target)))
+    if target_root == session_root:
+        return session_root
+    common = git_common_dir(session_root)
+    if common is not None and git_common_dir(target_root) == common:
+        return target_root
+    return session_root
 
 
 def is_spec_path(root, target):
@@ -131,8 +178,8 @@ def main():
     try:
         tool_input = data.get("tool_input") or {}
         target = tool_input.get("file_path") or tool_input.get("notebook_path") or ""
-        root = repo_root(data.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR"))
-        allowed = is_spec_path(root, target)
+        session_root = repo_root(data.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR"))
+        allowed = is_spec_path(root_for(session_root, target), target)
     except Exception as exc:  # noqa: BLE001
         deny(f"spec-scope-gate could not resolve the target of this write "
              f"({type(exc).__name__}: {exc}), so it is denied. Write specs under `specs/` with a "
