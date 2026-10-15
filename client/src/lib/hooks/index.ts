@@ -10,3 +10,4 @@ export * from "./repo-intel";
 export * from "./conventions";
 export * from "./onboarding";
 export * from "./brief";
+export * from "./multiAgentReview";

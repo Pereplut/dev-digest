@@ -3,7 +3,9 @@
 import React, { useCallback } from "react";
 import { useTranslations } from "next-intl";
 import { Icon, Avatar, Badge, Button, Tabs } from "@/components/ui-client";
-import { RunReviewDropdown } from "../RunReviewDropdown";
+import Link from "next/link";
+import { AgentPicker } from "../AgentPicker";
+import { useLatestMultiAgentRun } from "@/lib/hooks/multiAgentReview";
 import { s } from "./styles";
 import type { PrDetail } from "@/lib/types";
 
@@ -30,6 +32,9 @@ export function PrDetailHeader({
   onRunsStarted,
 }: PrDetailHeaderProps) {
   const t = useTranslations("prReview");
+  const tm = useTranslations("multiAgentReview");
+  // `data?.run` is absent both while loading and when there is none: no link either way.
+  const latestRun = useLatestMultiAgentRun(prId).data?.run ?? null;
 
   const handleRunStart = useCallback(() => {
     onRunStart();
@@ -95,8 +100,14 @@ export function PrDetailHeader({
           >
             {t("header.viewOnGitHub")}
           </Button>
+          {latestRun && (
+            <Link href={`/multi-agent-review/${latestRun.id}`} style={s.multiLink}>
+              <Icon.Users size={13} />
+              {tm("latestLink")}
+            </Link>
+          )}
           {prId && (
-            <RunReviewDropdown
+            <AgentPicker
               prId={prId}
               warnMerged={pr.status === "merged" || pr.status === "closed"}
               onRunStart={handleRunStart}

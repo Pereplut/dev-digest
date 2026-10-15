@@ -24,6 +24,11 @@ import {
   Repo,
   PrDetail,
   PrMeta,
+  MultiAgentRun,
+  MultiAgentLatest,
+  ConflictTake,
+  RunRequest,
+  Agent,
 } from '@devdigest/shared';
 
 /**
@@ -496,5 +501,88 @@ describe('PrBrief / PrBriefEnvelope (spec 0018)', () => {
       'utf8',
     );
     expect(clientSource).toBe(serverSource);
+  });
+});
+
+describe('multi-agent contracts (spec 0021)', () => {
+  const finding = {
+    id: 'f1',
+    severity: 'WARNING',
+    category: 'bug',
+    title: 't',
+    file: 'a.ts',
+    start_line: 3,
+    end_line: 4,
+    rationale: 'r',
+    confidence: 0.5,
+    review_id: 'rv1',
+    accepted_at: null,
+    dismissed_at: null,
+  };
+  const column = {
+    run_id: 'r1',
+    agent_id: null,
+    agent_name: null,
+    provider: null,
+    model: null,
+    status: 'cancelled',
+    error: null,
+    verdict: null,
+    score: null,
+    summary: null,
+    duration_ms: null,
+    cost_usd: 0.01,
+    findings: [finding],
+  };
+  const run = {
+    id: 'm1',
+    pr_id: 'p1',
+    pr_number: 7,
+    pr_title: 'Title',
+    ran_at: '2026-10-15T00:00:00.000Z',
+    agent_count: 1,
+    total_duration_ms: 0,
+    total_cost_usd: null,
+    columns: [column],
+    conflicts: [],
+  };
+
+  it('MultiAgentRun parses a deleted-agent cancelled column with a full FindingRecord', () => {
+    const parsed = MultiAgentRun.parse(run);
+    expect(parsed.columns[0]!.agent_id).toBeNull();
+    expect(parsed.columns[0]!.status).toBe('cancelled');
+  });
+
+  it('MultiAgentRun rejects a string cost_usd (numeric must be converted at the repo)', () => {
+    expect(() => MultiAgentRun.parse({ ...run, columns: [{ ...column, cost_usd: '0.01' }] })).toThrow();
+  });
+
+  it('ConflictTake requires finding_ids', () => {
+    const take = { run_id: 'r1', agent_id: null, persona: null, verdict: 'ignored', note: '' };
+    expect(() => ConflictTake.parse(take)).toThrow();
+    expect(ConflictTake.parse({ ...take, finding_ids: [] }).finding_ids).toEqual([]);
+  });
+
+  it('RunRequest accepts agent_ids as a shape only (the 400s are the service\'s)', () => {
+    expect(RunRequest.parse({ agent_ids: [] }).agent_ids).toEqual([]);
+  });
+
+  it('MultiAgentLatest accepts a null run', () => {
+    expect(MultiAgentLatest.parse({ run: null }).run).toBeNull();
+  });
+
+  it('Agent parses with the estimate fields absent and with them null', () => {
+    const agent = {
+      id: 'a', name: 'n', description: '', provider: 'openai', model: 'm', system_prompt: 's',
+      enabled: true, version: 1,
+    };
+    expect(Agent.parse(agent).est_duration_ms).toBeUndefined();
+    expect(Agent.parse({ ...agent, est_duration_ms: null, est_cost_usd: null }).est_cost_usd).toBeNull();
+  });
+
+  it.each(['observability', 'review-api', 'platform'])('%s.ts is byte-identical in both vendored copies', (name) => {
+    const read = (root: string) =>
+      readFileSync(join(import.meta.dirname, root, 'src/vendor/shared/contracts', `${name}.ts`), 'utf8');
+    expect(read('../../client')).toBe(read('..'));
   });
 });

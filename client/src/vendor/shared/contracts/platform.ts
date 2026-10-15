@@ -307,6 +307,12 @@ export type IndexStatus = z.infer<typeof IndexStatus>;
 export const RunRequest = z.object({
   agentId: z.string().optional(),
   all: z.boolean().optional(),
+  /**
+   * Fan out to these agents (spec 0021). Shape only: count, uniqueness, uuid form,
+   * existence and enabled state are checked in the service so they answer 400, not
+   * the 422 every ZodError maps to.
+   */
+  agent_ids: z.array(z.string()).optional(),
 });
 export type RunRequest = z.infer<typeof RunRequest>;
 

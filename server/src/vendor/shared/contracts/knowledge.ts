@@ -423,6 +423,9 @@ export const Agent = z.object({
   repo_intel: z.boolean().default(true),
   /** Enabled skill links (list/detail DTO only). */
   skill_count: z.number().int().nullish(),
+  /** Mean duration / cost over this agent's `done` runs (GET /agents only); null = no history. */
+  est_duration_ms: z.number().nullish(),
+  est_cost_usd: z.number().nullish(),
 });
 export type Agent = z.infer<typeof Agent>;
 

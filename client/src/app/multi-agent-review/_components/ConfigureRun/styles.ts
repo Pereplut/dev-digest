@@ -1,0 +1,51 @@
+import type { CSSProperties } from "react";
+
+/** Co-located styles for ConfigureRun. */
+export const s = {
+  page: { padding: "32px 32px 44px", maxWidth: 760, margin: "0 auto" } satisfies CSSProperties,
+  h1: { fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em" } satisfies CSSProperties,
+  subtitle: { fontSize: 14, color: "var(--text-secondary)", marginTop: 6, marginBottom: 24 } satisfies CSSProperties,
+  stepHead: { display: "flex", alignItems: "center", gap: 10, marginBottom: 10 } satisfies CSSProperties,
+  stepNo: {
+    width: 22,
+    height: 22,
+    borderRadius: 99,
+    display: "grid",
+    placeItems: "center",
+    fontSize: 12,
+    fontWeight: 700,
+    background: "var(--bg-hover)",
+    color: "var(--text-secondary)",
+  } satisfies CSSProperties,
+  stepTitle: { fontSize: 14, fontWeight: 600, flex: 1 } satisfies CSSProperties,
+  textBtn: {
+    border: "none",
+    background: "transparent",
+    cursor: "pointer",
+    fontSize: 13,
+    fontWeight: 600,
+    color: "var(--accent)",
+  } satisfies CSSProperties,
+  select: { maxWidth: 460, marginBottom: 24 } satisfies CSSProperties,
+  empty: {
+    border: "1px dashed var(--border-strong)",
+    borderRadius: 10,
+    marginBottom: 20,
+  } satisfies CSSProperties,
+  cards: { display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 } satisfies CSSProperties,
+  card: (on: boolean): CSSProperties => ({
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 12,
+    padding: "12px 14px",
+    borderRadius: 8,
+    border: "1px solid " + (on ? "var(--accent)" : "var(--border)"),
+    background: "var(--bg-elevated)",
+  }),
+  cardMain: { flex: 1, minWidth: 0 } satisfies CSSProperties,
+  cardDesc: { fontSize: 13, color: "var(--text-secondary)", marginTop: 2 } satisfies CSSProperties,
+  cardEst: { fontSize: 12, color: "var(--text-muted)", whiteSpace: "nowrap" } satisfies CSSProperties,
+  footer: { display: "flex", alignItems: "center", gap: 14 } satisfies CSSProperties,
+  summary: { fontSize: 12, color: "var(--text-muted)" } satisfies CSSProperties,
+  hint: { fontSize: 12, color: "var(--text-muted)" } satisfies CSSProperties,
+};

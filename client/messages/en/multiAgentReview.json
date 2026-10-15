@@ -1,0 +1,92 @@
+{
+  "picker": {
+    "trigger": "Run Review",
+    "title": "Pick agents to run",
+    "clear": "Clear",
+    "selectAll": "Select all",
+    "noHistory": "no history",
+    "noAgents": "No enabled agents — configure one first",
+    "run": "Run multi-agent review ({count})",
+    "running": "Running…",
+    "configure": "Configure agents…",
+    "mergedWarning": "Already merged — review is informational",
+    "mergedTooltip": "This PR is already merged; running a review won’t affect the merged code.",
+    "runFailed": "Couldn't start the review. Try again."
+  },
+  "latestLink": "Multi-Agent Review",
+  "landing": {
+    "loading": "Looking for a recent multi-agent review…"
+  },
+  "configure": {
+    "crumbRoot": "Multi-Agent Review",
+    "crumb": "Configure run",
+    "title": "Run a Multi-Agent Review",
+    "subtitle": "Pick a pull request and choose which agents to fan out — they run in parallel and you compare their findings side by side.",
+    "stepPr": "Pull request",
+    "stepAgents": "Agents to run",
+    "prLabel": "Pull request",
+    "prPlaceholder": "Select a pull request…",
+    "emptyTitle": "Pick a pull request first",
+    "emptyBody": "Choose which PR to review above, then select the agents to run on it.",
+    "noAgents": "No enabled agents. Enable at least two on the Agents page.",
+    "selectAll": "Select all",
+    "noHistory": "no history",
+    "run": "Run multi-agent review ({count})",
+    "running": "Starting…",
+    "needTwo": "Select at least two agents to fan out.",
+    "summary": "≈ {duration} · {cost} · parallel fan-out",
+    "summaryNoCost": "≈ {duration} · parallel fan-out",
+    "runFailed": "Couldn't start the multi-agent review. Check the selection and try again.",
+    "agentsLoading": "Loading agents…",
+    "agentsError": "Couldn't load agents. Reload the page to try again."
+  },
+  "results": {
+    "crumbRoot": "Multi-Agent Review",
+    "title": "Multi-Agent Review",
+    "configureRun": "Configure run",
+    "selectedAgents": "{count, plural, one {# selected agent} other {# selected agents}} · parallel",
+    "totals": "{duration} total · {cost}",
+    "loading": "Loading the multi-agent review…",
+    "errorTitle": "Could not load this multi-agent review",
+    "errorBody": "It may not exist in this workspace.",
+    "views": "View",
+    "columns": "Columns",
+    "tabs": "Tabs"
+  },
+  "column": {
+    "unknownAgent": "Unknown agent",
+    "viewTrace": "View trace",
+    "findingsCount": "{count, plural, one {# finding} other {# findings}}",
+    "noFindings": "No findings",
+    "cancelled": "Cancelled before it finished",
+    "failed": "Failed",
+    "running": "Running…",
+    "score": "Score {score}",
+    "noScore": "–",
+    "status": {
+      "running": "running",
+      "done": "done",
+      "failed": "failed",
+      "cancelled": "cancelled"
+    }
+  },
+  "tabs": {
+    "label": "Agents",
+    "noSummary": "No summary."
+  },
+  "finding": {
+    "reportedBy": "Reported by {agent}",
+    "learn": "Learn",
+    "reply": "Reply to author",
+    "comingSoon": "Coming soon"
+  },
+  "disagree": {
+    "title": "Where agents disagree",
+    "onlyConflicts": "Show only conflicts",
+    "empty": "No overlapping findings to compare.",
+    "noConflicts": "No conflicts between agents.",
+    "didNotFlag": "did not flag",
+    "expand": "Show findings for {location}",
+    "collapse": "Hide findings for {location}"
+  }
+}

@@ -3,7 +3,7 @@ import { render, screen, cleanup, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import type { RunTrace } from "@devdigest/shared";
-import messages from "../../../../../../../../../../messages/en/runs.json";
+import messages from "../../../../../messages/en/runs.json";
 import { TraceBody } from "./TraceBody";
 
 afterEach(cleanup);

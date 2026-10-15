@@ -40,6 +40,16 @@ export const NAV: NavGroup[] = [
       { key: "conventions", label: "Conventions", icon: "ListChecks", href: "/conventions", gKey: "c" },
     ],
   },
+  {
+    // DevDigest spec 0021 (Multi-Agent Review): same documented exception as
+    // 0006/0007/0017 — a new top-level page may add its nav item here. The key
+    // is `multi-agent` (already mapped by `activeKeyFor` and labelled in
+    // shell.json). No `gKey`: the shortcut registry (`SHORTCUTS`) is untouched.
+    section: "GLOBAL",
+    items: [
+      { key: "multi-agent", label: "Multi-Agent Review", icon: "Users", href: "/multi-agent-review" },
+    ],
+  },
 ];
 
 export const SETTINGS_ITEM: NavItemDef = {

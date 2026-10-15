@@ -43,6 +43,8 @@ export const agentRuns = pgTable(
     score: integer('score'),
     /** Findings that tripped the agent's gate (severity ≥ ciFailOn). */
     blockers: integer('blockers'),
+    /** Parent of a multi-agent fan-out (spec 0021); NULL for a single-agent run. */
+    multiRunId: uuid('multi_run_id').references(() => multiAgentRuns.id, { onDelete: 'set null' }),
   },
   (t) => ({
     // PR list: newest run per (PR, agent) for the latest review round cost.
@@ -55,6 +57,8 @@ export const agentRuns = pgTable(
     // PR list cost rollup — `WHERE … AND status = 'done' GROUP BY pr_id`
     // (modules/pulls/routes.ts). Partial so it stays small: only `done` runs
     // are ever summed, and failed/cancelled/running rows are never counted.
+    // FK column: Postgres does not index it, and the results page reads children by it.
+    multiRunIdx: index('agent_runs_multi_run_id_idx').on(t.multiRunId),
     prDoneIdx: index('agent_runs_pr_done_idx')
       .on(t.prId)
       .where(sql`status = 'done'`),

@@ -67,11 +67,18 @@ export class AgentsService {
   ) {}
 
   async list(workspaceId: string): Promise<Agent[]> {
-    const [rows, counts] = await Promise.all([
+    const [rows, counts, estimates] = await Promise.all([
       this.repo.list(workspaceId),
       this.repo.skillCounts(workspaceId),
+      this.repo.estimatesForWorkspace(workspaceId),
     ]);
-    return rows.map((row) => toAgentDto(row, counts.get(row.id) ?? 0));
+    // Explicit arrow, not `rows.map(toAgentDto)`: the mapper has an optional 2nd
+    // parameter that a point-free map would fill with the array index.
+    return rows.map((row) => ({
+      ...toAgentDto(row, counts.get(row.id) ?? 0),
+      est_duration_ms: estimates.get(row.id)?.durationMs ?? null,
+      est_cost_usd: estimates.get(row.id)?.costUsd ?? null,
+    }));
   }
 
   async get(workspaceId: string, id: string): Promise<Agent | undefined> {

@@ -1,6 +1,8 @@
 import type { Container } from '../../platform/container.js';
 import type {
   FindingActionKind,
+  MultiAgentLatest,
+  MultiAgentRun,
   PrIntentRecord,
   RunEventKind,
   RunFindingsPage,
@@ -17,6 +19,8 @@ import {
   encodeRunFindingsCursor,
   findingRowToDto,
   reviewToDto,
+  toMultiAgentRun,
+  validateAgentIdsShape,
 } from './helpers.js';
 
 // Re-export DTO types + converters for backward-compatible imports from
@@ -59,19 +63,41 @@ export class ReviewService {
   // ===========================================================================
 
   /**
-   * Resolve which agents to run. `all` → all enabled agents; else a single agent.
+   * Resolve which agents to run. `all` → all enabled agents; `agentId` → that
+   * one agent (even if disabled); `agent_ids` → a validated fan-out set.
+   * Exactly one of the three may be present. Every check runs before anything
+   * is written, and answers 400 (not Zod's 422 — see `validateAgentIdsShape`).
    */
   async resolveTargets(
     workspaceId: string,
-    opts: { agentId?: string; all?: boolean },
+    opts: { agentId?: string; all?: boolean; agent_ids?: string[] },
   ): Promise<AgentRow[]> {
+    const present = [opts.agentId, opts.all, opts.agent_ids].filter((v) => v !== undefined).length;
+    if (present > 1) {
+      throw new AppError('invalid_run_request', 'Provide only one of agentId, all or agent_ids', 400);
+    }
+    if (opts.agent_ids !== undefined) {
+      const bad = validateAgentIdsShape(opts.agent_ids);
+      if (bad) throw new AppError('invalid_run_request', bad, 400);
+      const found = await this.agents.listByIds(workspaceId, opts.agent_ids);
+      // listByIds is workspace-scoped, so a foreign or unknown id is simply absent.
+      if (found.length !== opts.agent_ids.length) {
+        throw new AppError('invalid_run_request', 'agent_ids contains an unknown agent', 400);
+      }
+      if (found.some((a) => !a.enabled)) {
+        throw new AppError('invalid_run_request', 'agent_ids contains a disabled agent', 400);
+      }
+      // Preserve the caller's order (listByIds does not).
+      const byId = new Map(found.map((a) => [a.id.toLowerCase(), a]));
+      return opts.agent_ids.map((id) => byId.get(id.toLowerCase())!);
+    }
     if (opts.all) return this.agents.listEnabled(workspaceId);
     if (opts.agentId) {
       const agent = await this.agents.getById(workspaceId, opts.agentId);
       if (!agent) throw new NotFoundError('Agent not found');
       return [agent];
     }
-    throw new AppError('invalid_run_request', 'Provide agentId or all:true', 400);
+    throw new AppError('invalid_run_request', 'Provide agentId, all:true or agent_ids', 400);
   }
 
   /** Delete a whole review run (one agent's pass) + its findings (cascade). */
@@ -123,7 +149,11 @@ export class ReviewService {
     prId: string,
     targets: AgentRow[],
     logger?: Logger,
-  ): Promise<{ runs: { run_id: string; agent_id: string; agent_name: string }[]; reviews: ReviewDto[] }> {
+  ): Promise<{
+    runs: { run_id: string; agent_id: string; agent_name: string }[];
+    reviews: ReviewDto[];
+    multi_run_id: string | null;
+  }> {
     const pull = await this.repo.getPull(workspaceId, prId);
     if (!pull) throw new NotFoundError('Pull request not found');
     const repo = await this.repo.getRepo(pull.repoId);
@@ -132,19 +162,34 @@ export class ReviewService {
     // Create the agent_run rows up front so a runId is available IMMEDIATELY —
     // the client persists these in global state and subscribes to the SSE
     // stream. The actual (slow) review runs in the background below.
-    const runs: { run_id: string; agent_id: string; agent_name: string }[] = [];
-    const jobs: { agent: AgentRow; runId: string }[] = [];
-    for (const agent of targets) {
-      const runId = await this.repo.createAgentRun({
-        workspaceId,
-        agentId: agent.id,
-        prId,
-        provider: agent.provider,
-        model: agent.model,
-      });
-      runs.push({ run_id: runId, agent_id: agent.id, agent_name: agent.name });
-      jobs.push({ agent, runId });
-    }
+    //
+    // Two or more targets form a fan-out: one parent row, every child stamped
+    // with its id, all created in ONE transaction so a half-made fan-out cannot
+    // exist. A single target keeps the old path (no parent, column NULL).
+    const fanOut = targets.length >= 2;
+    const createRuns = async (repoTx: ReviewRepository, multiRunId: string | null) => {
+      const runs: { run_id: string; agent_id: string; agent_name: string }[] = [];
+      const jobs: { agent: AgentRow; runId: string }[] = [];
+      for (const agent of targets) {
+        const runId = await repoTx.createAgentRun({
+          workspaceId,
+          agentId: agent.id,
+          prId,
+          provider: agent.provider,
+          model: agent.model,
+          ...(multiRunId ? { multiRunId } : {}),
+        });
+        runs.push({ run_id: runId, agent_id: agent.id, agent_name: agent.name });
+        jobs.push({ agent, runId });
+      }
+      return { runs, jobs };
+    };
+    const { runs, jobs, multiRunId } = fanOut
+      ? await this.repo.transaction(async (tx) => {
+          const parentId = await tx.createMultiAgentRun({ workspaceId, prId });
+          return { ...(await createRuns(tx, parentId)), multiRunId: parentId as string | null };
+        })
+      : { ...(await createRuns(this.repo, null)), multiRunId: null as string | null };
 
     // Fire-and-forget: the HTTP response returns now with the runIds; reviews
     // are persisted as each agent finishes and the client refetches on SSE done.
@@ -152,7 +197,7 @@ export class ReviewService {
       logger?.error({ prId, err: (err as Error).message }, 'review: background execution crashed');
     });
 
-    return { runs, reviews: [] };
+    return { runs, reviews: [], multi_run_id: multiRunId };
   }
 
   private publish(runId: string, kind: RunEventKind, msg: string, data?: unknown) {
@@ -205,6 +250,30 @@ export class ReviewService {
     return rows.map(({ review, findings }) =>
       reviewToDto(review, findings, review.agentId ? names.get(review.agentId) : null),
     );
+  }
+
+  /** One fan-out with its columns and finding groups; 404 when absent or foreign. */
+  async getMultiAgentRun(workspaceId: string, id: string): Promise<MultiAgentRun> {
+    const parent = await this.repo.getMultiAgentRun(workspaceId, id);
+    if (!parent) throw new NotFoundError('Multi-agent run not found');
+    const children = await this.repo.childRunsForMultiRun(id);
+    const reviews = await this.repo.reviewsWithFindingsForRuns(children.map((c) => c.runId));
+    return toMultiAgentRun(parent, children, reviews);
+  }
+
+  /**
+   * The newest fan-out of the workspace, or of one PR when `prId` is given. The
+   * PR is resolved first so a foreign or unknown id is a 404, not an empty answer
+   * (same guard as `getIntent`). No run is `{ run: null }`, a normal state.
+   */
+  async latestMultiAgentRun(workspaceId: string, prId?: string): Promise<MultiAgentLatest> {
+    if (prId) {
+      const pull = await this.repo.getPull(workspaceId, prId);
+      if (!pull) throw new NotFoundError('Pull request not found');
+    }
+    const row = await this.repo.latestMultiAgentRun(workspaceId, prId);
+    if (!row) return { run: null };
+    return { run: { id: row.id, pr_id: row.prId, pr_number: row.prNumber, ran_at: row.ranAt.toISOString() } };
   }
 
   async getRunTrace(runId: string): Promise<RunTrace | undefined> {

@@ -59,6 +59,18 @@ export const s = {
     gap: 10,
     flexShrink: 0,
   } satisfies CSSProperties,
+  multiLink: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    fontSize: 12.5,
+    fontWeight: 500,
+    color: "var(--text-secondary)",
+    textDecoration: "none",
+    padding: "5px 9px",
+    border: "1px solid var(--border)",
+    borderRadius: 6,
+  } satisfies CSSProperties,
   staleBanner: {
     display: "flex",
     alignItems: "center",
