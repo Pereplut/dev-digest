@@ -1,6 +1,6 @@
 ---
 title: Export to CI — run a tuned agent on every pull request in GitHub Actions
-status: approved
+status: in-progress
 packages: [agent-runner, server, client]
 ---
 
@@ -646,6 +646,6 @@ At Completion, the implementing session reports, per PR (runner, feature):
 |---|---|---|
 | Initiation | 2026-10-15 | 3 researcher runs (upstream agent-runner, upstream 0574487 reference, local scaffold); INSIGHTS routed |
 | Planning | 2026-10-15 | spec-creator draft + 3 rounds of user decisions; approved by the user 2026-10-15 |
-| Implementation | | |
-| Validation | | typecheck · lint · tests · e2e · manual |
+| Implementation | 2026-10-15 | W1 runner (I1, took over the 0021 session's staged port), W2 server+client in parallel (I2, I3); wiring checklist clean; migration deferred until after the 0021 rebase |
+| Validation | 2026-10-15 (partial) | plan-verifier 138 Met / 0 Missing; architecture-reviewer clean (1 suggestion, kept); test-writer TW-1..TW-5 green (runner 38, server 732, client 487). Pending (user): migration, .it.test lane, e2e, manual GHA walk, /pr-self-review |
 | Completion | | status done, docs, insights wrap-up |
