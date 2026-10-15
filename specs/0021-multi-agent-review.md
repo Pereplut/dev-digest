@@ -1,6 +1,6 @@
 ---
 title: Multi-Agent Review — parallel fan-out, grouped findings, "where agents disagree"
-status: in-progress
+status: done
 packages: [server, client]
 ---
 
@@ -402,12 +402,31 @@ beforehand.
 
 ## Measurement results
 
-*Empty until the manual run (AC-44). Record as measured; do not adjust toward 3×.*
+Measured 2026-10-15 on the local API from this branch (`./scripts/dev.sh --no-seed --no-client`), PR
+`Pereplut/dev-digest#21` (+375 / −4, "bound and abort the OpenRouter call"), all agents on
+`openrouter / deepseek/deepseek-v4-flash`. Wall-clock is the POST until every run is terminal (2 s poll),
+from `measure.py` against `POST /pulls/:id/review`, `GET /pulls/:id/runs` and `GET /multi-agent/:id`.
+Run A was a cold warm-up, so the fair single-agent baseline is C, run right after B.
 
 | Run | Agents | Tokens in / out (per agent) | Wall-clock | Per-agent duration | Total cost | Groups / divergent |
 |---|---|---|---|---|---|---|
-| 1 agent | | | | | | |
-| 3 agents | | | | | | |
+| A — 1 agent (cold warm-up) | Security | 12,680 / 1,754 | 36.2 s | 35.0 s | $0.000727 | n/a (no multi-run, AC-4) |
+| C — 1 agent (warm) | Security | 11,455 / 1,942 | 20.2 s | 19.3 s | $0.001359 | n/a (no multi-run, AC-4) |
+| B — 3 agents | Security · Performance · General | 11,455 / 1,261 · 12,533 / 1,403 · 13,489 / 7,156 | 96.4 s | 34.6 s · 31.1 s · 95.3 s | $0.003895 | 1 / 1 |
+
+**Observed ratios, B ÷ C (not adjusted toward 3×):** tokens in 3.27×, tokens out 5.06×, cost 2.87×,
+wall-clock 4.77×.
+- Wall-clock is the slowest agent, not the sum: B's 96.4 s is General's 95.3 s, which wrote 7,156 output
+  tokens (3.7–5.7× the others). Security and Performance alone finished in ~31–35 s.
+- Security took 34.6 s inside the fan-out against 19.3 s alone (1.8×), with identical input tokens —
+  per-agent latency grows under parallel load on the same provider.
+- Cost per token is not stable between calls: Security cost $0.000727 (A) and $0.001359 (C) for similar
+  token counts, so a single run's cost is a noisy estimate.
+- Diff and intent were prepared once for B (run-executor), so the fan-out did not multiply that work;
+  input tokens per agent are ~11–13k because each agent's prompt carries the same diff.
+- The one group: `server/src/adapters/llm/openrouter.ts:81-93`, General flagged CRITICAL
+  ("Unhandled promise rejection from inner provider when timeout fires"), Security and Performance did not
+  flag → divergent. Not verified here; it is a review finding on PR #21, not on this branch.
 
 ## Phases
 | Phase | Date | Note |
@@ -415,5 +434,5 @@ beforehand.
 | Initiation | 2026-10-15 | mockups + brief read; 1 researcher (CI, handed off) + 2 Explore runs (upstream cf47df3, local state) before the spec |
 | Planning | 2026-10-15 | spec-creator (first write blocked by spec-scope-gate on worktrees → fixed in PR #24); 44 ACs; approved by the user. implementation-planner → `0021-multi-agent-review.plan.md`; user then amended: one `latest` route (AC-13/27/29), "Select all" in the PR picker (AC-24), server tests in `server/test/` (plan D5), `FindingCard` imported in place, AC-44 1-agent group counts "n/a" |
 | Implementation | 2026-10-15 | 2 sequential implementers: server S1–S11 (a537005; 702 unit tests, migration 0025 generated) and client S12–S22 (483fce7; 515 client tests). Spec in-progress |
-| Validation | 2026-10-15 | plan-verifier clean (113 items, 0 Missing / 0 Contradicted); architecture-reviewer 0 CRITICAL, 2 WARNING — `FindingCard` cross-route import kept (user decision Q2), `columnMeta` lifted to `app/multi-agent-review/helpers.ts`; `pnpm arch` 0 errors in the worktree. **User-owned, pending:** `pnpm db:migrate`, `.it.test` lane, `./scripts/e2e.sh`, dev-app check, AC-44 measurement, `/pr-self-review` |
-| Completion | | status done, docs, insights wrap-up |
+| Validation | 2026-10-15 | plan-verifier clean (113 items, 0 Missing / 0 Contradicted); architecture-reviewer 0 CRITICAL, 2 WARNING — `FindingCard` cross-route import kept (user decision Q2), `columnMeta` lifted to `app/multi-agent-review/helpers.ts`; `pnpm arch` 0 errors in the worktree. user-owned lanes run afterwards — see Completion |
+| Completion | 2026-10-15 | `/pr-self-review` PASS (21 reviewers, 2 rounds; 0 CRITICAL, 4 WARNING, 29 SUGGESTION); `.it.test` 181 passed; e2e 12/12; `next build` ok; migration 0025 applied on the dev DB; AC-44 measured (above); docs by doc-writer (`server/docs/multi-agent-review.md`, `client/docs/multi-agent-review-ui.md`, ADR `server/docs/adr/0001-group-findings-by-line-overlap.md`); insights wrap-up done. Status done. |
