@@ -1,0 +1,56 @@
+name: DevDigest Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    name: DevDigest Review
+    runs-on: ubuntu-latest
+    # Fork PRs never receive the secrets: this job does not run for them. The
+    # workflow uses the plain 'pull_request' event, never a variant that runs
+    # with base-repo secrets against untrusted fork code.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      # The BASE commit, not the PR head: the runner executed with the secrets
+      # is the one already merged into the base branch.
+      - name: Checkout base
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+
+      - name: Check the runner is installed on base
+        id: guard
+        shell: bash
+        run: |
+          if [ -f .devdigest/runner/index.js ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "::notice::DevDigest is not installed on the base branch yet; skipping review"; echo "present=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Setup Node.js
+        if: steps.guard.outputs.present == 'true'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+
+      - name: Run DevDigest review
+        if: steps.guard.outputs.present == 'true'
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          DEVDIGEST_COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+          DEVDIGEST_REPOSITORY_ID: ${{ github.repository_id }}
+          DEVDIGEST_POST_AS: github_review
+        run: node .devdigest/runner/index.js
+
+      - name: Upload review result artifact
+        if: always() && steps.guard.outputs.present == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: devdigest-result
+          path: devdigest-result.json
