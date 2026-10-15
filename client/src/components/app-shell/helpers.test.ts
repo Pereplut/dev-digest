@@ -24,7 +24,7 @@ describe("activeKeyFor", () => {
     expect(activeKeyFor("/eval")).toBe("eval");
     expect(activeKeyFor("/memory")).toBe("memory");
     expect(activeKeyFor("/agent-performance")).toBe("agent-performance");
-    expect(activeKeyFor("/ci-runs")).toBe("ci-runs");
+    expect(activeKeyFor("/ci")).toBe("ci-runs");
   });
 
   it("falls back to an empty key for an unmapped route", () => {

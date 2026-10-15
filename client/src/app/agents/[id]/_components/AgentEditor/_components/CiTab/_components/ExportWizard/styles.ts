@@ -1,0 +1,45 @@
+import type { CSSProperties } from "react";
+
+/** Co-located styles for the wizard and its steps. */
+export const s = {
+  stepsBar: { padding: "16px 24px 0" } satisfies CSSProperties,
+  footer: { display: "flex", justifyContent: "space-between" } satisfies CSSProperties,
+  body: { padding: 24, display: "flex", flexDirection: "column", gap: 20 } satisfies CSSProperties,
+  muted: { fontSize: 12.5, color: "var(--text-muted)", lineHeight: 1.45 } satisfies CSSProperties,
+  error: { fontSize: 12.5, color: "var(--crit)" } satisfies CSSProperties,
+  targetCard: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 } satisfies CSSProperties,
+  targetTitle: { fontSize: 14, fontWeight: 600 } satisfies CSSProperties,
+  files: { display: "flex", flexDirection: "column", gap: 4, margin: 0, padding: 0, listStyle: "none" } satisfies CSSProperties,
+  fileBtn: {
+    all: "unset",
+    cursor: "pointer",
+    fontSize: 12.5,
+    padding: "4px 8px",
+    borderRadius: 6,
+    width: "calc(100% - 16px)",
+    wordBreak: "break-all",
+  } satisfies CSSProperties,
+  pre: {
+    margin: 0,
+    maxHeight: 280,
+    overflow: "auto",
+    fontSize: 12,
+    padding: 12,
+    border: "1px solid var(--border)",
+    borderRadius: 7,
+    background: "var(--bg-elevated)",
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-all",
+  } satisfies CSSProperties,
+  toggleRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 } satisfies CSSProperties,
+  stack: { display: "flex", flexDirection: "column", gap: 10 } satisfies CSSProperties,
+  radioRow: { display: "flex", alignItems: "center", gap: 10, fontSize: 13.5 } satisfies CSSProperties,
+  notice: {
+    fontSize: 12.5,
+    padding: "10px 14px",
+    borderRadius: 8,
+    border: "1px solid var(--warn)",
+    background: "var(--warn-bg)",
+    color: "var(--warn)",
+  } satisfies CSSProperties,
+} as const;

@@ -1,9 +1,23 @@
 import { sql } from 'drizzle-orm';
-import { pgTable, uuid, text, integer, jsonb, timestamp, numeric, index, primaryKey } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  uuid,
+  text,
+  integer,
+  bigint,
+  boolean,
+  jsonb,
+  timestamp,
+  numeric,
+  index,
+  uniqueIndex,
+  primaryKey,
+} from 'drizzle-orm/pg-core';
 import { workspaces } from './core';
 import { agents } from './agents';
 import { pullRequests } from './pulls';
 import { skills } from './skills';
+import { ciInstallations } from './ci';
 
 // ============================================================ Observability
 
@@ -45,8 +59,27 @@ export const agentRuns = pgTable(
     blockers: integer('blockers'),
     /** Parent of a multi-agent fan-out (spec 0021); NULL for a single-agent run. */
     multiRunId: uuid('multi_run_id').references(() => multiAgentRuns.id, { onDelete: 'set null' }),
+
+    // ---- CI-ingested runs (source = 'ci', spec 0022). All null for local runs.
+    ciInstallationId: uuid('ci_installation_id').references(() => ciInstallations.id, {
+      onDelete: 'set null',
+    }),
+    /** "owner/name" of the repo the Actions run belongs to. */
+    repo: text('repo'),
+    externalPrNumber: integer('external_pr_number'),
+    commitSha: text('commit_sha'),
+    /** GitHub Actions run id — exceeds int32, hence bigint. */
+    actionsRunId: bigint('actions_run_id', { mode: 'number' }),
+    jobUrl: text('job_url'),
+    /** The runner's own gate decision; the CI verdict derives from this, not the current ci_fail_on. */
+    ciGateTriggered: boolean('ci_gate_triggered'),
   },
   (t) => ({
+    // Ingest idempotency: one row per (installation, Actions run, agent is implied by the installation).
+    ciInstallationRunUq: uniqueIndex('agent_runs_ci_installation_actions_run_uq').on(
+      t.ciInstallationId,
+      t.actionsRunId,
+    ),
     // PR list: newest run per (PR, agent) for the latest review round cost.
     prAgentRanIdx: index('agent_runs_pr_agent_ran_idx').on(t.prId, t.agentId, t.ranAt),
     // PR detail — `WHERE workspace_id = ? AND pr_id = ? ORDER BY ran_at DESC`

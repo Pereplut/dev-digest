@@ -1,0 +1,141 @@
+{
+  "page": {
+    "crumb": "CI Runs"
+  },
+  "runs": {
+    "title": "CI Runs",
+    "subtitle": "Agent reviews executed inside CI · not local runs",
+    "refresh": "Refresh",
+    "refreshing": "Refreshing…",
+    "loadError": "Could not load CI runs.",
+    "emptyTitle": "No CI runs yet",
+    "emptyBody": "Once an agent is added to CI and a pull request is reviewed there, the run shows up here. Use “Add to CI” on an agent’s CI tab to get started.",
+    "degradedFallback": "Refresh was degraded — showing the runs already ingested.",
+    "table": {
+      "repository": "Repository",
+      "pullRequest": "Pull request",
+      "agent": "Agent",
+      "verdict": "Verdict",
+      "findings": "Findings",
+      "cost": "Cost",
+      "duration": "Duration",
+      "job": "Actions job",
+      "ranAt": "Ran at"
+    },
+    "verdict": {
+      "approve": "Approve",
+      "requestChanges": "Request changes",
+      "failed": "Failed"
+    },
+    "viewJob": "View job"
+  },
+  "ciTab": {
+    "heading": "Continuous Integration",
+    "subtitle": "Run this agent automatically on pull requests in a GitHub repository.",
+    "addToCi": "Add to CI",
+    "addRepository": "Add repository",
+    "empty": "This agent is not in CI yet. “Add to CI” opens a pull request that adds the workflow and the agent’s config to a repository.",
+    "loadError": "Could not load CI installations.",
+    "installed": "installed {date}",
+    "version": "v{version}",
+    "lastRun": "Last run",
+    "status": {
+      "pr_open": "PR open",
+      "active": "Active",
+      "error": "Error"
+    },
+    "viewPr": "View pull request",
+    "update": "Update CI config",
+    "updating": "Updating…",
+    "updateNoInstallations": "Add the agent to a repository first.",
+    "updateDiscardNote": "Update CI config regenerates the workflow from the stored settings and opens or refreshes a pull request. Any manual edits to the workflow are discarded.",
+    "updateResults": "Update results",
+    "updateOk": "Updated",
+    "updateFailed": "Failed: {error}",
+    "updateRequestFailed": "Update failed: {error}",
+    "runHistory": "Run history",
+    "noRuns": "No CI runs for this agent yet.",
+    "runsLoadError": "Could not load CI runs.",
+    "historyColumns": {
+      "ranAt": "Ran at",
+      "repository": "Repository",
+      "pullRequest": "Pull request",
+      "verdict": "Verdict",
+      "findings": "Findings",
+      "cost": "Cost"
+    },
+    "addRepositoryHint": "Add this agent to another repository.",
+    "failCiOn": "Fail CI on",
+    "failCiOnHint": "When this agent's CI run exits non-zero, so a required status check can block the merge. Decided by finding severity, not the model. Takes effect in CI after Update CI config.",
+    "failCiOnOptions": {
+      "never": "Never — comment only",
+      "critical": "CRITICAL findings (recommended)",
+      "warning": "WARNING or CRITICAL findings",
+      "any": "Any finding"
+    }
+  },
+  "exportWizard": {
+    "title": "Add to CI",
+    "subtitle": "Run {agentName} automatically on pull requests",
+    "thisAgent": "this agent",
+    "back": "Back",
+    "continue": "Continue",
+    "install": "Open pull request",
+    "installing": "Opening pull request…",
+    "steps": {
+      "target": "Target",
+      "preview": "Preview",
+      "configure": "Configure",
+      "install": "Install"
+    },
+    "targetsLabel": "CI target",
+    "targets": {
+      "gha": "GitHub Actions",
+      "ghaDesc": "Runs on pull_request events"
+    },
+    "repoLabel": "Target repository",
+    "repoHint": "owner/name — the repository to add the workflow to",
+    "repoPlaceholder": "acme/payments-api",
+    "repoInvalid": "Enter the repository as owner/name.",
+    "previewErrorTitle": "Couldn’t generate the preview",
+    "triggerLabel": "Trigger",
+    "triggers": {
+      "opened": "Opened",
+      "synchronize": "Synchronize (new commits pushed)",
+      "reopened": "Reopened"
+    },
+    "postResultsLabel": "Post results as",
+    "postAs": {
+      "githubReview": "GitHub review",
+      "prComment": "PR comment",
+      "none": "None (exit code only)"
+    },
+    "recommended": "recommended",
+    "installCardBody": "DevDigest opens a pull request in {repo} from the devdigest/ci branch with the {count} generated files.",
+    "installStep": {
+      "prOpened": "Pull request opened",
+      "viewPr": "View pull request",
+      "zipTitle": "Download as a zip",
+      "zipHint": "Downloads a .zip of the previewed files — no pull request is opened and no installation is recorded.",
+      "zipButton": "Download zip"
+    },
+    "editable": "editable",
+    "readOnly": "read-only",
+    "genericError": "Something went wrong. Try again.",
+    "preview": {
+      "filesLabel": "Files ({count})",
+      "contentsLabel": "Contents of {path}",
+      "workflowHint": "Edit the workflow before installing — your changes carry through to the Install step.",
+      "loading": "Generating the preview…"
+    },
+    "editedNotice": "You edited the workflow in Preview, so it no longer follows these choices. The edited workflow will be committed as written.",
+    "branchProtectionNote": "Blocking a merge needs two things: “Fail CI on” set on the agent, plus this check marked as a required status check in the repository’s branch protection.",
+    "secrets": {
+      "heading": "Secrets expected",
+      "intro": "Add this secret to the repository before the workflow runs. DevDigest does not read or check it.",
+      "openrouter": "Add OPENROUTER_API_KEY in the repository’s Settings → Secrets and variables → Actions.",
+      "githubToken": "GITHUB_TOKEN is provided by GitHub Actions."
+    },
+    "installCardTitle": "Open a pull request with these files"
+  }
+}

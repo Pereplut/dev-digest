@@ -13,7 +13,7 @@
  * re-exports them so every consumer keeps importing from `db/schema` unchanged.
  *
  * ---------------------------------------------------------------------------
- * ROADMAP SCAFFOLDING — 13 of these 42 tables have no read or write anywhere in
+ * ROADMAP SCAFFOLDING — 12 of these 42 tables have no read or write anywhere in
  * `src/` outside this schema and `db/seed.ts` (measured 2026-09-18, re-checked
  * 2026-10-07 after spec 0019 wired up eval.ts's other two tables). They are
  * kept DELIBERATELY: they cost nothing at runtime and are expensive to re-add,
@@ -21,7 +21,7 @@
  * its table does — and do not spend effort indexing or constraining them until
  * something reads them.
  *
- *   ci.ts        ciInstallations, ciRuns          (entire file unused)
+ *   ci.ts        ciRuns                           (ciInstallations is LIVE — spec 0022)
  *   eval.ts      conformanceChecks, composedReviews
  *                (evalCases, evalRuns, evalRunBatches are LIVE — spec 0019)
  *   knowledge.ts memory                           ← a pgvector table

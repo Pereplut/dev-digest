@@ -10,6 +10,7 @@ import type {
   PrReviewComment,
   OpenPrPayload,
   CommitFilesPayload,
+  WorkflowRunSummary,
   IssueMeta,
 } from '@devdigest/shared';
 import { withRetry, withTimeout } from '../../platform/resilience.js';
@@ -273,13 +274,18 @@ export class OctokitGitHubClient implements GitHubClient {
           const g = this.octokit.rest.git;
 
           // Parent commit: the target branch if it already exists, else the base.
-          let parentSha: string;
+          // `resetToBase` forces the base head even when the branch exists (the
+          // branch is then moved with a forced updateRef below).
+          let parentSha: string | undefined;
           let branchExists = false;
           try {
             const ref = await g.getRef({ owner, repo: name, ref: `heads/${payload.branch}` });
-            parentSha = ref.data.object.sha;
             branchExists = true;
+            if (!payload.resetToBase) parentSha = ref.data.object.sha;
           } catch {
+            // branch does not exist — fork it from the base below
+          }
+          if (parentSha === undefined) {
             const baseRef = await g.getRef({ owner, repo: name, ref: `heads/${payload.base}` });
             parentSha = baseRef.data.object.sha;
           }
@@ -346,6 +352,87 @@ export class OctokitGitHubClient implements GitHubClient {
         TIMEOUT,
       ),
     );
+  }
+
+  async getRepository(repo: RepoRef): Promise<{ id: number; defaultBranch: string }> {
+    return withRetry(() =>
+      withTimeout(
+        (async () => {
+          const { data } = await this.octokit.rest.repos.get({
+            owner: repo.owner,
+            repo: repo.name,
+          });
+          return { id: data.id, defaultBranch: data.default_branch };
+        })(),
+        TIMEOUT,
+      ),
+    );
+  }
+
+  async listWorkflowRuns(
+    repo: RepoRef,
+    opts: { workflowFile: string; status: 'completed'; perPage: number },
+  ): Promise<WorkflowRunSummary[]> {
+    return withRetry(() =>
+      withTimeout(
+        (async () => {
+          const { data } = await this.octokit.rest.actions.listWorkflowRuns({
+            owner: repo.owner,
+            repo: repo.name,
+            workflow_id: opts.workflowFile,
+            status: opts.status,
+            per_page: opts.perPage,
+          });
+          return data.workflow_runs.map((run) => ({
+            id: run.id,
+            headSha: run.head_sha,
+            htmlUrl: run.html_url,
+            updatedAt: run.updated_at,
+            prNumber: run.pull_requests?.[0]?.number ?? null,
+          }));
+        })(),
+        TIMEOUT,
+      ),
+    );
+  }
+
+  async downloadArtifact(
+    repo: RepoRef,
+    opts: { runId: number; name: string },
+  ): Promise<Uint8Array | null> {
+    // A missing or expired artifact is an expected state, not an error: a 404
+    // or 410 anywhere on the path resolves to `null`.
+    const absent = (err: unknown) => {
+      const status = (err as { status?: number }).status;
+      return status === 404 || status === 410;
+    };
+    try {
+      return await withRetry(() =>
+        withTimeout(
+          (async () => {
+            const { data } = await this.octokit.rest.actions.listWorkflowRunArtifacts({
+              owner: repo.owner,
+              repo: repo.name,
+              run_id: opts.runId,
+              name: opts.name,
+            });
+            const artifact = data.artifacts.find((a) => !a.expired);
+            if (!artifact) return null;
+            const res = await this.octokit.rest.actions.downloadArtifact({
+              owner: repo.owner,
+              repo: repo.name,
+              artifact_id: artifact.id,
+              archive_format: 'zip',
+            });
+            return new Uint8Array(res.data as ArrayBuffer);
+          })(),
+          TIMEOUT,
+        ),
+      );
+    } catch (err) {
+      if (absent(err)) return null;
+      throw err;
+    }
   }
 
   async getIssue(repo: RepoRef, n: number): Promise<IssueMeta> {
