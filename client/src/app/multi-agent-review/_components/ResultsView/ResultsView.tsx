@@ -12,7 +12,8 @@ import { AppShell } from "@/components/app-shell";
 import RunTraceDrawer from "@/components/run-trace-drawer";
 import { useMultiAgentRun } from "@/lib/hooks/multiAgentReview";
 import { useRunEvents } from "@/lib/hooks/reviews";
-import { formatCost, formatSeconds } from "@/lib/utils/multiAgentEstimate";
+import { formatUsd } from "@/components/run-cost-badge";
+import { formatSeconds } from "@/lib/utils/multiAgentEstimate";
 import { ColumnsView } from "../ColumnsView";
 import { DisagreeBlock } from "../DisagreeBlock";
 import { TabsView } from "../TabsView";
@@ -73,7 +74,7 @@ export function ResultsView({ id }: { id: string }) {
     router.replace(`/multi-agent-review/${id}${sp.toString() ? `?${sp.toString()}` : ""}`);
   };
   const onActionSettled = () => void refetch();
-  const cost = run.total_cost_usd == null ? "–" : formatCost(run.total_cost_usd);
+  const cost = run.total_cost_usd == null ? "–" : formatUsd(run.total_cost_usd);
 
   return (
     <AppShell crumb={crumb}>

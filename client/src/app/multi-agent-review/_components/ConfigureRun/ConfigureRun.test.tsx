@@ -5,12 +5,17 @@ import { NextIntlClientProvider } from "next-intl";
 import messages from "../../../../../messages/en/multiAgentReview.json";
 
 const push = vi.fn();
-const mutateAsync = vi.fn();
+const mutate = vi.fn();
+// Mutable hook state, reset per test.
+const runState = { isError: false };
+const agentsState = { isLoading: false, isError: false };
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push, replace: vi.fn() }) }));
 vi.mock("@/lib/repo-context", () => ({ useActiveRepo: () => ({ repoId: "repo1" }) }));
 vi.mock("@/lib/hooks/agents", () => ({
   useAgents: () => ({
-    data: [
+    isLoading: agentsState.isLoading,
+    isError: agentsState.isError,
+    data: agentsState.isLoading || agentsState.isError ? undefined : [
       { id: "a1", name: "Security", description: "Finds exposures", enabled: true, est_duration_ms: 8200, est_cost_usd: 0.06 },
       { id: "a2", name: "Performance", description: "Finds N+1", enabled: true, est_duration_ms: 7400, est_cost_usd: 0.05 },
       { id: "a3", name: "Mentor", description: "Nits", enabled: true, est_duration_ms: null, est_cost_usd: null },
@@ -25,14 +30,17 @@ vi.mock("@/lib/hooks/core", () => ({
   }),
 }));
 vi.mock("@/lib/hooks/reviews", () => ({
-  useRunReview: () => ({ mutateAsync, isPending: false }),
+  useRunReview: () => ({ mutate, isPending: false, isError: runState.isError }),
 }));
 
 import { ConfigureRun } from "./ConfigureRun";
 
 beforeEach(() => {
   push.mockReset();
-  mutateAsync.mockReset();
+  mutate.mockReset();
+  runState.isError = false;
+  agentsState.isLoading = false;
+  agentsState.isError = false;
 });
 afterEach(cleanup);
 
@@ -61,7 +69,7 @@ describe("ConfigureRun", () => {
     expect(screen.getAllByRole("checkbox")).toHaveLength(3);
     expect(screen.queryByRole("checkbox", { name: "Retired" })).not.toBeInTheDocument();
     expect(screen.getByText("Finds exposures")).toBeInTheDocument();
-    expect(screen.getByText("8.2s · $0.06")).toBeInTheDocument();
+    expect(screen.getByText("8.2s · $0.060")).toBeInTheDocument();
     expect(screen.getByText("no history")).toBeInTheDocument();
   });
 
@@ -84,22 +92,44 @@ describe("ConfigureRun", () => {
     await user.click(screen.getByRole("checkbox", { name: "Security" }));
     expect(runBtn(2)).toBeEnabled();
     // Mentor (no history) changes neither total.
-    expect(screen.getByText("≈ 8.2s · $0.06 · parallel fan-out")).toBeInTheDocument();
+    expect(screen.getByText("≈ 8.2s · $0.060 · parallel fan-out")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Select all" }));
     expect(runBtn(3)).toBeEnabled();
-    expect(screen.getByText("≈ 8.2s · $0.11 · parallel fan-out")).toBeInTheDocument();
+    expect(screen.getByText("≈ 8.2s · $0.110 · parallel fan-out")).toBeInTheDocument();
   });
 
   it("posts exactly the checked ids in one request and opens the results page", async () => {
-    mutateAsync.mockResolvedValue({ pr_id: "pr1", runs: [], reviews: [], multi_run_id: "m7" });
+    mutate.mockImplementation((_vars, opts) =>
+      opts?.onSuccess?.({ pr_id: "pr1", runs: [], reviews: [], multi_run_id: "m7" }),
+    );
     const user = renderConfigure("pr1");
     await user.click(screen.getByRole("checkbox", { name: "Security" }));
     await user.click(screen.getByRole("checkbox", { name: "Performance" }));
     await user.click(runBtn(2));
 
-    expect(mutateAsync).toHaveBeenCalledTimes(1);
-    expect(mutateAsync).toHaveBeenCalledWith({ prId: "pr1", agentIds: ["a1", "a2"] });
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate).toHaveBeenCalledWith({ prId: "pr1", agentIds: ["a1", "a2"] }, expect.any(Object));
     expect(push).toHaveBeenCalledWith("/multi-agent-review/m7");
+  });
+
+  it("shows a loading status, not 'no agents', while the agents query is loading", () => {
+    agentsState.isLoading = true;
+    renderConfigure("pr1");
+    expect(screen.getByRole("status")).toHaveTextContent(messages.configure.agentsLoading);
+    expect(screen.queryByText(messages.configure.noAgents)).not.toBeInTheDocument();
+  });
+
+  it("shows an alert, not 'no agents', when the agents query fails", () => {
+    agentsState.isError = true;
+    renderConfigure("pr1");
+    expect(screen.getByRole("alert")).toHaveTextContent(messages.configure.agentsError);
+    expect(screen.queryByText(messages.configure.noAgents)).not.toBeInTheDocument();
+  });
+
+  it("renders an alert when starting the run failed", () => {
+    runState.isError = true;
+    renderConfigure("pr1");
+    expect(screen.getByRole("alert")).toHaveTextContent(messages.configure.runFailed);
   });
 });

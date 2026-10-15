@@ -18,18 +18,17 @@ export function formatSeconds(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-/** "$0.06"; sub-cent amounts keep three decimals so they don't read as free. */
-export function formatCost(usd: number): string {
-  return `$${usd.toFixed(usd > 0 && usd < 0.01 ? 3 : 2)}`;
-}
-
 /** Picker hint: "~6s", or null for "no history". */
 export function formatDurationHint(a: Estimated): string | null {
   return a.est_duration_ms == null ? null : `~${Math.round(a.est_duration_ms / 1000)}s`;
 }
 
-/** Card text: "8.2s · $0.06" (cost omitted when unknown), or null for "no history". */
-export function formatAgentEstimate(a: Estimated): string | null {
+/**
+ * Card text: "8.2s · $0.060" (cost omitted when unknown), or null for "no history".
+ * The cost formatter is passed in (the app's one USD formatter lives in
+ * `components/run-cost-badge`, which `lib/` does not import).
+ */
+export function formatAgentEstimate(a: Estimated, formatCost: (usd: number) => string): string | null {
   if (a.est_duration_ms == null) return null;
   const parts = [formatSeconds(a.est_duration_ms)];
   if (a.est_cost_usd != null) parts.push(formatCost(a.est_cost_usd));

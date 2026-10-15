@@ -6,7 +6,8 @@
 import React from "react";
 import { useTranslations } from "next-intl";
 import { CircularScore } from "@/components/ui-client";
-import { formatCost, formatSeconds } from "@/lib/utils/multiAgentEstimate";
+import { formatUsd } from "@/components/run-cost-badge";
+import { formatSeconds } from "@/lib/utils/multiAgentEstimate";
 import type { AgentColumn } from "@devdigest/shared";
 import { AttributedFinding } from "../AttributedFinding";
 import { columnMeta } from "../../helpers";
@@ -67,7 +68,7 @@ export function TabsView({
             <button type="button" style={s.linkBtn} onClick={() => onViewTrace(column.run_id)}>
               {t("column.viewTrace")}
             </button>
-            <span>{columnMeta(column, { seconds: formatSeconds, cost: formatCost })}</span>
+            <span>{columnMeta(column, { seconds: formatSeconds, cost: formatUsd })}</span>
           </div>
         </div>
         {column.findings.map((f) => (

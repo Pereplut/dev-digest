@@ -82,6 +82,28 @@ describe("DisagreeBlock", () => {
     expect(within(region).getAllByRole("button", { name: "Accept" })).toHaveLength(2);
   });
 
+  it("keeps a group expanded when a refetch reorders the list (stable keys, not indices)", async () => {
+    const user = userEvent.setup();
+    const ui = (list: typeof conflicts) => (
+      <NextIntlClientProvider locale="en" messages={{ multiAgentReview: messages, prReview, evals }}>
+        <DisagreeBlock conflicts={list} columns={columns} prId="pr1" />
+      </NextIntlClientProvider>
+    );
+    const { rerender } = render(ui(conflicts));
+    await user.click(screen.getByRole("button", { name: "Show findings for src/other.ts:3–9" }));
+
+    rerender(ui([...conflicts].reverse()));
+
+    expect(screen.getByRole("button", { name: "Hide findings for src/other.ts:3–9" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Show findings for src/mw/ratelimit.ts:52" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+  });
+
   it("renders model text as text — an <img onerror> title creates no img", () => {
     const { container } = renderBlock();
     expect(container.querySelector("img")).toBeNull();

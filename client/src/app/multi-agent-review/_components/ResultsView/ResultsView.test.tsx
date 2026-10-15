@@ -84,7 +84,7 @@ describe("ResultsView", () => {
     expect(await screen.findByRole("heading", { name: "Multi-Agent Review" })).toBeInTheDocument();
     expect(screen.getByText("3 selected agents · parallel")).toBeInTheDocument();
     expect(screen.getByText("Add rate limiting")).toBeInTheDocument();
-    expect(screen.getByText("8.2s total · $0.20")).toBeInTheDocument();
+    expect(screen.getByText("8.2s total · $0.200")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Configure run" })).toHaveAttribute(
       "href",
       "/multi-agent-review?new=1&pr=pr1",
@@ -94,7 +94,7 @@ describe("ResultsView", () => {
     const sec = within(screen.getByRole("region", { name: "Security" }));
     expect(sec.getByText("done")).toBeInTheDocument();
     expect(sec.getByRole("img", { name: "Score 38" })).toBeInTheDocument();
-    expect(sec.getByText("8.2s · $0.06")).toBeInTheDocument();
+    expect(sec.getByText("8.2s · $0.060")).toBeInTheDocument();
     expect(sec.getByText("Stripe key")).toBeInTheDocument();
     expect(sec.getByText("src/config.ts:12")).toBeInTheDocument();
     expect(sec.getByText("1 finding")).toBeInTheDocument();

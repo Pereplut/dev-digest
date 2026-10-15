@@ -10,7 +10,8 @@
     "running": "Running…",
     "configure": "Configure agents…",
     "mergedWarning": "Already merged — review is informational",
-    "mergedTooltip": "This PR is already merged; running a review won’t affect the merged code."
+    "mergedTooltip": "This PR is already merged; running a review won’t affect the merged code.",
+    "runFailed": "Couldn't start the review. Try again."
   },
   "latestLink": "Multi-Agent Review",
   "landing": {
@@ -34,7 +35,10 @@
     "running": "Starting…",
     "needTwo": "Select at least two agents to fan out.",
     "summary": "≈ {duration} · {cost} · parallel fan-out",
-    "summaryNoCost": "≈ {duration} · parallel fan-out"
+    "summaryNoCost": "≈ {duration} · parallel fan-out",
+    "runFailed": "Couldn't start the multi-agent review. Check the selection and try again.",
+    "agentsLoading": "Loading agents…",
+    "agentsError": "Couldn't load agents. Reload the page to try again."
   },
   "results": {
     "crumbRoot": "Multi-Agent Review",

@@ -40,6 +40,8 @@ export function AgentPicker({
   const rootRef = React.useRef<HTMLDivElement>(null);
 
   const enabled = (agents ?? []).filter((a) => a.enabled);
+  // Derived, so an agent disabled or removed on refetch drops out of the count and the POST.
+  const selected = checked.filter((id) => enabled.some((a) => a.id === id));
 
   React.useEffect(() => {
     if (!open) return;
@@ -58,7 +60,7 @@ export function AgentPicker({
   }, [open]);
 
   const kick = async () => {
-    const agentIds = checked;
+    const agentIds = selected;
     if (agentIds.length === 0) return;
     if (agentIds.length === 1) onRunStart?.();
     try {
@@ -66,6 +68,8 @@ export function AgentPicker({
       setOpen(false);
       if (res.multi_run_id) router.push(`/multi-agent-review/${res.multi_run_id}`);
       else onRunsStarted?.(res.runs.map((r) => r.run_id));
+    } catch {
+      // Handled: the panel stays open and `run.isError` renders the alert below.
     } finally {
       onRunSettled?.();
     }
@@ -124,11 +128,16 @@ export function AgentPicker({
             size="md"
             icon="Users"
             full
-            disabled={checked.length === 0 || run.isPending}
+            disabled={selected.length === 0 || run.isPending}
             onClick={kick}
           >
-            {t("picker.run", { count: checked.length })}
+            {t("picker.run", { count: selected.length })}
           </Button>
+          {run.isError && (
+            <div style={s.muted} role="alert">
+              {t("picker.runFailed")}
+            </div>
+          )}
           <Link href={configureHref(prId)} style={s.configure}>
             <Icon.Settings size={13} />
             {t("picker.configure")}

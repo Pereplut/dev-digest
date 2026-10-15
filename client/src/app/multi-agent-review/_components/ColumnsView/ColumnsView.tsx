@@ -5,7 +5,8 @@
 import React from "react";
 import { useTranslations } from "next-intl";
 import { Badge, CircularScore, SeverityBadge } from "@/components/ui-client";
-import { formatCost, formatSeconds } from "@/lib/utils/multiAgentEstimate";
+import { formatUsd } from "@/components/run-cost-badge";
+import { formatSeconds } from "@/lib/utils/multiAgentEstimate";
 import type { AgentColumn } from "@devdigest/shared";
 import { columnMeta } from "../../helpers";
 import { STATUS_COLOR } from "./helpers";
@@ -23,7 +24,7 @@ export function ColumnsView({
     <div style={s.grid}>
       {columns.map((c) => {
         const name = c.agent_name ?? t("column.unknownAgent");
-        const meta = columnMeta(c, { seconds: formatSeconds, cost: formatCost });
+        const meta = columnMeta(c, { seconds: formatSeconds, cost: formatUsd });
         return (
           <section key={c.run_id} aria-label={name} style={s.col}>
             <div style={s.head}>

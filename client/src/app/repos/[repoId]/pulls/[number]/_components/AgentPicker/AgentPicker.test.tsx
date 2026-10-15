@@ -6,6 +6,7 @@ import messages from "../../../../../../../../messages/en/multiAgentReview.json"
 
 const push = vi.fn();
 const mutateAsync = vi.fn();
+const runState = { isError: false };
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push, replace: vi.fn() }),
 }));
@@ -19,7 +20,7 @@ vi.mock("@/lib/hooks/agents", () => ({
   }),
 }));
 vi.mock("@/lib/hooks/reviews", () => ({
-  useRunReview: () => ({ mutateAsync, isPending: false }),
+  useRunReview: () => ({ mutateAsync, isPending: false, isError: runState.isError }),
 }));
 
 import { AgentPicker } from "./AgentPicker";
@@ -27,6 +28,7 @@ import { AgentPicker } from "./AgentPicker";
 beforeEach(() => {
   push.mockReset();
   mutateAsync.mockReset();
+  runState.isError = false;
 });
 afterEach(cleanup);
 
@@ -97,6 +99,27 @@ describe("AgentPicker", () => {
     expect(mutateAsync).toHaveBeenCalledWith({ prId: "pr1", agentIds: ["a1", "a2"] });
     expect(push).toHaveBeenCalledWith("/multi-agent-review/m1");
     expect(onRunsStarted).not.toHaveBeenCalled();
+  });
+
+  it("a failed request is caught: the panel stays open with an alert and nothing navigates", async () => {
+    mutateAsync.mockRejectedValue(new Error("400 invalid_run_request"));
+    const onRunSettled = vi.fn();
+    const user = renderPicker({ onRunSettled });
+    await user.click(screen.getByRole("button", { name: "Run Review" }));
+    await user.click(screen.getByRole("checkbox", { name: "Security" }));
+    // The click must not surface as an unhandled rejection (vitest fails the run on one).
+    await user.click(runBtn(1));
+
+    expect(onRunSettled).toHaveBeenCalledTimes(1);
+    expect(push).not.toHaveBeenCalled();
+    expect(screen.getByRole("group", { name: messages.picker.title })).toBeInTheDocument();
+  });
+
+  it("renders the failure alert while the mutation is in error", async () => {
+    runState.isError = true;
+    const user = renderPicker();
+    await user.click(screen.getByRole("button", { name: "Run Review" }));
+    expect(screen.getByRole("alert")).toHaveTextContent(messages.picker.runFailed);
   });
 
   it("closes on Escape", async () => {

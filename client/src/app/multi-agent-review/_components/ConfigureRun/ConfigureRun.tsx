@@ -7,13 +7,13 @@ import React from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Button, Checkbox, EmptyState, SelectInput } from "@/components/ui-client";
+import { formatUsd } from "@/components/run-cost-badge";
 import { useAgents } from "@/lib/hooks/agents";
 import { usePullDetail, usePulls } from "@/lib/hooks/core";
 import { useRunReview } from "@/lib/hooks/reviews";
 import { useActiveRepo } from "@/lib/repo-context";
 import {
   formatAgentEstimate,
-  formatCost,
   formatSeconds,
   summariseEstimate,
 } from "@/lib/utils/multiAgentEstimate";
@@ -27,7 +27,7 @@ export function ConfigureRun({ initialPrId }: { initialPrId?: string | null }) {
   const { repoId } = useActiveRepo();
   const { data: pulls } = usePulls(repoId);
   const { data: preselected } = usePullDetail(initialPrId ?? null);
-  const { data: agents } = useAgents();
+  const { data: agents, isLoading: agentsLoading, isError: agentsError } = useAgents();
   const run = useRunReview();
   const [prId, setPrId] = React.useState(initialPrId ?? "");
   const [checked, setChecked] = React.useState<string[]>([]);
@@ -39,13 +39,23 @@ export function ConfigureRun({ initialPrId }: { initialPrId?: string | null }) {
       ? { id: preselected.id, number: preselected.number, title: preselected.title }
       : null,
   );
+  // Derived, so an agent disabled or removed on refetch drops out of the count and the POST.
   const picked = enabled.filter((a) => checked.includes(a.id));
+  const selectedIds = picked.map((a) => a.id);
   const summary = summariseEstimate(picked);
-  const canRun = prId !== "" && checked.length >= MIN_AGENTS && !run.isPending;
+  const canRun = prId !== "" && selectedIds.length >= MIN_AGENTS && !run.isPending;
 
-  const start = async () => {
-    const res = await run.mutateAsync({ prId, agentIds: checked });
-    if (res.multi_run_id) router.push(`/multi-agent-review/${res.multi_run_id}`);
+  // `mutate`, not `mutateAsync`: a failed POST never becomes an unhandled rejection;
+  // `run.isError` renders it below the button (4xx is not toasted globally).
+  const start = () => {
+    run.mutate(
+      { prId, agentIds: selectedIds },
+      {
+        onSuccess: (res) => {
+          if (res.multi_run_id) router.push(`/multi-agent-review/${res.multi_run_id}`);
+        },
+      },
+    );
   };
 
   return (
@@ -83,6 +93,10 @@ export function ConfigureRun({ initialPrId }: { initialPrId?: string | null }) {
         <div style={s.empty}>
           <EmptyState icon="GitPullRequest" title={t("configure.emptyTitle")} body={t("configure.emptyBody")} />
         </div>
+      ) : agentsLoading ? (
+        <p style={s.hint} role="status">{t("configure.agentsLoading")}</p>
+      ) : agentsError ? (
+        <p style={s.hint} role="alert">{t("configure.agentsError")}</p>
       ) : enabled.length === 0 ? (
         <p style={s.hint}>{t("configure.noAgents")}</p>
       ) : (
@@ -97,7 +111,7 @@ export function ConfigureRun({ initialPrId }: { initialPrId?: string | null }) {
               <div style={s.cardMain}>
                 <div style={s.cardDesc}>{a.description}</div>
               </div>
-              <span style={s.cardEst}>{formatAgentEstimate(a) ?? t("configure.noHistory")}</span>
+              <span style={s.cardEst}>{formatAgentEstimate(a, formatUsd) ?? t("configure.noHistory")}</span>
             </div>
           ))}
         </div>
@@ -105,7 +119,7 @@ export function ConfigureRun({ initialPrId }: { initialPrId?: string | null }) {
 
       <div style={s.footer}>
         <Button kind="primary" icon="Users" disabled={!canRun} loading={run.isPending} onClick={start}>
-          {t("configure.run", { count: checked.length })}
+          {t("configure.run", { count: selectedIds.length })}
         </Button>
         {summary && (
           <span className="mono" style={s.summary}>
@@ -113,12 +127,17 @@ export function ConfigureRun({ initialPrId }: { initialPrId?: string | null }) {
               ? t("configure.summaryNoCost", { duration: formatSeconds(summary.duration_ms) })
               : t("configure.summary", {
                   duration: formatSeconds(summary.duration_ms),
-                  cost: formatCost(summary.cost_usd),
+                  cost: formatUsd(summary.cost_usd),
                 })}
           </span>
         )}
       </div>
-      {checked.length < MIN_AGENTS && prId !== "" && <p style={{ ...s.hint, marginTop: 10 }}>{t("configure.needTwo")}</p>}
+      {run.isError && (
+        <p style={s.hint} role="alert">
+          {t("configure.runFailed")}
+        </p>
+      )}
+      {selectedIds.length < MIN_AGENTS && prId !== "" && <p style={{ ...s.hint, marginTop: 10 }}>{t("configure.needTwo")}</p>}
     </div>
   );
 }

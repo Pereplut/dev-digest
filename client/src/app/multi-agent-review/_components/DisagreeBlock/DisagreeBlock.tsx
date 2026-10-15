@@ -8,7 +8,7 @@ import { useTranslations } from "next-intl";
 import { Badge, Icon, SeverityBadge } from "@/components/ui-client";
 import type { AgentColumn, Conflict } from "@devdigest/shared";
 import { AttributedFinding } from "../AttributedFinding";
-import { locationLabel, resolveFindings, visibleConflicts } from "./helpers";
+import { groupKey, locationLabel, resolveFindings, visibleConflicts } from "./helpers";
 import { s } from "./styles";
 
 export function DisagreeBlock({
@@ -24,19 +24,17 @@ export function DisagreeBlock({
 }) {
   const t = useTranslations("multiAgentReview");
   const [onlyConflicts, setOnlyConflicts] = React.useState(false);
-  const [open, setOpen] = React.useState<Set<number>>(new Set());
+  const [open, setOpen] = React.useState<Set<string>>(new Set());
   const nameOf = (runId: string) =>
     columns.find((c) => c.run_id === runId)?.agent_name ?? t("column.unknownAgent");
 
-  const toggle = (i: number) =>
+  const toggle = (key: string) =>
     setOpen((prev) => {
       const next = new Set(prev);
-      if (!next.delete(i)) next.add(i);
+      if (!next.delete(key)) next.add(key);
       return next;
     });
 
-  // Keep each group's original index as its identity so filtering never shifts what is expanded.
-  const rows = conflicts.map((c, i) => ({ c, i }));
   const shown = visibleConflicts(conflicts, onlyConflicts);
 
   return (
@@ -50,13 +48,12 @@ export function DisagreeBlock({
       </div>
       {conflicts.length === 0 && <div style={s.empty}>{t("disagree.empty")}</div>}
       {conflicts.length > 0 && shown.length === 0 && <div style={s.empty}>{t("disagree.noConflicts")}</div>}
-      {rows
-        .filter(({ c }) => shown.includes(c))
-        .map(({ c, i }) => {
+      {shown.map((c) => {
+          const key = groupKey(c);
           const loc = locationLabel(c);
-          const expanded = open.has(i);
+          const expanded = open.has(key);
           return (
-            <div key={i} style={s.group} data-divergent={c.divergent}>
+            <div key={key} style={s.group} data-divergent={c.divergent}>
               <div style={s.groupHead}>
                 <Icon.Code size={13} style={{ color: "var(--text-muted)" }} />
                 <span className="mono" style={s.location}>
@@ -68,7 +65,7 @@ export function DisagreeBlock({
                   style={s.expandBtn}
                   aria-expanded={expanded}
                   aria-label={t(expanded ? "disagree.collapse" : "disagree.expand", { location: loc })}
-                  onClick={() => toggle(i)}
+                  onClick={() => toggle(key)}
                 >
                   <Icon.ChevronDown size={15} style={{ transform: expanded ? "rotate(180deg)" : undefined }} />
                 </button>
