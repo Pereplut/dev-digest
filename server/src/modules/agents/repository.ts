@@ -280,6 +280,35 @@ export class AgentsRepository {
   }
 
   /**
+   * Mean duration / cost per agent over its `done` runs only, in ONE grouped
+   * query (spec 0021). Failed, cancelled and running runs never count; an agent
+   * with no done run is absent from the map (callers default to null).
+   * `avg()` of a `numeric` arrives as a string — converted here.
+   */
+  async estimatesForWorkspace(
+    workspaceId: string,
+  ): Promise<Map<string, { durationMs: number | null; costUsd: number | null }>> {
+    const rows = await this.db
+      .select({
+        agentId: t.agentRuns.agentId,
+        durationMs: sql<string | null>`avg(${t.agentRuns.durationMs})`,
+        costUsd: sql<string | null>`avg(${t.agentRuns.costUsd})`,
+      })
+      .from(t.agentRuns)
+      .where(and(eq(t.agentRuns.workspaceId, workspaceId), eq(t.agentRuns.status, 'done')))
+      .groupBy(t.agentRuns.agentId);
+    const out = new Map<string, { durationMs: number | null; costUsd: number | null }>();
+    for (const r of rows) {
+      if (!r.agentId) continue;
+      out.set(r.agentId, {
+        durationMs: r.durationMs == null ? null : Number(r.durationMs),
+        costUsd: r.costUsd == null ? null : Number(r.costUsd),
+      });
+    }
+    return out;
+  }
+
+  /**
    * Replace ALL of an agent's skill links with `links` (array order = prompt
    * order) in ONE transaction. Every skill must belong to the agent's
    * workspace; otherwise nothing changes.

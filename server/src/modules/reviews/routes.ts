@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
+import { z } from 'zod';
 import { RunFindingsQuery, RunRequest } from '@devdigest/shared';
 import type { RunEvent } from '@devdigest/shared';
 import { getContext } from '../_shared/context.js';
@@ -9,7 +10,9 @@ import { ReviewService } from './service.js';
 
 /**
  * reviews module.
- *   POST   /pulls/:id/review  {agentId} | {all:true}  → run review(s); returns runs
+ *   POST   /pulls/:id/review  {agentId} | {all:true} | {agent_ids}  → run review(s); returns runs (+ multi_run_id for 2+)
+ *   GET    /multi-agent/latest[?pr_id=]                → newest fan-out ref, workspace-wide or per PR (spec 0021)
+ *   GET    /multi-agent/:id                            → one fan-out: columns + finding groups (spec 0021)
  *   GET    /runs/:id/events                            → SSE stream of RunEvent (replay-first)
  *   GET    /runs/:id/trace                             → the single-document RunTrace
  *   GET    /runs/:id/findings                          → findings for a run, filtered + paginated (spec 0011)
@@ -25,6 +28,9 @@ const FINDING_ACTIONS = ['accept', 'dismiss'] as const;
  * when a client has genuinely stalled.
  */
 const SSE_QUEUE_LIMIT = 512;
+
+const LatestQuery = z.object({ pr_id: z.string().uuid().optional() });
+
 export default async function reviewsRoutes(appBase: FastifyInstance) {
   const app = appBase.withTypeProvider<ZodTypeProvider>();
   const { container } = app;
@@ -50,14 +56,28 @@ export default async function reviewsRoutes(appBase: FastifyInstance) {
     const targets = await service.resolveTargets(workspaceId, {
       ...(body.agentId !== undefined ? { agentId: body.agentId } : {}),
       ...(body.all !== undefined ? { all: body.all } : {}),
+      ...(body.agent_ids !== undefined ? { agent_ids: body.agent_ids } : {}),
     });
-    const { runs, reviews } = await service.runReview(
+    const { runs, reviews, multi_run_id } = await service.runReview(
       workspaceId,
       req.params.id,
       targets,
       req.log,
     );
-    return { pr_id: req.params.id, runs, reviews };
+    return { pr_id: req.params.id, runs, reviews, multi_run_id };
+  });
+
+  // ---- Multi-agent runs (spec 0021) ---------------------------------
+  // `/multi-agent/latest` is a static segment, so it outranks `/multi-agent/:id`
+  // whatever the registration order.
+  app.get('/multi-agent/latest', { schema: { querystring: LatestQuery } }, async (req) => {
+    const { workspaceId } = await getContext(container, req);
+    return service.latestMultiAgentRun(workspaceId, req.query.pr_id);
+  });
+
+  app.get('/multi-agent/:id', { schema: { params: IdParams } }, async (req) => {
+    const { workspaceId } = await getContext(container, req);
+    return service.getMultiAgentRun(workspaceId, req.params.id);
   });
 
   // ---- SSE: live run events (replay buffer first, then live; ends on done) -

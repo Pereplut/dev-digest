@@ -198,8 +198,36 @@ export class ReviewRepository {
     prId: string;
     provider: string | null;
     model: string | null;
+    multiRunId?: string | null;
   }): Promise<string> {
     return runRepo.createAgentRun(this.db, values);
+  }
+
+  // ---- multi-agent fan-out (spec 0021) -----------------------------------
+
+  createMultiAgentRun(values: { workspaceId: string; prId: string }): Promise<string> {
+    return runRepo.createMultiAgentRun(this.db, values);
+  }
+
+  getMultiAgentRun(workspaceId: string, id: string): Promise<runRepo.MultiAgentRunParent | undefined> {
+    return runRepo.getMultiAgentRun(this.db, workspaceId, id);
+  }
+
+  latestMultiAgentRun(
+    workspaceId: string,
+    prId?: string,
+  ): Promise<{ id: string; prId: string; prNumber: number; ranAt: Date } | undefined> {
+    return runRepo.latestMultiAgentRun(this.db, workspaceId, prId);
+  }
+
+  childRunsForMultiRun(multiRunId: string): Promise<runRepo.MultiRunChild[]> {
+    return runRepo.childRunsForMultiRun(this.db, multiRunId);
+  }
+
+  reviewsWithFindingsForRuns(
+    runIds: string[],
+  ): Promise<Map<string, { review: ReviewRow; findings: FindingRow[] }>> {
+    return reviewRepo.reviewsWithFindingsForRuns(this.db, runIds);
   }
 
   completeAgentRun(

@@ -58,6 +58,29 @@ export async function insertFindings(
   return rows;
 }
 
+/**
+ * Reviews (with findings) produced by the given runs: two queries however many
+ * runs there are, no N+1. Keyed by run id; a run without a review is absent.
+ */
+export async function reviewsWithFindingsForRuns(
+  db: DbOrTx,
+  runIds: string[],
+): Promise<Map<string, { review: ReviewRow; findings: FindingRow[] }>> {
+  const out = new Map<string, { review: ReviewRow; findings: FindingRow[] }>();
+  if (runIds.length === 0) return out;
+  const reviews = await db.select().from(t.reviews).where(inArray(t.reviews.runId, runIds));
+  if (reviews.length === 0) return out;
+  const findings = await db
+    .select()
+    .from(t.findings)
+    .where(inArray(t.findings.reviewId, reviews.map((r) => r.id)));
+  for (const review of reviews) {
+    if (!review.runId) continue;
+    out.set(review.runId, { review, findings: findings.filter((f) => f.reviewId === review.id) });
+  }
+  return out;
+}
+
 /** Reviews for a PR (newest first), each with its findings. */
 export async function reviewsForPull(
   db: DbOrTx,

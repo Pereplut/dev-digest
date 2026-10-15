@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq } from 'drizzle-orm';
 import type { DbOrTx } from '../../../db/client.js';
 import * as t from '../../../db/schema.js';
 import { AppError } from '../../../platform/errors.js';
@@ -148,11 +148,14 @@ export async function createAgentRun(
     prId: string;
     provider: string | null;
     model: string | null;
+    /** Parent of a multi-agent fan-out (spec 0021); omitted/null for a single run. */
+    multiRunId?: string | null;
   },
 ): Promise<string> {
   const [row] = await db
     .insert(t.agentRuns)
     .values({
+      multiRunId: values.multiRunId ?? null,
       workspaceId: values.workspaceId,
       agentId: values.agentId,
       prId: values.prId,
@@ -259,4 +262,106 @@ export async function getRunTrace(db: DbOrTx, runId: string): Promise<RunTrace |
     throw new AppError('trace_corrupt', 'Stored run trace does not match the trace schema', 500);
   }
   return parsed.data;
+}
+
+// ---- multi-agent fan-out (spec 0021) --------------------------------------
+
+/** Create the parent row of a fan-out; returns its id. */
+export async function createMultiAgentRun(
+  db: DbOrTx,
+  values: { workspaceId: string; prId: string },
+): Promise<string> {
+  const [row] = await db
+    .insert(t.multiAgentRuns)
+    .values({ workspaceId: values.workspaceId, prId: values.prId })
+    .returning({ id: t.multiAgentRuns.id });
+  return row!.id;
+}
+
+export interface MultiAgentRunParent {
+  id: string;
+  prId: string;
+  prNumber: number;
+  prTitle: string;
+  ranAt: Date;
+}
+
+/** The parent joined to its PR, scoped to the workspace. */
+export async function getMultiAgentRun(
+  db: DbOrTx,
+  workspaceId: string,
+  id: string,
+): Promise<MultiAgentRunParent | undefined> {
+  const [row] = await db
+    .select({
+      id: t.multiAgentRuns.id,
+      prId: t.multiAgentRuns.prId,
+      ranAt: t.multiAgentRuns.ranAt,
+      prNumber: t.pullRequests.number,
+      prTitle: t.pullRequests.title,
+    })
+    .from(t.multiAgentRuns)
+    .innerJoin(t.pullRequests, eq(t.pullRequests.id, t.multiAgentRuns.prId))
+    .where(and(eq(t.multiAgentRuns.id, id), eq(t.multiAgentRuns.workspaceId, workspaceId)));
+  return row;
+}
+
+/** Newest parent (optionally of one PR) in the workspace; ties broken by id for stability. */
+export async function latestMultiAgentRun(
+  db: DbOrTx,
+  workspaceId: string,
+  prId?: string,
+): Promise<{ id: string; prId: string; prNumber: number; ranAt: Date } | undefined> {
+  const [row] = await db
+    .select({
+      id: t.multiAgentRuns.id,
+      prId: t.multiAgentRuns.prId,
+      ranAt: t.multiAgentRuns.ranAt,
+      prNumber: t.pullRequests.number,
+    })
+    .from(t.multiAgentRuns)
+    .innerJoin(t.pullRequests, eq(t.pullRequests.id, t.multiAgentRuns.prId))
+    .where(
+      and(
+        eq(t.multiAgentRuns.workspaceId, workspaceId),
+        prId ? eq(t.multiAgentRuns.prId, prId) : undefined,
+      ),
+    )
+    .orderBy(desc(t.multiAgentRuns.ranAt), desc(t.multiAgentRuns.id))
+    .limit(1);
+  return row;
+}
+
+export interface MultiRunChild {
+  runId: string;
+  agentId: string | null;
+  agentName: string | null;
+  provider: string | null;
+  model: string | null;
+  status: string | null;
+  error: string | null;
+  durationMs: number | null;
+  /** Converted from the `numeric` string at this boundary. */
+  costUsd: number | null;
+}
+
+/** Child runs of a fan-out, with the agent name (null when the agent was deleted). */
+export async function childRunsForMultiRun(db: DbOrTx, multiRunId: string): Promise<MultiRunChild[]> {
+  const rows = await db
+    .select({ run: t.agentRuns, agentName: t.agents.name })
+    .from(t.agentRuns)
+    .leftJoin(t.agents, eq(t.agents.id, t.agentRuns.agentId))
+    .where(eq(t.agentRuns.multiRunId, multiRunId))
+    .orderBy(asc(t.agentRuns.ranAt), asc(t.agentRuns.id));
+  return rows.map(({ run, agentName }) => ({
+    runId: run.id,
+    agentId: run.agentId,
+    agentName: agentName ?? null,
+    provider: run.provider,
+    model: run.model,
+    status: run.status,
+    error: run.error,
+    durationMs: run.durationMs,
+    costUsd: run.costUsd == null ? null : Number(run.costUsd),
+  }));
 }
