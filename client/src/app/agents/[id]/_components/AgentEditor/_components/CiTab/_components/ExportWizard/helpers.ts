@@ -1,4 +1,4 @@
-import type { CiExportInputBody, CiFile } from "@devdigest/shared";
+import type { CiExportInputBody, CiFile, CiTrigger } from "@devdigest/shared";
 import { GHA_TARGET, REPO_PATTERN, WORKFLOW_PATH } from "./constants";
 import type { PostAs, TriggerState } from "./types";
 
@@ -8,7 +8,7 @@ export function isValidRepo(value: string): boolean {
 }
 
 /** Toggle state -> the ordered trigger list the API expects. */
-export function triggersToList(triggers: TriggerState): string[] {
+export function triggersToList(triggers: TriggerState): CiTrigger[] {
   return (Object.keys(triggers) as (keyof TriggerState)[]).filter((key) => triggers[key]);
 }
 
@@ -40,6 +40,9 @@ export function buildExportBody(
     action,
     post_as: choices.postAs,
     triggers: triggersToList(choices.triggers),
-    ...(workflowOverride !== undefined ? { workflow_override: workflowOverride } : {}),
+    // A blank editor means "no override" — the server rejects blank text (422).
+    ...(workflowOverride !== undefined && workflowOverride.trim() !== ""
+      ? { workflow_override: workflowOverride }
+      : {}),
   };
 }

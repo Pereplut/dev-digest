@@ -71,6 +71,8 @@ function run(id: number, over: Partial<WorkflowRunSummary> = {}): WorkflowRunSum
     htmlUrl: `https://github.com/${REPO}/actions/runs/${id}`,
     updatedAt: '2026-10-15T10:00:00Z',
     prNumber: 42,
+    event: 'pull_request',
+    headRepoFullName: REPO,
     ...over,
   };
 }
@@ -328,6 +330,55 @@ describe('CiService.refresh -- ingest rejection', () => {
     expect(result.message).toContain(REPO);
     expect(result.message).toContain('GitHub is down');
     expect(h.inserts).toEqual([]);
+  });
+});
+
+describe('CiService.refresh -- untrusted runs are never read', () => {
+  // The forged artifact is otherwise perfectly valid: matching SHA, matching
+  // repository_id, our agent. Only the run's provenance can reject it.
+  const forged = (): Uint8Array => zipOfEntries([entry()]);
+
+  it('a fork PR run carrying a matching commit_sha and repository_id is skipped without downloading its artifact', async () => {
+    const h = harness();
+    h.github.runs = [run(1001, { headRepoFullName: 'mallory/widgets' })];
+    h.github.artifacts.set(1001, forged());
+
+    const result = await h.service.refresh(WORKSPACE);
+
+    expect(h.github.downloads).toEqual([]); // not even fetched
+    expect(h.inserts).toEqual([]);
+    expect(h.statusWrites).toEqual([]);
+    expect(result).toEqual({ degraded: false, message: null, ingested: 0, skipped: 1 });
+  });
+
+  it.each([
+    ['unknown head repository', { headRepoFullName: null }],
+    ['workflow_dispatch event', { event: 'workflow_dispatch' }],
+    ['push event', { event: 'push' }],
+  ] satisfies [string, Partial<WorkflowRunSummary>][])(
+    'a run with %s is skipped without downloading, and the rest of the refresh still ingests',
+    async (_label, over) => {
+      const h = harness();
+      h.github.runs = [run(1, over), run(2)];
+      h.github.artifacts.set(1, forged());
+      h.github.artifacts.set(2, forged());
+
+      const result = await h.service.refresh(WORKSPACE);
+
+      expect(h.github.downloads.map((d) => d.runId)).toEqual([2]);
+      expect(h.inserts.map((i) => i.actionsRunId)).toEqual([2]);
+      expect(result).toEqual({ degraded: false, message: null, ingested: 1, skipped: 1 });
+    },
+  );
+
+  it('a same-repo run is trusted regardless of the case GitHub reports the repository in', async () => {
+    const h = harness();
+    h.github.runs = [run(1001, { headRepoFullName: REPO.toUpperCase() })];
+    h.github.artifacts.set(1001, forged());
+
+    const result = await h.service.refresh(WORKSPACE);
+
+    expect(result).toMatchObject({ ingested: 1, skipped: 0 });
   });
 });
 

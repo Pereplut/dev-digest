@@ -330,10 +330,15 @@ export const CiExportInput = z.object({
   /** "open_pr" opens a PR with the files; "files" just returns them (no GitHub write, no row). */
   action: z.enum(['open_pr', 'files']).default('open_pr'),
   post_as: CiPostAs.default('github_review'),
-  triggers: z.array(z.string()).default(['opened', 'synchronize']),
+  // Empty falls back to the defaults server-side (normalizeTriggers); the enum bounds the rest.
+  triggers: z.array(CiTrigger).max(CiTrigger.options.length).default(['opened', 'synchronize']),
   base: z.string().default('main'), // kept for compatibility; ignored — the default branch comes from GitHub
   /** User-edited workflow YAML, committed byte-for-byte in place of the generated one. */
-  workflow_override: z.string().optional(),
+  workflow_override: z
+    .string()
+    .max(64_000)
+    .refine((v) => v.trim().length > 0, 'workflow_override must not be blank')
+    .optional(),
 });
 export type CiExportInput = z.infer<typeof CiExportInput>;
 /** Caller-facing input type — `.default()` fields stay optional (web hooks). */

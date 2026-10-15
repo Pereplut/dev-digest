@@ -34,6 +34,7 @@ import {
 import {
   buildCiFileSet,
   classifyArtifactEntry,
+  isTrustedRun,
   parseRepoSlug,
   toAgentRunInsert,
   toCiInstallationDto,
@@ -310,6 +311,10 @@ export class CiService {
       }
 
       for (const run of runs.slice(0, MAX_RUNS_PER_REFRESH)) {
+        if (!isTrustedRun(run, installation)) {
+          result.skipped += 1;
+          continue;
+        }
         const entries = await this.readArtifact(github, repoRef, run);
         if (!entries) {
           result.skipped += 1;

@@ -10,6 +10,7 @@
     "loadError": "Could not load CI runs.",
     "emptyTitle": "No CI runs yet",
     "emptyBody": "Once an agent is added to CI and a pull request is reviewed there, the run shows up here. Use “Add to CI” on an agent’s CI tab to get started.",
+    "refreshFailed": "Refresh failed: {error}",
     "degradedFallback": "Refresh was degraded — showing the runs already ingested.",
     "table": {
       "repository": "Repository",
@@ -53,6 +54,7 @@
     "updateOk": "Updated",
     "updateFailed": "Failed: {error}",
     "updateRequestFailed": "Update failed: {error}",
+    "failOnSaveFailed": "Could not save the setting: {error}",
     "runHistory": "Run history",
     "noRuns": "No CI runs for this agent yet.",
     "runsLoadError": "Could not load CI runs.",

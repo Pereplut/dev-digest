@@ -1,5 +1,6 @@
+import React from "react";
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, screen, cleanup, within, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, within, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import type { CiExport, CiExportInputBody, CiFile } from "@devdigest/shared";
@@ -248,5 +249,183 @@ describe("ExportWizard", () => {
     expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument(); // empty is not "invalid"
     await user.type(input, "acme/web");
     expect(within(dialog).getByRole("button", { name: "Continue" })).toBeEnabled();
+  });
+
+  describe("failure paths", () => {
+    it("a rejected preview request shows the error in Preview, not the file list", async () => {
+      exportCi.mockReset();
+      exportCi.mockRejectedValueOnce(new Error("GitHub is unreachable"));
+      const { user, dialog } = renderWizard();
+
+      await user.click(within(dialog).getByRole("button", { name: "Continue" }));
+
+      expect(await within(dialog).findByText("Couldn’t generate the preview")).toBeInTheDocument();
+      expect(within(dialog).getByRole("alert")).toHaveTextContent("GitHub is unreachable");
+      expect(within(dialog).queryByRole("button", { name: WORKFLOW_PATH })).not.toBeInTheDocument();
+      expect(within(dialog).queryByRole("textbox")).not.toBeInTheDocument();
+    });
+
+    it("a preview rejection that is not an Error falls back to the generic message", async () => {
+      exportCi.mockReset();
+      exportCi.mockRejectedValueOnce("plain string");
+      const { user, dialog } = renderWizard();
+
+      await user.click(within(dialog).getByRole("button", { name: "Continue" }));
+
+      expect(await within(dialog).findByText("Something went wrong. Try again.")).toBeInTheDocument();
+    });
+
+    it("a rejected open_pr shows the error, offers no 'View pull request' link, and leaves the user on Install able to retry", async () => {
+      const { user, dialog } = renderWizard();
+      await user.click(within(dialog).getByRole("button", { name: "Continue" })); // -> Preview
+      await within(dialog).findByRole("textbox");
+      await user.click(within(dialog).getByRole("button", { name: "Continue" })); // -> Configure
+      await user.click(within(dialog).getByRole("button", { name: "Continue" })); // -> Install
+
+      exportCi.mockImplementation(async (b: CiExportInputBody): Promise<CiExport> => {
+        if (b.action === "open_pr") throw new Error("branch devdigest/ci is protected");
+        return { installation: null, files: filesFor(b), pr_url: null };
+      });
+      await user.click(within(dialog).getByRole("button", { name: "Open pull request" }));
+
+      expect(await within(dialog).findByRole("alert")).toHaveTextContent("branch devdigest/ci is protected");
+      expect(within(dialog).queryByText("Pull request opened")).not.toBeInTheDocument();
+      expect(within(dialog).queryByRole("link", { name: "View pull request" })).not.toBeInTheDocument();
+      // Still on the Install step, and the action is available again.
+      expect(within(dialog).getByText("Install")).toHaveStyle({ fontWeight: "600" });
+      expect(within(dialog).getByRole("button", { name: "Open pull request" })).toBeEnabled();
+      expect(within(dialog).getByRole("button", { name: "Download zip" })).toBeInTheDocument();
+    });
+  });
+
+  describe("request bodies", () => {
+    async function toPreview(user: ReturnType<typeof userEvent.setup>, dialog: HTMLElement) {
+      await user.click(within(dialog).getByRole("button", { name: "Continue" })); // -> Preview
+      await within(dialog).findByRole("textbox");
+    }
+
+    it("a workflow editor cleared to blank sends open_pr with no workflow_override", async () => {
+      const { user, dialog } = renderWizard();
+      await toPreview(user, dialog);
+      await user.clear(within(dialog).getByRole("textbox"));
+      expect(within(dialog).getByRole("textbox")).toHaveValue("");
+
+      await user.click(within(dialog).getByRole("button", { name: "Continue" })); // -> Configure
+      await user.click(within(dialog).getByRole("button", { name: "Continue" })); // -> Install
+      await user.click(within(dialog).getByRole("button", { name: "Open pull request" }));
+      await within(dialog).findByText("Pull request opened");
+
+      const openPr = body(exportCi.mock.calls.length - 1);
+      expect(openPr.action).toBe("open_pr");
+      expect(openPr).not.toHaveProperty("workflow_override");
+    });
+
+    it("all triggers switched off sends triggers: [] (the server applies the defaults)", async () => {
+      const { user, dialog } = renderWizard();
+      await toPreview(user, dialog);
+      await user.click(within(dialog).getByRole("button", { name: "Continue" })); // -> Configure
+      await user.click(within(dialog).getByRole("switch", { name: /^Opened$/ }));
+      await user.click(within(dialog).getByRole("switch", { name: /^Synchronize/ }));
+      expect(within(dialog).getByRole("switch", { name: /^Opened$/ })).not.toBeChecked();
+      expect(within(dialog).getByRole("switch", { name: /^Synchronize/ })).not.toBeChecked();
+
+      await user.click(within(dialog).getByRole("button", { name: "Continue" })); // -> Install
+      await user.click(within(dialog).getByRole("button", { name: "Open pull request" }));
+      await within(dialog).findByText("Pull request opened");
+
+      const openPr = body(exportCi.mock.calls.length - 1);
+      expect(openPr.action).toBe("open_pr");
+      expect(openPr.triggers).toEqual([]);
+    });
+  });
+
+  describe("Installing state", () => {
+    it("shows 'Opening pull request…' only while open_pr is in flight, never because a preview regeneration is pending", async () => {
+      const held: Array<(v: CiExport) => void> = [];
+      const { user, dialog } = renderWizard();
+      await user.click(within(dialog).getByRole("button", { name: "Continue" })); // -> Preview
+      await within(dialog).findByRole("textbox");
+      await user.click(within(dialog).getByRole("button", { name: "Continue" })); // -> Configure
+
+      // Hold the next files request open: a regeneration is now pending.
+      let releaseOpenPr!: (v: CiExport) => void;
+      exportCi.mockImplementation(
+        (b: CiExportInputBody) =>
+          new Promise<CiExport>((resolve) => {
+            if (b.action === "open_pr") releaseOpenPr = resolve;
+            else held.push(resolve);
+          }),
+      );
+      await user.click(within(dialog).getByRole("switch", { name: /^Reopened$/ }));
+      await waitFor(() => expect(held).toHaveLength(1));
+
+      await user.click(within(dialog).getByRole("button", { name: "Continue" })); // -> Install
+      const install = within(dialog).getByRole("button", { name: "Open pull request" });
+      expect(install).toBeEnabled();
+      expect(within(dialog).queryByRole("button", { name: "Opening pull request…" })).not.toBeInTheDocument();
+
+      // Now open the PR: the in-flight label and disabled state appear...
+      await user.click(install);
+      const installing = await within(dialog).findByRole("button", { name: "Opening pull request…" });
+      expect(installing).toBeDisabled();
+
+      // ...and go away when it settles.
+      await act(async () => {
+        releaseOpenPr({ installation: null, files: [], pr_url: PR_URL });
+      });
+      expect(await within(dialog).findByText("Pull request opened")).toBeInTheDocument();
+      expect(within(dialog).queryByRole("button", { name: "Opening pull request…" })).not.toBeInTheDocument();
+      await act(async () => {
+        held.forEach((release) => release({ installation: null, files: [], pr_url: null }));
+      });
+    });
+  });
+
+  describe("keyboard and focus", () => {
+    function Harness() {
+      const [open, setOpen] = React.useState(false);
+      return (
+        <NextIntlClientProvider locale="en" messages={{ ci: ciMessages }}>
+          <button type="button" onClick={() => setOpen(true)}>
+            Open wizard
+          </button>
+          {open && <ExportWizard agentId="ag1" agentName="Security Reviewer" onClose={() => setOpen(false)} />}
+        </NextIntlClientProvider>
+      );
+    }
+
+    async function openWizard() {
+      const user = userEvent.setup();
+      render(<Harness />);
+      const opener = screen.getByRole("button", { name: "Open wizard" });
+      await user.click(opener);
+      return { user, opener, dialog: screen.getByRole("dialog") };
+    }
+
+    it("moves focus into the dialog on open, wraps Tab from the last control to the first and Shift+Tab from the first to the last", async () => {
+      const { user, dialog } = await openWizard();
+      const close = within(dialog).getByRole("button", { name: "Close" }); // first focusable
+      const last = within(dialog).getByRole("button", { name: "Continue" }); // last focusable on Target
+
+      expect(dialog).toContainElement(document.activeElement as HTMLElement);
+      expect(close).toHaveFocus();
+
+      await user.tab({ shift: true }); // first -> wraps to last
+      expect(last).toHaveFocus();
+
+      await user.tab(); // last -> wraps to first
+      expect(close).toHaveFocus();
+    });
+
+    it("Escape closes the wizard and returns focus to the control that opened it", async () => {
+      const { user, opener } = await openWizard();
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(opener).not.toHaveFocus();
+
+      await user.keyboard("{Escape}");
+
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(opener).toHaveFocus();
+    });
   });
 });

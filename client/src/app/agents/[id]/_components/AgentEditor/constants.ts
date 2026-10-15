@@ -1,3 +1,4 @@
+import type { CiFailOn } from "@devdigest/shared";
 import type { IconName } from "@/components/ui-client";
 
 /** Editor tab descriptor. `labelKey` resolves under the `agents` namespace. */
@@ -23,3 +24,6 @@ export type EditorTabKey = (typeof TABS)[number]["key"];
 export const VALID_TABS: readonly EditorTabKey[] = TABS.map((tb) => tb.key);
 
 export const DEFAULT_TAB: EditorTabKey = "config";
+
+/** CI gate policy options — when a CI review blocks/fails (labels i18n'd). Shared by the Config and CI tabs. */
+export const CI_FAIL_ON_VALUES: readonly CiFailOn[] = ["never", "critical", "warning", "any"];

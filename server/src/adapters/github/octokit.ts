@@ -389,6 +389,8 @@ export class OctokitGitHubClient implements GitHubClient {
             htmlUrl: run.html_url,
             updatedAt: run.updated_at,
             prNumber: run.pull_requests?.[0]?.number ?? null,
+            event: run.event,
+            headRepoFullName: run.head_repository?.full_name ?? null,
           }));
         })(),
         TIMEOUT,

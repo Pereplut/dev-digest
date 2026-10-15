@@ -1,6 +1,7 @@
 /* ExportWizard — Target → Preview → Configure → Install (spec 0022).
    Owns what the vendored Modal lacks: the Escape key and returning focus to
-   the control that opened it (AC-71). An edited workflow reaches BOTH the
+   the control that opened it (AC-71), and the focus trap (focus moves in on
+   open; Tab / Shift+Tab cycle within the dialog). An edited workflow reaches BOTH the
    open_pr body (`workflow_override`) and the zip (AC-64). */
 "use client";
 
@@ -10,7 +11,7 @@ import { Button, ExportWizardSteps, Modal } from "@/components/ui-client";
 import type { CiFile, CiTrigger } from "@devdigest/shared";
 import { useExportCi } from "@/lib/hooks/ci";
 import { useActiveRepo } from "@/lib/repo-context";
-import { DEFAULT_POST_AS, DEFAULT_TRIGGERS, MODAL_WIDTH, STEP_KEYS, WORKFLOW_PATH } from "./constants";
+import { DEFAULT_POST_AS, DEFAULT_TRIGGERS, FOCUSABLE_SELECTOR, MODAL_WIDTH, STEP_KEYS, WORKFLOW_PATH } from "./constants";
 import { buildExportBody, findWorkflow, isValidRepo, withEditedWorkflow, type ExportChoices } from "./helpers";
 import { s } from "./styles";
 import type { PostAs, TriggerState, WizardStep } from "./types";
@@ -44,14 +45,44 @@ export function ExportWizard({
   const [previewError, setPreviewError] = React.useState<string | null>(null);
   const [prUrl, setPrUrl] = React.useState<string | null>(null);
   const [prError, setPrError] = React.useState<string | null>(null);
+  // Tracked apart from `exportCi.isPending`, which a preview regeneration also sets.
+  const [openingPr, setOpeningPr] = React.useState(false);
+  const anchorRef = React.useRef<HTMLDivElement>(null);
 
-  // Escape closes the wizard; focus returns to whatever opened it.
+  // Escape closes the wizard; focus moves in on open, is trapped while open and
+  // returns to whatever opened it. The vendored Modal does none of this.
   const onCloseRef = React.useRef(onClose);
   onCloseRef.current = onClose;
   React.useEffect(() => {
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = anchorRef.current?.closest<HTMLElement>('[role="dialog"]') ?? null;
+    const focusable = () =>
+      dialog ? Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)) : [];
+    if (dialog && !dialog.contains(document.activeElement)) {
+      (focusable()[0] ?? dialog).focus();
+    }
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCloseRef.current();
+      if (e.key === "Escape") {
+        onCloseRef.current();
+        return;
+      }
+      if (e.key !== "Tab" || !dialog) return;
+      const items = focusable();
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (!first || !last) {
+        e.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const active = document.activeElement;
+      if (e.shiftKey && (active === first || !dialog.contains(active))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (active === last || !dialog.contains(active))) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", onKeyDown);
     return () => {
@@ -102,6 +133,7 @@ export function ExportWizard({
 
   const handleOpenPr = async () => {
     setPrError(null);
+    setOpeningPr(true);
     const override = edited ? findWorkflow(files)?.contents : undefined;
     try {
       const result = await exportCi.mutateAsync(
@@ -110,6 +142,8 @@ export function ExportWizard({
       setPrUrl(result.pr_url);
     } catch (err) {
       setPrError(err instanceof Error ? err.message : t("exportWizard.genericError"));
+    } finally {
+      setOpeningPr(false);
     }
   };
 
@@ -139,7 +173,7 @@ export function ExportWizard({
         </div>
       }
     >
-      <div style={s.stepsBar}>
+      <div ref={anchorRef} style={s.stepsBar}>
         <ExportWizardSteps step={step} labels={STEP_KEYS.map((key) => t(`exportWizard.steps.${key}`))} />
       </div>
 
@@ -167,7 +201,7 @@ export function ExportWizard({
         <InstallStep
           repo={repo}
           fileCount={files?.length ?? 0}
-          isOpeningPr={exportCi.isPending}
+          isOpeningPr={openingPr}
           prUrl={prUrl}
           prError={prError}
           onOpenPr={handleOpenPr}

@@ -29,3 +29,7 @@ export const DEFAULT_TRIGGERS: TriggerState = { opened: true, synchronize: true,
 export const DEFAULT_POST_AS: PostAs = "github_review";
 
 export const STEP_KEYS = ["target", "preview", "configure", "install"] as const;
+
+/** Elements the wizard's focus trap cycles through. */
+export const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';

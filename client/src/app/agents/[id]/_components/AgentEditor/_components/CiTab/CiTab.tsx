@@ -10,7 +10,7 @@ import { Button, EmptyState, ErrorState, FormField, SelectInput, Skeleton } from
 import type { Agent, CiFailOn } from "@devdigest/shared";
 import { useCiInstallations, useCiRuns, useUpdateCi } from "@/lib/hooks/ci";
 import { useUpdateAgent } from "@/lib/hooks/agents";
-import { CI_FAIL_ON_VALUES } from "../ConfigTab/constants";
+import { CI_FAIL_ON_VALUES } from "../../constants";
 import { hasGhaInstallation, repoById } from "./helpers";
 import { s } from "./styles";
 import { InstallationRow } from "./_components/InstallationRow/InstallationRow";
@@ -25,9 +25,10 @@ export function CiTab({ agent }: { agent: Agent }) {
   const installations = useCiInstallations(agent.id);
   const runs = useCiRuns(agent.id);
 
-  // The tab remounts per agent (`key` in AgentEditor), so seeding from the
-  // prop is enough — no sync effect.
-  const [ciFailOn, setCiFailOn] = React.useState<CiFailOn>(agent.ci_fail_on);
+  // Derived, not mirrored: the pending value while a save is in flight, else
+  // the server's. A failed save therefore reverts the select on its own.
+  const pendingFailOn = updateAgent.isPending ? updateAgent.variables?.patch.ci_fail_on : undefined;
+  const ciFailOn: CiFailOn = pendingFailOn ?? agent.ci_fail_on;
   const [wizardOpen, setWizardOpen] = React.useState(false);
 
   const failOnOptions = CI_FAIL_ON_VALUES.map((v) => ({
@@ -36,8 +37,8 @@ export function CiTab({ agent }: { agent: Agent }) {
   }));
 
   const handleFailOnChange = (v: string) => {
-    const next = v as CiFailOn;
-    setCiFailOn(next);
+    const next = CI_FAIL_ON_VALUES.find((value) => value === v);
+    if (!next) return;
     updateAgent.mutate({ id: agent.id, patch: { ci_fail_on: next } });
   };
 
@@ -61,6 +62,11 @@ export function CiTab({ agent }: { agent: Agent }) {
         <FormField label={t("ciTab.failCiOn")} hint={t("ciTab.failCiOnHint")}>
           <SelectInput value={ciFailOn} onChange={handleFailOnChange} options={failOnOptions} />
         </FormField>
+        {updateAgent.isError && (
+          <div role="alert" style={s.resultFail}>
+            {t("ciTab.failOnSaveFailed", { error: updateAgent.error.message })}
+          </div>
+        )}
       </div>
 
       {installations.isLoading && (

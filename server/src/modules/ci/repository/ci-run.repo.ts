@@ -32,17 +32,19 @@ const selection = {
   ranAt: t.agentRuns.ranAt,
 };
 
-type SelectedRow = {
-  [K in keyof typeof selection]: (typeof selection)[K]['_']['data'] | null;
-};
+/** Row shape inferred from the query: a change to `selection` or to `CiRunRecord` that drifts is a compile error. */
+const typedQuery = (db: DbOrTx) =>
+  db
+    .select(selection)
+    .from(t.agentRuns)
+    .leftJoin(t.agents, eq(t.agents.id, t.agentRuns.agentId));
+type SelectedRow = Awaited<ReturnType<typeof typedQuery>>[number];
 
 function toRecord(r: SelectedRow): CiRunRecord {
   return {
     ...r,
     costUsd: r.costUsd == null ? null : Number(r.costUsd),
-    // `ranAt` is NOT NULL on the table; the left join cannot null it.
-    ranAt: r.ranAt as Date,
-  } as CiRunRecord;
+  } satisfies CiRunRecord;
 }
 
 export class CiRunRepository {

@@ -168,6 +168,10 @@ export interface WorkflowRunSummary {
   htmlUrl: string;
   updatedAt: string;
   prNumber: number | null;
+  /** Triggering event (`pull_request`, `workflow_dispatch`, …). */
+  event: string;
+  /** `owner/name` of the repo the run's head commit lives in; differs from the base repo for fork PRs. */
+  headRepoFullName: string | null;
 }
 
 export interface GitHubClient {

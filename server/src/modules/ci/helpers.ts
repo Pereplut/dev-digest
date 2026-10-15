@@ -198,6 +198,21 @@ export interface IngestInstallation {
   repositoryId: number;
 }
 
+/**
+ * A run is trusted only when it was triggered by a `pull_request` event from a
+ * branch in the installation's own repository. A fork PR runs its own copy of
+ * the workflow and can upload a forged `devdigest-result`, so its artifact is
+ * never read. Fails closed when the head repository is unknown.
+ */
+export function isTrustedRun(
+  run: Pick<WorkflowRunSummary, 'event' | 'headRepoFullName'>,
+  installation: Pick<IngestInstallation, 'repo'>,
+): boolean {
+  if (run.event !== 'pull_request') return false;
+  if (!run.headRepoFullName) return false;
+  return run.headRepoFullName.toLowerCase() === installation.repo.toLowerCase();
+}
+
 export type ArtifactClass = 'sha_mismatch' | 'repo_mismatch' | 'other_agent' | 'ok';
 
 /**

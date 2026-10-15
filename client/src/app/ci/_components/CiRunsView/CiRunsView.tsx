@@ -45,6 +45,13 @@ export function CiRunsView() {
         </div>
       )}
 
+      {refresh.isError && (
+        <div role="alert" style={s.banner}>
+          <Icon.AlertTriangle size={14} />
+          {t("runs.refreshFailed", { error: refresh.error.message })}
+        </div>
+      )}
+
       {runs.isLoading && (
         <div style={s.skeletons}>
           <Skeleton height={36} />
