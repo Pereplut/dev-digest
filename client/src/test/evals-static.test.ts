@@ -90,6 +90,7 @@ describe("evals-static — source-text assertions (spec 0020)", () => {
       [
         "agents.json",
         "brief.json",
+        "ci.json",
         "common.json",
         "conventions.json",
         "errors.json",

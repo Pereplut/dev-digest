@@ -250,3 +250,9 @@ Extends: "Suspense is unavailable for a query that needs `enabled`, so an in-com
 **Insight:** that file asserts `readdirSync(messages/en)` equals a hard-coded list ("gained no new file", spec 0019), so any later feature that legitimately adds a namespace breaks it. Nothing in the new feature's own tests can see it, and it only surfaces in the whole-suite run.
 **Apply:** when adding a messages namespace, grep the tests for the directory listing (`grep -rn '"agents.json"' src/test`) and extend the list in the same change.
 **Evidence:** `client/src/test/evals-static.test.ts:85-104` (the list, now including `multiAgentReview.json`).
+
+### 2026-10-15 — [tool] A text input carrying a `list=` attribute has role `combobox`, not `textbox`
+**Context:** testing the Export-to-CI wizard's repository field (spec 0022 AC-83); `getByRole("textbox", { name: "Target repository" })` found nothing while the input was plainly rendered.
+**Insight:** ARIA maps `<input type="text" list="…">` to `combobox`, so the `TextInput` given `list={listId}` (a `<datalist>` of suggestions) is only reachable as a `combobox`. The vendored `ExportWizardSteps` also exposes no `aria-current` or step text, so "which step is active" can only be asserted through the label's inline `fontWeight` (600 active, 500 otherwise).
+**Apply:** query inputs that have a datalist with `getByRole("combobox", { name })`; if the step indicator gains ARIA, switch the active-step assertion to it.
+**Evidence:** `client/src/app/agents/[id]/_components/AgentEditor/_components/CiTab/_components/ExportWizard/_components/TargetStep/TargetStep.tsx:39` (`list={listId}`); `.../ExportWizard/ExportWizard.test.tsx` (AC-83 test).

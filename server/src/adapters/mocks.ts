@@ -8,6 +8,7 @@ import type {
   StructuredResult,
   Embedder,
   GitHubClient,
+  WorkflowRunSummary,
   RepoRef,
   PrMeta,
   PrDetail,
@@ -237,6 +238,24 @@ export class MockGitHubClient implements GitHubClient {
   async findOpenPr(_repo: RepoRef, branch: string): Promise<{ url: string } | null> {
     const pr = this.openedPrs.find((p) => p.head === branch);
     return pr ? { url: 'https://github.com/mock/mock/pull/1' } : null;
+  }
+
+  async getRepository(_repo: RepoRef): Promise<{ id: number; defaultBranch: string }> {
+    return { id: 1, defaultBranch: 'main' };
+  }
+
+  async listWorkflowRuns(
+    _repo: RepoRef,
+    _opts: { workflowFile: string; status: 'completed'; perPage: number },
+  ): Promise<WorkflowRunSummary[]> {
+    return [];
+  }
+
+  async downloadArtifact(
+    _repo: RepoRef,
+    _opts: { runId: number; name: string },
+  ): Promise<Uint8Array | null> {
+    return null;
   }
 
   async getIssue(_repo: RepoRef, n: number): Promise<IssueMeta> {

@@ -1,0 +1,47 @@
+import type { CSSProperties } from "react";
+
+/** Co-located styles for CiTab and its children. */
+export const s = {
+  wrap: { padding: 28, maxWidth: 860, display: "flex", flexDirection: "column", gap: 20 } satisfies CSSProperties,
+  header: { display: "flex", alignItems: "flex-start", gap: 12 } satisfies CSSProperties,
+  headerText: { flex: 1 } satisfies CSSProperties,
+  h2: { fontSize: 15, fontWeight: 700 } satisfies CSSProperties,
+  subtitle: { fontSize: 13, color: "var(--text-muted)", marginTop: 2 } satisfies CSSProperties,
+  failOn: { maxWidth: 360 } satisfies CSSProperties,
+  stack: { display: "flex", flexDirection: "column", gap: 10 } satisfies CSSProperties,
+  list: { display: "flex", flexDirection: "column", gap: 14 } satisfies CSSProperties,
+  card: {
+    border: "1px solid var(--border)",
+    borderRadius: 10,
+    padding: 16,
+    background: "var(--bg-elevated)",
+  } satisfies CSSProperties,
+  cardRow: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" } satisfies CSSProperties,
+  repo: { fontWeight: 700, fontSize: 14 } satisfies CSSProperties,
+  meta: { fontSize: 12, color: "var(--text-muted)" } satisfies CSSProperties,
+  addRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    padding: "12px 16px",
+    border: "1px dashed var(--border-strong)",
+    borderRadius: 10,
+  } satisfies CSSProperties,
+  updateBar: { display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" } satisfies CSSProperties,
+  note: { fontSize: 12, color: "var(--text-muted)", lineHeight: 1.45, flex: 1, minWidth: 220 } satisfies CSSProperties,
+  results: { margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 6 } satisfies CSSProperties,
+  resultOk: { fontSize: 12.5, color: "var(--ok)" } satisfies CSSProperties,
+  resultFail: { fontSize: 12.5, color: "var(--crit)" } satisfies CSSProperties,
+  table: { width: "100%", borderCollapse: "collapse" } satisfies CSSProperties,
+  th: {
+    textAlign: "left",
+    padding: "6px 8px",
+    fontSize: 11,
+    fontWeight: 600,
+    color: "var(--text-muted)",
+    borderBottom: "1px solid var(--border)",
+  } satisfies CSSProperties,
+  td: { padding: "6px 8px", fontSize: 12, borderBottom: "1px solid var(--border)" } satisfies CSSProperties,
+  srOnly: { position: "absolute", width: 1, height: 1, overflow: "hidden" } satisfies CSSProperties,
+} as const;

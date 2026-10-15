@@ -152,6 +152,26 @@ export interface CommitFilesPayload {
   base: string;
   message: string;
   files: CommitFile[];
+  /**
+   * When true the commit's parent is the `base` head even if `branch` already
+   * exists, and the branch is moved there with a forced ref update — so a stale
+   * `branch` is reset instead of fast-forwarded.
+   */
+  resetToBase?: boolean;
+}
+
+/** A completed workflow run, reduced to what CI ingest needs. */
+export interface WorkflowRunSummary {
+  id: number;
+  /** For `pull_request` events this is the PR head SHA (not the merge commit). */
+  headSha: string;
+  htmlUrl: string;
+  updatedAt: string;
+  prNumber: number | null;
+  /** Triggering event (`pull_request`, `workflow_dispatch`, …). */
+  event: string;
+  /** `owner/name` of the repo the run's head commit lives in; differs from the base repo for fork PRs. */
+  headRepoFullName: string | null;
 }
 
 export interface GitHubClient {
@@ -178,6 +198,18 @@ export interface GitHubClient {
   getIssue(repo: RepoRef, n: number): Promise<IssueMeta>;
   /** GET /user — for "posting as @user". */
   currentLogin(): Promise<string>;
+  /** Repository id and default branch (the branch a PR is opened into). */
+  getRepository(repo: RepoRef): Promise<{ id: number; defaultBranch: string }>;
+  /** Completed runs of one workflow file, newest first. */
+  listWorkflowRuns(
+    repo: RepoRef,
+    opts: { workflowFile: string; status: 'completed'; perPage: number },
+  ): Promise<WorkflowRunSummary[]>;
+  /** Zip bytes of the named artifact of a run; `null` when absent or expired. */
+  downloadArtifact(
+    repo: RepoRef,
+    opts: { runId: number; name: string },
+  ): Promise<Uint8Array | null>;
 }
 
 // ---------- Git (simple-git, heavy) ----------

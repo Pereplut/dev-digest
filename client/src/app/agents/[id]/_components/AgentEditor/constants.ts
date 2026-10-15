@@ -1,3 +1,4 @@
+import type { CiFailOn } from "@devdigest/shared";
 import type { IconName } from "@/components/ui-client";
 
 /** Editor tab descriptor. `labelKey` resolves under the `agents` namespace. */
@@ -7,13 +8,14 @@ export interface EditorTab {
   icon: IconName;
 }
 
-/** Editor tabs. Stats/CI stay hidden until built (labels exist in agents.json). */
+/** Editor tabs. Stats stays hidden until built (labels exist in agents.json). */
 export const TABS = [
   { key: "config", labelKey: "editor.tabs.config", icon: "Settings" },
   { key: "skills", labelKey: "editor.tabs.skills", icon: "Sparkles" },
   // FlaskConical is the kit's existing icon for the "test" category (tokens.ts
   // CAT.test) — the closest fit to "run this agent's eval harness".
   { key: "evals", labelKey: "editor.tabs.evals", icon: "FlaskConical" },
+  { key: "ci", labelKey: "editor.tabs.ci", icon: "Workflow" },
 ] as const satisfies readonly EditorTab[];
 
 export type EditorTabKey = (typeof TABS)[number]["key"];
@@ -22,3 +24,6 @@ export type EditorTabKey = (typeof TABS)[number]["key"];
 export const VALID_TABS: readonly EditorTabKey[] = TABS.map((tb) => tb.key);
 
 export const DEFAULT_TAB: EditorTabKey = "config";
+
+/** CI gate policy options — when a CI review blocks/fails (labels i18n'd). Shared by the Config and CI tabs. */
+export const CI_FAIL_ON_VALUES: readonly CiFailOn[] = ["never", "critical", "warning", "any"];

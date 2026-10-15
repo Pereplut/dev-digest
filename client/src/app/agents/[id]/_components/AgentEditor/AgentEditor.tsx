@@ -1,12 +1,13 @@
 /* AgentEditor — the agent editor shell: tab bar + the active tab (Config,
-   Skills or Evals). Tab state lives in ?tab= (owned by the page). Stats/CI are
-   not built yet and stay out of TABS. */
+   Skills, Evals or CI). Tab state lives in ?tab= (owned by the page). Stats is
+   not built yet and stays out of TABS. */
 "use client";
 
 import React from "react";
 import { useTranslations } from "next-intl";
 import { Tabs } from "@/components/ui-client";
 import type { Agent } from "@devdigest/shared";
+import { CiTab } from "./_components/CiTab";
 import { ConfigTab } from "./_components/ConfigTab";
 import { EvalsTab } from "./_components/EvalsTab";
 import { SkillsTab } from "./_components/SkillsTab";
@@ -30,6 +31,8 @@ export function AgentEditor({ agent, tab, onTab }: { agent: Agent; tab: string; 
           <SkillsTab key={agent.id} agentId={agent.id} />
         ) : tab === "evals" ? (
           <EvalsTab key={agent.id} agentId={agent.id} agentVersion={agent.version} />
+        ) : tab === "ci" ? (
+          <CiTab key={agent.id} agent={agent} />
         ) : (
           <ConfigTab key={agent.id} agent={agent} />
         )}

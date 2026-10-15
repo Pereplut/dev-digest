@@ -50,6 +50,13 @@ export const NAV: NavGroup[] = [
       { key: "multi-agent", label: "Multi-Agent Review", icon: "Users", href: "/multi-agent-review" },
     ],
   },
+  {
+    // DevDigest spec 0022 (Export to CI): same documented exception as the
+    // 0006/0007/0017 notes above — a new top-level page adds its nav item.
+    // No `gKey`: the shortcut registry (`SHORTCUTS`) is untouched.
+    section: "AUTOMATION",
+    items: [{ key: "ci-runs", label: "CI Runs", icon: "Workflow", href: "/ci" }],
+  },
 ];
 
 export const SETTINGS_ITEM: NavItemDef = {
